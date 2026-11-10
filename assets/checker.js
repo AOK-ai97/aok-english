@@ -85,8 +85,13 @@ function pronHTML(d,clips){
 function wirePron(box,d,clips){
   const P=d.pron||[];const urls=(clips||[]).map(c=>c&&c.blob?URL.createObjectURL(c.blob):null);
   box.querySelectorAll("#pron tr[data-i]").forEach(tr=>{const p=P[+tr.dataset.i];const pc=tr.querySelector("[data-p]");
-    tr.querySelector('[data-a="mine"]').onclick=()=>{const u=urls[(p.clip||1)-1];if(!u)return;const a=new Audio(u);const s=Math.max(0,(+p.start||0)-.25),e=(+p.end||s+1)+.3;
-      a.addEventListener("loadedmetadata",()=>{a.currentTime=s;a.play().catch(()=>{})},{once:true});a.addEventListener("timeupdate",()=>{if(a.currentTime>=e)a.pause()});a.load()};
+    tr.querySelector('[data-a="mine"]').onclick=async e=>{const c=(clips||[])[(p.clip||1)-1];if(!c||!c.blob)return;const btn=e.currentTarget;
+      try{const A=window._ac||(window._ac=new (window.AudioContext||window.webkitAudioContext)());if(A.state==="suspended")await A.resume();
+        if(!c.buf){c.buf=await A.decodeAudioData(await c.blob.arrayBuffer())}
+        const s=Math.max(0,(+p.start||0)-.3),en=Math.min(c.buf.duration,Math.max((+p.end||0),s+.6)+.35);
+        if(window._src)try{window._src.stop()}catch(_){}const src=A.createBufferSource();src.buffer=c.buf;src.connect(A.destination);
+        src.start(0,Math.min(s,Math.max(0,c.buf.duration-.5)),Math.max(.6,en-s));window._src=src;btn.classList.add("play");src.onended=()=>btn.classList.remove("play")}
+      catch(err){const u=urls[(p.clip||1)-1];if(u){const a=new Audio(u);a.play().catch(()=>{})}}};
     tr.querySelector('[data-a="right"]').onclick=()=>sayWord(p.word);
     const rb=tr.querySelector('[data-a="rec"]');let rec=null;
     rb.onclick=async()=>{if(rec&&rec.state==="recording"){rec.stop();return}
