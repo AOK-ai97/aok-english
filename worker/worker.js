@@ -50,6 +50,7 @@ For each part:
 - "ideal": a model answer that would get 5/5: same ideas as the student, natural spoken B2–C1 English, right length for the part.
 - "max_tips": 3–5 short UZBEK steps to reach 5/5.
 "pron": EVERY clearly mispronounced word (max 15): "word", "clip" (clip number, 1-based), "start" and "end" (seconds inside that clip, as precise as you can), "heard" (how the student said it, simple letters), "ipa" (correct British IPA), "tip" (very short UZBEK advice, e.g. "th — tilni tishlar orasiga qo'ying").
+UNANSWERED: if a clip has no speech (silence/noise only), is cut off before any real answer, or the student does not answer THAT question at all, put the question text into that part's "unanswered" array and write "[javob yo'q]" for it in the transcript. Never invent speech. Score only what was really said.
 "summary_uz": 2 short Uzbek sentences: main strength and main weakness.
 ${S_CRIT}
 ${BANDS}
@@ -73,8 +74,8 @@ const W_SCHEMA = {type:"OBJECT",properties:{student_name:STR,topic_uz:STR,tasks:
   task:STR,on_topic:{type:"BOOLEAN"},topic_check:STR,transcript:STR,word_count:{type:"INTEGER"},errors:ERR,criteria:CRIT,overall:NUM,ideal:STR,max_tips:TIPS},
   required:["task","on_topic","topic_check","transcript","word_count","errors","criteria","overall","ideal","max_tips"]}}},required:["student_name","topic_uz","tasks"]};
 const S_SCHEMA = {type:"OBJECT",properties:{parts:{type:"ARRAY",items:{type:"OBJECT",properties:{
-  part:STR,question:STR,transcript:STR,errors:ERR,criteria:CRIT,overall:NUM,ideal:STR,max_tips:TIPS},
-  required:["part","question","transcript","errors","criteria","overall","ideal","max_tips"]}},
+  part:STR,question:STR,transcript:STR,unanswered:{type:"ARRAY",items:STR},errors:ERR,criteria:CRIT,overall:NUM,ideal:STR,max_tips:TIPS},
+  required:["part","question","transcript","unanswered","errors","criteria","overall","ideal","max_tips"]}},
   pron:{type:"ARRAY",items:{type:"OBJECT",properties:{word:STR,clip:{type:"INTEGER"},start:NUM,end:NUM,heard:STR,ipa:STR,tip:STR},required:["word","clip","start","end","ipa","tip"]}},
   summary_uz:STR},required:["parts","pron","summary_uz"]};
 const V_SCHEMA = {type:"OBJECT",properties:{items:{type:"ARRAY",items:{type:"OBJECT",properties:{id:STR,scores:{type:"ARRAY",items:NUM},revised:STR},required:["id","scores","revised"]}}},required:["items"]};
@@ -165,7 +166,7 @@ export default {
       "Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"content-type","Vary":"Origin"};
     const out = (o, s=200) => new Response(JSON.stringify(o), {status:s, headers:{...cors,"content-type":"application/json; charset=utf-8"}});
     if (req.method === "OPTIONS") return new Response(null, {headers:cors});
-    if (req.method !== "POST") return out({ok:true, service:"AOK checker", version:3, kv: !!env.KV});
+    if (req.method !== "POST") return out({ok:true, service:"AOK checker", version:4, kv: !!env.KV});
     if (!allow.includes(origin)) return out({error:"Ruxsat yo'q (origin)."}, 403);
     if (!env.KV) return out({error:"KV ulanmagan (Cloudflare → Bindings → KV namespace, nomi: KV)."}, 500);
     let b; try { b = await req.json(); } catch { return out({error:"Noto'g'ri so'rov."}, 400); }
@@ -230,7 +231,12 @@ export default {
             if (it) { for (const im of (it.images||[])) if (im.k) await env.KV.delete(im.k); await putBank(env, kind, p, arr.filter(x=>x.id!==b.id)); } }
           return out({ok:true});
         }
-        if (path === "/teacher/homework") { await env.KV.put("hw:"+kind, JSON.stringify({title: clean(b.title,120) || "Uyga vazifa", ids:(b.ids||[]).slice(0,10), at: Date.now()})); return out({ok:true}); }
+        if (path === "/teacher/homework") {
+          let ids = (b.ids||[]);
+          const old = JSON.parse(await env.KV.get("hw:"+kind) || "null");
+          if (b.append && old) ids = [...new Set([...old.ids, ...ids])];
+          await env.KV.put("hw:"+kind, JSON.stringify({title: clean(b.title,120) || (old&&b.append?old.title:"") || "Uyga vazifa", ids: ids.slice(0,20), at: Date.now()})); return out({ok:true, count: ids.length}); }
+        if (path === "/teacher/audio") { const v = await env.KV.get(clean(b.key,60)); return v ? out({clips: JSON.parse(v)}) : out({error:"Ovoz o'chirilgan (1 kundan keyin avtomatik o'chadi)."}, 404); }
         if (path === "/teacher/exam/save") {
           const exams = JSON.parse(await env.KV.get("exams") || "[]");
           const e = {id: b.id || uid(), kind, name: clean(b.name,80) || "Exam", ids:(b.ids||[]).slice(0,500), active: b.active !== false, at: Date.now()};
@@ -291,13 +297,18 @@ export default {
         const r = await gemini(env, WRITING_SYS, parts, W_SCHEMA);
         if (!r.tasks || !r.tasks.length) return out({error:"Rasmda javob topilmadi. Yorug' joyda, tekis qilib qayta rasmga oling."}, 422);
         r.tasks.forEach(fixTask);
+        const expected = items.flatMap(it => it.wtype==="T1" ? ["1.1","1.2"] : ["2"]);
+        for (const t of [...new Set(expected)]) if (!r.tasks.some(x => x.task === t))
+          r.tasks.push({task:t, missing:true, on_topic:true, topic_check:"", transcript:"", word_count:0, errors:[], overall:0, ideal:"", max_tips:["Bu Task'ni ham yozing — yozilmagan Task 0 ball oladi."],
+            criteria:["Task Response","Coherence & Cohesion","Lexical Resource","Grammatical Range & Accuracy","Imlo xato"].map(n=>({name:n,score:0,comment:"Javob berilmagan."}))});
+        r.tasks.sort((a,b) => ["1.1","1.2","2"].indexOf(a.task) - ["1.1","1.2","2"].indexOf(b.task));
         // ideal javoblarni tekshirish
-        const v = await verifyIdeals(env, r.tasks.map((t,i) => ({id:String(i), label:"Task "+t.task, context: ctx, text:t.ideal})), W_CRIT);
+        const v = await verifyIdeals(env, r.tasks.map((t,i) => ({id:String(i), label:"Task "+t.task, context: ctx, text:t.missing?"":t.ideal})), W_CRIT);
         v.forEach((x,i) => { r.tasks[i].ideal = x.text; r.tasks[i].ideal_verified = !!x.verified; });
         r.total = r.tasks.reduce((a,t)=>a+t.overall,0); r.max = r.tasks.length*5;
         r.kind = "writing"; r.mode = clean(b.mode,10); r.title = clean(b.title,120); r.at = Date.now();
         const sc = {}; r.tasks.forEach(t => sc["t"+t.task.replace(".","")] = t.overall);
-        await env.KV.put(`r:writing:${r.at}`, JSON.stringify(r), {metadata:{name:r.student_name, mode:r.mode, title:r.title, total:r.total, max:r.max, off:r.tasks.some(t=>t.on_topic===false), at:r.at, ...sc}});
+        await env.KV.put(`r:writing:${r.at}`, JSON.stringify(r), {metadata:{name:r.student_name, mode:r.mode, title:r.title, total:r.total, max:r.max, off:r.tasks.some(t=>t.on_topic===false), miss:r.tasks.some(t=>t.missing), at:r.at, ...sc}});
         r.saved = true;
         return out(r);
       }
@@ -306,14 +317,32 @@ export default {
         const clips = (b.clips||[]).slice(0,12).filter(c => c.audio);
         if (!clips.length) return out({error:"Audio yo'q."}, 400);
         const parts = [];
-        clips.forEach((c,i) => { parts.push({text:`Clip ${i+1} — Part ${c.part} — Question: ${clean(c.question,800)}`}); parts.push({inline_data:{mime_type:(c.mime||"audio/webm").split(";")[0], data:c.audio}}); });
+        clips.forEach((c,i) => { parts.push({text:`Clip ${i+1} — Part ${c.part} — Question: ${clean(c.question,800)}${c.empty?" (the recording is almost empty)":""}`}); parts.push({inline_data:{mime_type:(c.mime||"audio/webm").split(";")[0], data:c.audio}}); });
         const r = await gemini(env, SPEAKING_SYS, parts, S_SCHEMA);
-        (r.parts||[]).forEach(fixTask);
-        const v = await verifyIdeals(env, (r.parts||[]).map((p,i) => ({id:String(i), label:"Part "+p.part, context:p.question, text:p.ideal})), S_CRIT.replace(/"Pronunciation"[^,]*,/, ""));
+        r.parts = r.parts || [];
+        const nq = {}; clips.forEach(c => nq[c.part] = (nq[c.part]||0) + 1);
+        const emptyQ = {}; clips.forEach(c => { if (c.empty) (emptyQ[c.part] = emptyQ[c.part]||[]).push(c.question); });
+        for (const pt of Object.keys(nq)) if (!r.parts.some(x => x.part === pt)) // AI umuman qaytarmagan qism
+          r.parts.push({part:pt, question:clips.filter(c=>c.part===pt).map(c=>c.question).join(" / "), transcript:"[javob yo'q]", unanswered:clips.filter(c=>c.part===pt).map(c=>c.question), errors:[], criteria:["Fluency & Coherence","Lexical Resource","Grammatical Range & Accuracy","Pronunciation","Task Response"].map(n=>({name:n,score:0,comment:"Javob berilmagan."})), overall:0, ideal:"", max_tips:["Har bir savolga javob bering — jim qolgan savol 0 ball oladi."]});
+        r.parts.sort((a,b) => SPARTS.indexOf(a.part) - SPARTS.indexOf(b.part));
+        for (const p of r.parts) {
+          fixTask(p);
+          const un = [...new Set([...(p.unanswered||[]), ...(emptyQ[p.part]||[])])]; p.unanswered = un;
+          const tot = nq[p.part] || 1, frac = Math.max(0, 1 - un.length / tot);
+          if (un.length) {
+            const tr = p.criteria.find(c => /task/i.test(c.name));
+            if (frac <= 0) { p.criteria.forEach(c => { c.score = 0; c.comment = "Javob berilmagan. " + c.comment; }); p.overall = 0; }
+            else { if (tr) { tr.score = Math.min(tr.score, half(5*frac)); tr.comment = `${un.length} ta savolga javob bermadingiz — har bir savolga javob bering. ` + tr.comment; }
+                   p.overall = half(p.criteria.reduce((a,c)=>a+c.score,0) / p.criteria.length * frac); }
+          }
+        }
+        const v = await verifyIdeals(env, (r.parts||[]).map((p,i) => ({id:String(i), label:"Part "+p.part, context:p.question, text:p.overall>0?p.ideal:""})), S_CRIT.replace(/"Pronunciation"[^,]*,/, ""));
         v.forEach((x,i) => { r.parts[i].ideal = x.text; r.parts[i].ideal_verified = !!x.verified; });
         r.overall = half((r.parts||[]).reduce((a,p)=>a+p.overall,0) / ((r.parts||[]).length||1));
         r.kind = "speaking"; r.student_name = clean(b.name,80) || "Noma'lum"; r.mode = clean(b.mode,10); r.title = clean(b.title,120); r.at = Date.now();
-        await env.KV.put(`r:speaking:${r.at}`, JSON.stringify(r), {metadata:{name:r.student_name, mode:r.mode, title:r.title, total:r.overall, max:5, parts:(r.parts||[]).map(p=>p.part).join(","), at:r.at}});
+        r.audio_key = `aud:${r.at}`; r.audio_until = r.at + 86400000;
+        await env.KV.put(r.audio_key, JSON.stringify(clips.map(c => ({mime:c.mime, audio:c.audio}))), {expirationTtl: 86400}); // 1 kundan keyin o'chadi
+        await env.KV.put(`r:speaking:${r.at}`, JSON.stringify(r), {metadata:{name:r.student_name, mode:r.mode, title:r.title, total:r.overall, max:5, parts:(r.parts||[]).map(p=>p.part).join(","), miss:(r.parts||[]).some(p=>(p.unanswered||[]).length), at:r.at}});
         r.saved = true;
         return out(r);
       }

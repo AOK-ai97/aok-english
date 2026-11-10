@@ -58,6 +58,7 @@ function reportHTML(d){
      <div class="sub">Speaking · ${esc(mode)} · ${(d.parts||[]).map(p=>`Part ${esc(p.part)}: <b>${fmt(p.overall)}</b>`).join(" · ")} · Overall: <b>${fmt(d.overall)} / 5</b></div></div></div>
      ${d.summary_uz?`<div class="rep-sum">${esc(d.summary_uz)}</div>`:""}`;
     (d.parts||[]).forEach(p=>{h+=`<div class="rep-t"><b>Part ${esc(p.part)}</b><span>${esc(p.question||"")}</span></div>
+      ${(p.unanswered||[]).length?`<div class="rep-off">❌ <b>Javob bermadingiz${p.overall===0?" — 0 ball":""}:</b> ${p.unanswered.map(esc).join(" · ")}</div>`:""}
       <div class="rep-l">Aytgan gaplari (o'zgarishsiz)</div><div class="rep-txt">${esc(p.transcript)}</div>
       <div class="rep-l">Xatolar va to'g'ri varianti</div>${errList(p.errors)}${crTable(p,"Part "+p.part)}${idealBlock(p)}`});
     return h+`</div>`;
@@ -66,7 +67,7 @@ function reportHTML(d){
   let h=`<div class="rep" id="rep"><div class="rep-h"><div class="rep-badge">${esc(initials(name))}</div><div><h2>${esc(name)}</h2>
    <div class="sub">Writing · ${esc(d.topic_uz||"")} · ${esc(mode)} · ${tasks.map(t=>`Task ${esc(t.task)}: <b>${fmt(t.overall)}</b>`).join(" · ")} · Jami: <b>${fmt(d.total)} / ${tasks.length*5}</b></div></div></div>`;
   tasks.forEach(t=>{h+=`<div class="rep-t"><b>Task ${esc(t.task)}</b><span>${esc(TASKS[t.task]||"")}</span><em>${esc(t.word_count)} so'z</em></div>
-    ${t.on_topic===false?`<div class="rep-off">⚠️ <b>Mavzuga mos emas — 0 ball.</b> ${esc(t.topic_check||"")}</div>`:""}
+    ${t.missing?`<div class="rep-off">❌ <b>Javob bermadingiz — Task ${esc(t.task)} yozilmagan, 0 ball.</b></div>`:""}${t.on_topic===false?`<div class="rep-off">⚠️ <b>Mavzuga mos emas — 0 ball.</b> ${esc(t.topic_check||"")}</div>`:""}
     <div class="rep-l">Yozgan matni (o'zgarishsiz)</div><div class="rep-txt">${esc(t.transcript)}</div>
     <div class="rep-l">Xatolar va to'g'ri varianti</div>${errList(t.errors)}${crTable(t,"Task "+t.task)}${idealBlock(t)}`});
   return h+`</div>`;
@@ -215,16 +216,16 @@ async function speakingRun(){
     const done=new Promise(r=>rec.onstop=r);beep(880);rec.start();
     $("#rPhase").textContent="🔴 Gapiring";$("#rSkip").textContent="⏹ Tugatdim";
     await countdown(s.ans,"ans");rec.stop();await done;beep(520,160);
-    CLIPS.push({part:s.part,question:s.q,blob:new Blob(ch,{type:rec.mimeType||"audio/webm"})});
+    {const bl=new Blob(ch,{type:rec.mimeType||"audio/webm"});CLIPS.push({part:s.part,question:s.q,blob:bl,empty:bl.size<2500})}
   }
   STREAM.getTracks().forEach(t=>t.stop());
   step(4);loading(true,null,"AI javoblaringizni tinglab baholayapti va ideal javoblarni tekshiryapti… (30–120 soniya)");
-  try{const clips=[];for(const c of CLIPS) clips.push({part:c.part,question:c.question,audio:await b64(c.blob),mime:c.blob.type});
+  try{const clips=[];for(const c of CLIPS) clips.push({part:c.part,question:c.question,audio:await b64(c.blob),mime:c.blob.type,empty:!!c.empty});
     const d=await post("/speaking",{code:ls.get("aok_code"),name:ls.get("aok_name"),mode:RUN.mode,title:RUN.title,clips});
     showReport($("#ckResult"),d,CLIPS,`<button data-act="again">🏠 Bosh oyna</button>`);if(d.saved) msg("✅ Natija o'qituvchiga yuborildi.");
     $('[data-act="again"]').onclick=()=>{$("#ckResult").hidden=true;msg("");step(2)}}
   catch(err){msg("❌ "+err.message+" — qayta yuborish uchun tugmani bosing.",true);$("#ckResult").innerHTML=`<button class="ck-go" id="retry">🔁 Qayta yuborish</button>`;$("#ckResult").hidden=false;
-    $("#retry").onclick=async()=>{$("#ckResult").hidden=true;step(4);loading(true,null,"Qayta yuborilmoqda…");try{const clips=[];for(const c of CLIPS) clips.push({part:c.part,question:c.question,audio:await b64(c.blob),mime:c.blob.type});
+    $("#retry").onclick=async()=>{$("#ckResult").hidden=true;step(4);loading(true,null,"Qayta yuborilmoqda…");try{const clips=[];for(const c of CLIPS) clips.push({part:c.part,question:c.question,audio:await b64(c.blob),mime:c.blob.type,empty:!!c.empty});
       const d=await post("/speaking",{code:ls.get("aok_code"),name:ls.get("aok_name"),mode:RUN.mode,title:RUN.title,clips});msg("");showReport($("#ckResult"),d,CLIPS)}catch(e2){msg("❌ "+e2.message,true)}loading(false)}}
   loading(false);
 }
@@ -306,6 +307,8 @@ if(PAGE==="teacher"){
   /* --- vazifa --- */
   function hwView(){const it=HW?HW.ids.map(id=>allItems().find(x=>x.id===id)).filter(Boolean):[];
     $("#hwNow").innerHTML=HW?`<div class="hw-t">📌 ${esc(HW.title)} <small>${dt(HW.at)}</small></div>${it.map(itemHTML).join("")}`:`<div class="ck-msg">Hozircha vazifa yo'q.</div>`}
+  $("#hwAppend").onclick=async e=>{if(!SEL.size) return msg("Avval Baza bo'limida savollarni belgilang.",true);const btn=e.currentTarget;loading(true,btn,"…");
+    try{const j=await post("/teacher/homework",{tcode:T(),kind:KIND,ids:[...SEL],title:$("#hwTitle").value.trim(),append:true});msg(`✅ Joriy vazifaga qo'shildi (jami ${j.count} ta savol).`);await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
   $("#hwFromSel").onclick=async e=>{if(!SEL.size) return msg("Avval Baza bo'limida savollarni belgilang.",true);const btn=e.currentTarget;loading(true,btn,"…");
     try{await post("/teacher/homework",{tcode:T(),kind:KIND,ids:[...SEL],title:$("#hwTitle").value.trim()||"Uyga vazifa"});msg("✅ Belgilangan savollar uyga vazifa qilindi.");await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
   /* --- exam --- */
@@ -323,10 +326,13 @@ if(PAGE==="teacher"){
   async function loadResults(){const j=await post("/teacher/results",{tcode:T(),kind:KIND});const R=j.results||[];
     $("#rTable").innerHTML=R.length?`<table class="rep-tb"><tr><th>O'quvchi</th><th>Rejim</th><th>Ball</th><th>Vaqt</th><th></th></tr>`+R.map(r=>`<tr><td>${esc(r.name)}</td>
       <td>${esc(MODES[r.mode]||"")}<small style="display:block;opacity:.7">${esc(r.title||"")}</small></td>
-      <td><b>${fmt(r.total)} / ${r.max||5}</b>${r.off?' ⚠️':""}${r.parts?`<small style="display:block;opacity:.7">Part ${esc(r.parts)}</small>`:""}</td><td>${dt(r.at)}</td>
+      <td><b>${fmt(r.total)} / ${r.max||5}</b>${r.off?' ⚠️':""}${r.miss?' <span title="Javob berilmagan savol bor">❌</span>':""}${r.parts?`<small style="display:block;opacity:.7">Part ${esc(r.parts)}</small>`:""}</td><td>${dt(r.at)}</td>
       <td><button data-k="${esc(r.key)}">👁</button> <button data-x="${esc(r.key)}">🗑</button></td></tr>`).join("")+`</table>`:`<div class="ck-msg">Hali natija yo'q.</div>`;$("#ckResult").hidden=true}
   $("#rTable").addEventListener("click",async e=>{const b=e.target.closest("button");if(!b)return;
-    if(b.dataset.k){const d=await post("/teacher/result",{tcode:T(),key:b.dataset.k});showReport($("#ckResult"),d,null)}
+    if(b.dataset.k){const d=await post("/teacher/result",{tcode:T(),key:b.dataset.k});let clips=null;
+      if(d.audio_key&&Date.now()<(d.audio_until||0)){try{const a=await post("/teacher/audio",{tcode:T(),key:d.audio_key});
+        clips=a.clips.map(c=>{const bin=atob(c.audio);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return {blob:new Blob([u],{type:(c.mime||"audio/webm").split(";")[0]})}})}catch(_){}}
+      showReport($("#ckResult"),d,clips)}
     if(b.dataset.x){if(!confirm("Natija o'chirilsinmi?"))return;await post("/teacher/delresult",{tcode:T(),key:b.dataset.x});b.closest("tr").remove()}});
 }
 })();
