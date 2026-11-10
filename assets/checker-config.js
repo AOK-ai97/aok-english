@@ -1,2 +1,2 @@
-// Cloudflare Worker manzili (deploy qilingandan keyin shu yerga yoziladi)
-window.AOK_API = "";
+// Cloudflare Worker manzili
+window.AOK_API = "https://aok-checker.ozodbekadilov092.workers.dev";
