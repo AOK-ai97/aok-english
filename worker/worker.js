@@ -391,9 +391,8 @@ const audioMime = (m, path) => (m && m.mime_type) || (/\.mp3$/i.test(path) ? "au
 async function checkShadowing(env, g, hp, s, msg, studs){
   const it = hp.items.find(i => i.type === "shadowing"); const media = msg.voice || msg.audio || msg.document;
   const reply = (text) => toTopic(env, g.id, msg.message_thread_id || s.thread, text, {reply_to_message_id: msg.message_id, allow_sending_without_reply: true});
-  const fwd = !!(msg.forward_origin || msg.forward_from || msg.forward_sender_name || msg.forward_date);
-  if (fwd) { await reply(`⚠️ ${H(first(s.name))}, shadowing'ni <b>o'zingiz yozib</b> yuboring — forward qilingan audio qabul qilinmaydi 🙂`);
-    for (const id of await staffIds(env, g)) await pm(env, id, `⚠️ <b>${H(s.name)}</b> (${H(g.title)}) shadowing o'rniga <b>forward qilingan audio</b> yubordi.`); return; }
+  // forward ruxsat: ikkinchi telefondan yozib yuborish mumkin. Kanal/guruhdan olingan tayyor audio — shubhali.
+  const fo = msg.forward_origin; const fromChannel = !!(fo && (fo.type === "channel" || fo.type === "chat")) || !!msg.forward_from_chat;
   const mine = await tgFileB64(env, media.file_id); if (!mine) return reply("⚠️ Audio juda katta yoki yuklab bo'lmadi. Iltimos, qisqaroq ovozli xabar yuboring.");
   const parts = []; const refs = (hp.refs || []).slice(0, 4);
   for (const [i, r] of refs.entries()) { const a = await tgFileB64(env, r.file_id); if (a) { parts.push({text: `ORIGINAL ${i + 1} — "${r.name}":`}); parts.push({inline_data: {mime_type: r.mime || audioMime(null, a.path), data: a.data}}); } }
@@ -403,7 +402,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   let r; try { r = await gemini(env, SH_SYS, parts, SH_SCHEMA, 0.1); } catch (e) { return reply("⏳ AI hozir band — shadowing'ingiz saqlandi, o'qituvchi tekshiradi."); }
   const cov = Math.round(Math.max(0, Math.min(100, +r.coverage || 0))), pron = Math.round(Math.max(0, Math.min(100, +r.pron || 0))), flu = Math.round(Math.max(0, Math.min(100, +r.fluency || 0)));
   const refName = r.ref > 0 && refs[r.ref - 1] ? refs[r.ref - 1].name : (msg.caption || "");
-  const sus = !!(r.playback || (r.voices || 1) > 1 || r.other_person || (msg.audio && !msg.voice));
+  const sus = !!(r.playback || (r.voices || 1) > 1 || r.other_person || fromChannel || (msg.audio && !msg.voice));
   const counted = cov >= 40 && !r.playback;
   const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0, refs: [], best: null, list: []};
   const key = refName || ("#" + (x.list.length + 1));
@@ -417,7 +416,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   if (r.note_uz) t += `\n\n💬 ${H(r.note_uz)}`;
   t += counted ? `\n\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}` : `\n\n🔁 Hisobga olinmadi: matnning ko'p qismi aytilmagan. Qaytadan, to'liq yozib yuboring.`;
   await reply(t);
-  if (sus) for (const id of await staffIds(env, g)) await pm(env, id, `⚠️ <b>Shubhali shadowing</b> — ${H(s.name)} (${H(g.title)})\n${r.playback ? "🔊 Asl audio o'ynatilgan bo'lishi mumkin\n" : ""}${(r.voices || 1) > 1 ? `👥 ${r.voices} xil ovoz eshitildi\n` : ""}${r.other_person ? "🧑‍🤝‍🧑 Ovoz oldingi yozuvlariga o'xshamaydi\n" : ""}${msg.audio && !msg.voice ? "📁 Ovozli xabar emas, audio fayl yuklangan\n" : ""}${r.suspect_uz ? "💬 " + H(r.suspect_uz) : ""}\n<i>AI taxmini — tekshirib ko'ring.</i>`);
+  if (sus) for (const id of await staffIds(env, g)) await pm(env, id, `⚠️ <b>Shubhali shadowing</b> — ${H(s.name)} (${H(g.title)})\n${r.playback ? "🔊 Asl audio o'ynatilgan bo'lishi mumkin\n" : ""}${(r.voices || 1) > 1 ? `👥 ${r.voices} xil ovoz eshitildi\n` : ""}${r.other_person ? "🧑‍🤝‍🧑 Ovoz oldingi yozuvlariga o'xshamaydi\n" : ""}${fromChannel ? "📢 Audio kanal yoki boshqa guruhdan forward qilingan\n" : ""}${msg.audio && !msg.voice ? "📁 Ovozli xabar emas, audio fayl yuklangan\n" : ""}${r.suspect_uz ? "💬 " + H(r.suspect_uz) : ""}\n<i>AI taxmini — tekshirib ko'ring.</i>`);
 }
 
 /* ---------------- Natijalar / davomat matnlari ---------------- */
@@ -778,9 +777,8 @@ async function onGroupMessage(env, msg){
   if (!msg.from || msg.from.is_bot) return;
   const studs = await getStudents(env); const fid = String(msg.from.id);
   let s = th ? studs.find(x => x.gid === gid && x.thread === th) : null;
-  if (s && !s.tg) { s.tg = fid; await PUT(env, "students", studs); }
-  if (s && s.tg && s.tg !== fid) s = null;                 // boshqa odam birovning topic'iga yozdi
-  if (!s) s = studs.find(x => x.gid === gid && x.tg === fid); // Results yoki boshqa topic'da — Telegram ID orqali
+  if (s) { s.tgs = s.tgs || (s.tg ? [s.tg] : []); if (!s.tgs.includes(fid)) { s.tgs = [...s.tgs, fid].slice(-3); s.tg = s.tg || fid; await PUT(env, "students", studs); } } // o'z topic'i: ikkinchi telefon ham shu o'quvchi
+  else s = studs.find(x => x.gid === gid && (x.tg === fid || (x.tgs || []).includes(fid))); // Results yoki boshqa topic'da — Telegram ID orqali
   if (!s) return;
   const hp = await J(env, "hp:" + gid, null); if (!hp || hp.st === "done" || !hp.items.length) return;
   const media = msg.voice || msg.audio || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
