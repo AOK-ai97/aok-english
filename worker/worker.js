@@ -373,11 +373,10 @@ async function hpSummary(env, g, hp, final){
   let full = 0;
   for (const [i, s] of studs.entries()) {
     const pr = await hpProgress(env, g, hp, s); const done = items.filter(it => pr[it.id].ok).length; if (done === items.length) full++;
-    const cell = it => { const x = pr[it.id]; const when = x.doneAt ? (dayKey(x.doneAt) === dayKey(hp.at) ? hhmm(x.doneAt) : `${DAY_UZ[wdOf(dayKey(x.doneAt))].slice(0, 4)} ${hhmm(x.doneAt)}`) : "";
-      return `${HP_ICON[it.type]} ${x.ok ? (x.late ? "⏰" : "🕒") + when : x.n ? `${x.n}/${x.need}` : "—"}${x.ok && x.info ? ` (${x.info})` : ""}`; };
-    t += `${i + 1}. ${H(s.name)} — <b>${done}/${items.length}</b>\n     ${items.map(cell).join(" · ")}\n`;
+    const cell = it => { const x = pr[it.id]; return `${HP_ICON[it.type]}${x.ok ? (x.late ? "⏰" : "✅") : x.n ? `🟡${x.n}/${x.need}` : "❌"}${x.ok && x.info ? ` ${x.info}` : ""}`; };
+    t += `${i + 1}. ${H(s.name)} — ${items.map(cell).join(" · ")} · <b>${done}/${items.length}</b>\n`;
   }
-  return t + `\n📌 To'liq bajardi: <b>${full}/${studs.length}</b>\n🕒 topshirgan vaqti · ⏰ kech topshirgan · 1/2 chala · — topshirmagan`;
+  return t + `\n📌 To'liq bajardi: <b>${full}/${studs.length}</b>\n✅ vaqtida · ⏰ kech, ammo topshirdi · 🟡 chala · ❌ topshirmadi`;
 }
 
 /* ---------------- Shadowing tekshiruvi ---------------- */
@@ -450,12 +449,12 @@ async function resultsText(env, g){
   t += "\n"; let done = 0;
   for (const [i, s] of studs.entries()) {
     const p = await getProfile(env, s.id); let full = true;
-    const cells = act.map(k => { const e = subOf(p, k, hws[k]); if (!e) { full = false; return `${k === "writing" ? "✍️" : "🎤"} —`; }
-      return `${k === "writing" ? "✍️" : "🎤"} ${e.late ? "⏰" : "🕒"}${ddmm(e.at)} ${hhmm(e.at)} (${fmtN(e.tot)}/${e.max})`; });
+    const cells = act.map(k => { const e = subOf(p, k, hws[k]); if (!e) { full = false; return `${k === "writing" ? "✍️" : "🎤"}❌`; }
+      return `${k === "writing" ? "✍️" : "🎤"}${e.late ? "⏰" : "✅"} ${fmtN(e.tot)}/${e.max}`; });
     if (full) done++;
     t += `${i + 1}. ${H(s.name)} — ${cells.join(" · ")}\n`;
   }
-  return t + `\n📌 To'liq topshirdi: <b>${done}/${studs.length}</b>\n🕒 topshirgan vaqti · ⏰ kech · — topshirmagan`;
+  return t + `\n📌 To'liq topshirdi: <b>${done}/${studs.length}</b>\n✅ vaqtida · ⏰ kech, ammo topshirdi · ❌ topshirmadi`;
 }
 const fmtN = x => String(Math.round((+x || 0) * 2) / 2);
 async function davomatText(env, g){
@@ -471,7 +470,7 @@ async function holatText(env, g){
   const studs = (await getStudents(env)).filter(s => s.gid === g.id); const hws = await latestHw(env, g.id);
   const act = KINDS.filter(k => hws[k]); if (!act.length) return "Hozir faol vazifa yo'q.";
   let t = `🔎 <b>${H(g.title)} — vazifa holati</b>\n`;
-  for (const s of studs) { const p = await getProfile(env, s.id); t += `${H(s.name)} — ${act.map(k => { const e = subOf(p, k, hws[k]); return `${k === "writing" ? "✍️" : "🎤"} ${e ? "🕒" + hhmm(e.at) : "—"}`; }).join(" · ")}${s.thread ? "" : " ⚠️ topic ulanmagan"}\n`; }
+  for (const s of studs) { const p = await getProfile(env, s.id); t += `${H(s.name)} — ${act.map(k => { const e = subOf(p, k, hws[k]); return `${k === "writing" ? "✍️" : "🎤"}${e ? (e.late ? "⏰" : "✅") : "❌"}`; }).join(" · ")}${s.thread ? "" : " ⚠️ topic ulanmagan"}\n`; }
   return t + `\n(${act.map(k => KIND_UZ[k]).join(" · ")})`;
 }
 async function pinText(env, g){
@@ -891,7 +890,7 @@ async function cron(env){
     if (now >= hpEnd(g, hp)) { if (!quiet) await hpFinalize(env, g, hp); continue; }
     if (quiet || g.quiet) continue;
     const items = hp.items.filter(i => SUBMIT(i.type)); if (!items.length) continue;
-    const sk = "hst:" + hp.id; const st = await J(env, sk, {rem: {}, late: {}, pr: {}}); let ch = false; const kun = [];
+    const sk = "hst:" + hp.id; const st = await J(env, sk, {rem: {}, late: {}, pr: {}}); let ch = false; const kun = [], lateK = [];
     for (const s of studs.filter(x => x.gid === g.id && x.thread)) {
       const pr = await hpProgress(env, g, hp, s);
       const allOk = items.every(it => pr[it.id].ok);
@@ -904,7 +903,7 @@ async function cron(env){
         st.rem[s.id] = now; ch = true; }
       // kech bo'lsa ham bajargan — bir marta rahmat
       const lateDone = items.filter(it => pr[it.id].ok && pr[it.id].late && !(st.lok || {})[s.id + ":" + it.id]);
-      if (lateDone.length) { st.lok = st.lok || {}; lateDone.forEach(it => st.lok[s.id + ":" + it.id] = 1); ch = true;
+      if (lateDone.length) { st.lok = st.lok || {}; lateDone.forEach(it => st.lok[s.id + ":" + it.id] = 1); ch = true; lateK.push({s, items: lateDone, pr});
         await toTopic(env, g.id, s.thread, await radarText(env, "late_ok", s.name, `kech topshirildi: ${lateDone.map(i => i.title).join("; ")}`)); }
       // muddat o'tgan, lekin dars boshlanmagan — har 3 soatda eslatma
       const ls0 = hpLessonStart(g, hp);
@@ -918,6 +917,8 @@ async function cron(env){
         await toTopic(env, g.id, s.thread, await radarText(env, "late", s.name, `muddat o'tdi, bajarilmagan: ${late.map(i => i.title).join("; ")}`)); }
     }
     if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.late.map(it => `${HP_ICON[it.type]} ${H(it.title)}`).join(", ")}`).join("\n"));
+    if (lateK.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\n⏰ Kech, ammo topshirdi:\n\n` +
+      lateK.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${HP_ICON[it.type]} ${H(it.title)} (${x.pr[it.id].doneAt ? DAY_UZ[wdOf(dayKey(x.pr[it.id].doneAt))] + " " + hhmm(x.pr[it.id].doneAt) : "kech"})`).join(", ")}`).join("\n"));
     if (ch) await PUT(env, sk, st, {expirationTtl: 30 * 864e5});
   }
   // 3) saytdagi vazifa muddati (panelda qo'yilgan) — Homework posti bo'lmagan guruhlar uchun
