@@ -858,8 +858,8 @@ async function cron(env){
     if (hp.retry && !hp.items.length) {
       if (hp.retry > 6) continue;
       try { hp.items = await hpParse(env, g, hp.text, hp.at); hp.retry = 0; await PUT(env, "hp:" + g.id, hp); if (hp.items.length) await hpConfirm(env, g, hp); }
-      catch (e) { hp.retry++; hp.err = String(e.message || e).slice(0, 200); await PUT(env, "hp:" + g.id, hp);
-        if (hp.retry > 6) await pm(env, hp.by, `❌ Homework postini o'qib bo'lmadi.\n<i>Sabab: ${H(hp.err)}</i>\nPostni qayta edit qilib ko'ring.`); }
+      catch (e) { const er = String(e.message || e).slice(0, 300); const first = hp.err !== er; hp.retry++; hp.err = er; await PUT(env, "hp:" + g.id, hp);
+        if (first || hp.retry > 6) await pm(env, hp.by, `❌ Homework postini o'qib bo'lmadi (urinish ${hp.retry - 1}).\n<i>Sabab: ${H(er)}</i>`, kb([[{text: "🗑 Bekor qilish", callback_data: "hpdel:" + g.id}]])); }
       continue; }
     if (!hp.items.length) continue;
     hpGroups.add(g.id);
