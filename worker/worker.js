@@ -9,9 +9,11 @@ const SCORE_RULES = `Score every category from 0 to 5 in steps of 0.5. Be strict
 OVERALL for a task = average of its five category scores, rounded DOWN to the nearest 0.5.`;
 
 const WRITING_SYS = `You are an experienced, strict but supportive CEFR Multilevel (Uzbekistan) WRITING examiner at AOK English / OFEDU.
-Students upload photos of HANDWRITTEN letters (or typed text).
+Students upload photos of HANDWRITTEN letters. The photos may contain Task 1.1 and/or Task 1.2, in any order, a letter may continue on several photos.
 Task 1.1 = informal letter to a friend, about 50 words. Task 1.2 = formal letter to a manager/director, 120-150 words.
-For EACH task given:
+First decide which letters are present: informal (Hi/Hey ..., Take care) = "1.1", formal (Dear Sir or Madam / Dear Manager ..., Yours faithfully) = "1.2". Return only the tasks that are really written, in order 1.1 then 1.2.
+"student_name": the student's name taken from the signatures (prefer the FULL name from the Task 1.2 signature, else the name under Task 1.1). Write it in normal Latin spelling with capital letters (e.g. "Aziza Shovqiyeva"). If no name is written, return "Noma'lum".
+For EACH task found:
 1. "transcript": copy the student's text EXACTLY as written — keep every spelling, grammar and punctuation mistake, keep line breaks (use \\n). Ignore words that the student crossed out. Do NOT correct anything here.
 2. "word_count": number of words in the transcript.
 3. "errors": list EVERY mistake in order. "wrong" = the exact fragment from the transcript (a word, phrase or whole sentence), "correct" = the corrected fragment (fit the task and the email topic), "explain" = very short reason in UZBEK (Latin script), e.g. "'quite' — imlo; 'because' dan keyin sabab yo'q."
@@ -34,9 +36,9 @@ Answer ONLY with JSON matching the schema.`;
 
 const ERR = {type:"ARRAY",items:{type:"OBJECT",properties:{wrong:{type:"STRING"},correct:{type:"STRING"},explain:{type:"STRING"}},required:["wrong","correct","explain"]}};
 const CRIT = {type:"ARRAY",items:{type:"OBJECT",properties:{name:{type:"STRING"},score:{type:"NUMBER"},comment:{type:"STRING"}},required:["name","score","comment"]}};
-const W_SCHEMA = {type:"OBJECT",properties:{topic_uz:{type:"STRING"},tasks:{type:"ARRAY",items:{type:"OBJECT",properties:{
+const W_SCHEMA = {type:"OBJECT",properties:{student_name:{type:"STRING"},topic_uz:{type:"STRING"},tasks:{type:"ARRAY",items:{type:"OBJECT",properties:{
   task:{type:"STRING"},transcript:{type:"STRING"},word_count:{type:"INTEGER"},errors:ERR,criteria:CRIT,overall:{type:"NUMBER"}},
-  required:["task","transcript","word_count","errors","criteria","overall"]}}},required:["topic_uz","tasks"]};
+  required:["task","transcript","word_count","errors","criteria","overall"]}}},required:["student_name","topic_uz","tasks"]};
 const S_SCHEMA = {type:"OBJECT",properties:{transcript:{type:"STRING"},errors:ERR,criteria:CRIT,overall:{type:"NUMBER"},
   better_answer:{type:"STRING"},spoken_feedback:{type:"STRING"}},required:["transcript","errors","criteria","overall","better_answer","spoken_feedback"]};
 
@@ -60,6 +62,19 @@ async function gemini(env, sys, parts, schema){
   return JSON.parse(txt);
 }
 
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const clean = (x, n=4000) => String(x||"").slice(0,n);
+async function listAssign(env){
+  const l = await env.KV.list({prefix:"a:"});
+  const items = await Promise.all(l.keys.map(async k => { try { return JSON.parse(await env.KV.get(k.name)); } catch { return null; } }));
+  return items.filter(Boolean).sort((a,b)=>b.created-a.created).slice(0,20);
+}
+async function getAssign(env,id){ if(!id) return null; const v = await env.KV.get("a:"+id); return v ? JSON.parse(v) : null; }
+function promptOf(a){
+  if(!a) return "(not given)";
+  return `Topic: ${a.title}\nEmail the students received:\n${a.email}\n\nTask 1.1 instruction: ${a.t11||"-"}\nTask 1.2 instruction: ${a.t12||"-"}`;
+}
+
 export default {
   async fetch(req, env){
     const origin = req.headers.get("Origin") || "";
@@ -68,31 +83,66 @@ export default {
       "Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"content-type","Vary":"Origin"};
     const out = (o, s=200) => new Response(JSON.stringify(o), {status:s, headers:{...cors,"content-type":"application/json; charset=utf-8"}});
     if (req.method === "OPTIONS") return new Response(null, {headers:cors});
-    if (req.method !== "POST") return out({ok:true, service:"AOK checker"});
+    if (req.method !== "POST") return out({ok:true, service:"AOK checker", kv: !!env.KV});
     if (!allow.includes(origin)) return out({error:"Ruxsat yo'q (origin)."}, 403);
     let b; try { b = await req.json(); } catch { return out({error:"Noto'g'ri so'rov."}, 400); }
-    if (!env.CLASS_CODE || (b.code||"").trim() !== env.CLASS_CODE) return out({error:"Sinf kodi noto'g'ri."}, 401);
     const path = new URL(req.url).pathname;
+    const needKV = () => { if (!env.KV) throw new Error("KV ulanmagan (Cloudflare → Bindings → KV, nomi: KV)."); };
     try {
-      if (path.endsWith("/writing")) {
-        const parts = [{text:`Email / task prompt (may be empty): ${b.prompt||"(not given)"}`}];
-        let n = 0;
-        for (const t of (b.tasks||[])) {
-          if (!t || (!t.text && !(t.images||[]).length)) continue;
-          n++; parts.push({text:`=== TASK ${t.task} ===`});
-          if (t.text) parts.push({text:`Typed answer:\n${t.text}`});
-          for (const im of (t.images||[]).slice(0,4)) parts.push({inline_data:{mime_type:im.mime||"image/jpeg", data:im.data}});
+      // ---------- O'QITUVCHI ----------
+      if (path.startsWith("/teacher/")) {
+        if (!env.TEACHER_CODE || (b.tcode||"").trim() !== env.TEACHER_CODE) return out({error:"O'qituvchi kodi noto'g'ri."}, 401);
+        needKV();
+        if (path === "/teacher/login") return out({ok:true});
+        if (path === "/teacher/save") {
+          const id = b.id || uid();
+          const old = await getAssign(env, b.id);
+          const a = {id, title:clean(b.title,120)||"Topshiriq", email:clean(b.email), t11:clean(b.t11,600), t12:clean(b.t12,600),
+            speaking:(b.speaking||[]).slice(0,10).map(x=>({part:clean(x.part,4), q:clean(x.q,600)})).filter(x=>x.q),
+            created: old ? old.created : Date.now()};
+          await env.KV.put("a:"+id, JSON.stringify(a));
+          return out({ok:true, assignment:a});
         }
-        if (!n) return out({error:"Javob yo'q: rasm yuklang yoki matn yozing."}, 400);
-        return out(fixScores(await gemini(env, WRITING_SYS, parts, W_SCHEMA)));
+        if (path === "/teacher/list") return out({assignments: await listAssign(env)});
+        if (path === "/teacher/delete") { await env.KV.delete("a:"+b.id); return out({ok:true}); }
+        if (path === "/teacher/results") {
+          const l = await env.KV.list({prefix:"r:"+b.id+":"});
+          return out({results: l.keys.map(k=>({key:k.name, ...(k.metadata||{})})).sort((x,y)=>(y.at||0)-(x.at||0))});
+        }
+        if (path === "/teacher/result") { const v = await env.KV.get(b.key); return v ? out(JSON.parse(v)) : out({error:"Topilmadi."},404); }
+        if (path === "/teacher/delresult") { await env.KV.delete(b.key); return out({ok:true}); }
+        return out({error:"Noma'lum manzil."}, 404);
       }
-      if (path.endsWith("/speaking")) {
+      // ---------- O'QUVCHI ----------
+      if (!env.CLASS_CODE || (b.code||"").trim() !== env.CLASS_CODE) return out({error:"Sinf kodi noto'g'ri."}, 401);
+      if (path === "/assignments") { needKV(); return out({assignments: await listAssign(env)}); }
+      if (path === "/writing") {
+        const a = env.KV ? await getAssign(env, b.aid) : null;
+        const imgs = (b.images||[]).slice(0,6);
+        const parts = [{text: promptOf(a) + (b.prompt ? `\n${b.prompt}` : "")}];
+        imgs.forEach((im,i) => { parts.push({text:`Photo ${i+1}:`}); parts.push({inline_data:{mime_type:im.mime||"image/jpeg", data:im.data}}); });
+        for (const t of (b.tasks||[])) if (t && t.text) parts.push({text:`Typed Task ${t.task} answer:\n${t.text}`});
+        if (parts.length < 2) return out({error:"Rasm yuklang."}, 400);
+        const r = fixScores(await gemini(env, WRITING_SYS, parts, W_SCHEMA));
+        if (!r.tasks || !r.tasks.length) return out({error:"Rasmda xat topilmadi. Aniqroq, yorug' joyda qayta rasmga oling."}, 422);
+        r.kind = "writing"; r.aid = b.aid || ""; r.title = a ? a.title : ""; r.at = Date.now();
+        if (env.KV && b.aid) {
+          const sc = {}; r.tasks.forEach(t => sc["t"+t.task.replace(".","")] = t.overall);
+          await env.KV.put(`r:${b.aid}:${r.at}`, JSON.stringify(r), {metadata:{kind:"writing", name:r.student_name, at:r.at, total:r.total, max:r.tasks.length*5, ...sc}});
+          r.saved = true;
+        }
+        return out(r);
+      }
+      if (path === "/speaking") {
         if (!b.audio) return out({error:"Audio yo'q."}, 400);
         const parts = [{text:`Exam part: ${b.part}\nQuestion(s): ${b.question||"(not given)"}`},
                        {inline_data:{mime_type:(b.mime||"audio/webm").split(";")[0], data:b.audio}}];
-        return out(fixScores(await gemini(env, SPEAKING_SYS, parts, S_SCHEMA)));
+        const r = fixScores(await gemini(env, SPEAKING_SYS, parts, S_SCHEMA));
+        r.kind = "speaking"; r.student_name = clean(b.name,80) || "Noma'lum"; r.part = b.part; r.question = clean(b.question,600); r.aid = b.aid || ""; r.at = Date.now();
+        if (env.KV && b.aid) { await env.KV.put(`r:${b.aid}:${r.at}`, JSON.stringify(r), {metadata:{kind:"speaking", name:r.student_name, at:r.at, part:b.part, total:r.overall, max:5}}); r.saved = true; }
+        return out(r);
       }
       return out({error:"Noma'lum manzil."}, 404);
-    } catch (e) { return out({error:"AI xatosi: " + e.message}, 502); }
+    } catch (e) { return out({error:(e.message||"").startsWith("KV") ? e.message : "AI xatosi: " + e.message}, 502); }
   }
 };

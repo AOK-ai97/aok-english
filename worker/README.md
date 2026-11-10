@@ -11,6 +11,8 @@ AI kaliti saytda emas, faqat Cloudflare ichida yashirin saqlanadi.
    - `GEMINI_KEY` — **Secret** — Google AI Studio kaliti (https://aistudio.google.com/apikey)
    - `CLASS_CODE` — **Secret** — o'quvchilarga beriladigan sinf kodi
    - `ALLOWED_ORIGIN` — **Text** — `https://aok-ai97.github.io`
+   - `TEACHER_CODE` — **Secret** — o'qituvchi paneli kodi
+4b. **Storage & databases → Workers KV → Create** → nomi `aok-checker-data`. Keyin Worker → **Settings → Bindings → Add binding → KV namespace** → Variable name: `KV`, namespace: `aok-checker-data` → Deploy.
 5. Worker manzilini (masalan `https://aok-checker.NOMINGIZ.workers.dev`) `assets/checker-config.js` ga yozing.
 
 ## Manzillar

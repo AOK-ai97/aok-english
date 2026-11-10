@@ -1,3 +1,4 @@
+[hidden]{display:none!important}
 .ck-form{display:grid;gap:14px}
 .ck-row{display:grid;gap:12px;grid-template-columns:1fr 1fr}
 @media(max-width:640px){.ck-row{grid-template-columns:1fr}}
@@ -57,3 +58,17 @@
 @keyframes recpulse{50%{box-shadow:0 0 0 12px rgba(198,40,40,.15)}}
 .rec-time{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;color:#1F3864}
 .rec audio{max-width:100%}
+.ck-asg{display:flex;gap:12px;align-items:flex-start;border:1.5px solid rgba(31,56,100,.18);border-radius:14px;padding:12px 14px;background:#fff;cursor:pointer;margin-bottom:10px}
+.ck-asg input{margin-top:5px;accent-color:#1E7A46;width:18px;height:18px}
+.ck-asg>div{flex:1;min-width:0}
+.ck-asg b{color:#1F3864;font-size:17px}.ck-asg small{display:block;opacity:.6;font-size:12px;margin-bottom:6px}
+.ck-asg p{margin:6px 0 0;font-size:14.5px}
+.ck-mail{background:#F2F2F2;border-radius:10px;padding:8px 10px;font-size:14px;white-space:pre-wrap;margin-top:4px}
+.ck-asg.t{cursor:default}.t-acts{display:flex;gap:6px;flex-wrap:wrap}
+.t-acts button,.rep-tb button{font:inherit;font-size:14px;padding:6px 10px;border-radius:10px;border:1.5px solid #1F3864;background:#fff;color:#1F3864;cursor:pointer}
+.sp-row{display:grid;grid-template-columns:80px 1fr 36px;gap:8px;margin-bottom:8px}
+.sp-row select,.sp-row input{font:inherit;padding:9px;border-radius:10px;border:1.5px solid rgba(31,56,100,.25);-webkit-user-select:text;user-select:text}
+.sp-row button{border:0;border-radius:10px;background:#FDECEA;color:#8E1B1B;font-size:18px;cursor:pointer}
+.ck-sec{font-weight:800;color:#1F3864;font-size:19px;margin:18px 0 8px}
+.ck-big{border:2.5px dashed #1F3864;border-radius:18px;padding:26px;text-align:center;background:rgba(221,235,247,.4);cursor:pointer;display:block}
+.ck-big input{display:none}.ck-big b{display:block;font-size:20px;color:#1F3864;margin-bottom:6px}
