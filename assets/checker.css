@@ -176,3 +176,8 @@ body[data-ck] .ck-task p,body[data-ck] .ck-task b{color:#102040}
 .pg>summary{font-weight:800;font-size:17px;color:#fff;background:#1F3864;border-radius:10px;padding:10px 12px;margin:6px 0;cursor:pointer}
 .pg>summary small{opacity:.8;font-weight:400;font-size:13px}
 .pg>.tg{margin-left:10px}
+
+.lg-d{display:flex;gap:6px;align-items:center}.lg-d input{flex:1}
+.rep-tb.lg td{font-size:13.5px;padding:6px 8px}.rep-tb.lg td:first-child{width:72px;font-family:monospace}.rep-tb.lg td:nth-child(2){width:auto;text-align:left;white-space:nowrap;color:#102040}
+.rep-tb.lg tr.ev-away td,.rep-tb.lg tr.ev-error td,.rep-tb.lg tr.ev-send_fail td,.rep-tb.lg tr.ev-pron_missed td{background:#FFF1F0}
+.rep-tb.lg tr.ev-graded td,.rep-tb.lg tr.ev-sent td,.rep-tb.lg tr.ev-pron_sent td{background:#EEF9F1}

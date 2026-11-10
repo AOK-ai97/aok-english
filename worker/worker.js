@@ -934,11 +934,34 @@ async function cron(env){
     for (const id of Object.keys(st)) { const at = +id.split(":")[1]; if (now - at > 30 * 864e5) { delete st[id]; ch = true; } }
     if (ch) await PUT(env, "hwst", st);
   }
-  // 4) yakshanba 11:00 — haftalik hisobot
+  // 4) talaffuz mashqi qilinmagan natijalar (30 daqiqadan keyin eslatma)
+  try { await pronMissed(env, now, quiet); } catch (e) { console.log("pron", e.message); }
+  // 5) yakshanba 11:00 — haftalik hisobot
   const lt = L(now);
   if (lt.getUTCDay() === 0 && lt.getUTCHours() === 11) {
     const last = await env.KV.get("wk:last"); const today = dayKey(now);
     if (last !== today) { await env.KV.put("wk:last", today); for (const g of gs) if (g.res) await weeklyReport(env, g); }
+  }
+}
+
+/* ---------------- Faoliyat jurnali (o'qituvchi uchun) ---------------- */
+async function addLog(env, sid, evs){
+  if (!sid || !evs || !evs.length) return; const k = `log:${sid}:${dayKey()}`;
+  const L0 = await J(env, k, []); const L1 = [...L0, ...evs.map(e => ({...e, at: +e.at || Date.now()}))].slice(-400);
+  await PUT(env, k, L1, {expirationTtl: 120 * 864e5});
+}
+const cleanEv = e => { const o = {t: clean(e.t, 24), at: +e.at || Date.now()};
+  for (const [k, v] of Object.entries(e || {})) if (!["t", "at"].includes(k) && Object.keys(o).length < 10) o[k] = typeof v === "number" ? v : clean(String(v), 160);
+  return o; };
+async function pronMissed(env, now, quiet){
+  if (quiet) return; const l = await env.KV.list({prefix: "pq:"});
+  for (const k of l.keys) {
+    const at = +k.name.slice(3); if (now - at < 30 * 60e3) continue;
+    const q = await J(env, k.name, null); await env.KV.delete(k.name); if (!q) continue;
+    const stu = (await getStudents(env)).find(s => s.id === q.sid); const g = (await getGroups(env)).find(x => x.id === q.gid);
+    if (!stu || !stu.thread || !g || g.quiet) continue;
+    await toTopic(env, g.id, stu.thread, `🗣 <b>${H(first(stu.name))}, talaffuz mashqini qilmadingiz.</b>\nFeedbackdagi so'zlar: ${(q.words || []).slice(0, 10).map(w => "<b>" + H(w) + "</b>").join(", ")}\nKeyingi safar 🔊 To'g'ri → 🎤 Ayting tugmalari bilan mashq qilib, «📤 Talaffuz natijasini jo'natish»ni bosing 💪`);
+    await addLog(env, q.sid, [{t: "pron_missed", n: (q.words || []).length}]);
   }
 }
 
@@ -995,10 +1018,14 @@ export default {
         if (!g || !stu.thread) return out({error: "Sizning topic'ingiz hali ulanmagan — o'qituvchiga ayting."}, 400);
         const key = String(fd.get("key") || ""); const rv = await env.KV.getWithMetadata(key);
         if (!key.startsWith("r:") || !rv.metadata || rv.metadata.sid !== stu.id) return out({error: "Natija topilmadi."}, 404);
-        if (fd.get("extra") === "pron") { // talaffuz mashqi natijasi — qo'shimcha xabar
-          const rr = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
-          return rr.ok ? out({ok: true}) : out({error: "Telegram: " + rr.description}, 502); }
-        if (rv.metadata.sent) return out({error: "Bu natija allaqachon yuborilgan ✅"}, 409);
+        if (fd.get("extra") === "pron") { // talaffuz mashqi natijasi — qo'shimcha xabar (bir xili qayta yuborilmaydi)
+          const cap = String(fd.get("caption") || "").slice(0, 3500); const hsh = String(cap.length) + ":" + [...cap].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+          if (rv.metadata.pronHash === hsh) return out({ok: true, dup: true});
+          const rr = await say(env, g.id, cap, {message_thread_id: stu.thread}); if (!rr.ok) return out({error: "Telegram: " + rr.description}, 502);
+          await env.KV.put(key, rv.value, {metadata: {...rv.metadata, pronHash: hsh}}); await env.KV.delete("pq:" + key.split(":").pop());
+          await addLog(env, stu.id, [{t: "pron_sent", n: +(fd.get("n") || 0), avg: +(fd.get("avg") || 0)}]);
+          return out({ok: true}); }
+        if (rv.metadata.sent) return out({ok: true, dup: true}); // allaqachon yuborilgan — qayta tashlanmaydi
         const base = {chat_id: g.id, message_thread_id: stu.thread};
         const r0 = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
         if (!r0.ok) return out({error: "Telegram: " + r0.description}, 502);
@@ -1016,6 +1043,7 @@ export default {
           else { pf.append("media", JSON.stringify(ch.map((_, j) => ({type: "photo", media: `attach://p${j}`})))); ch.forEach((f, j) => pf.append(`p${j}`, f, `p${j}.png`)); await tgForm(env, "sendMediaGroup", pf); }
         }
         await env.KV.put(key, rv.value, {metadata: {...rv.metadata, sent: Date.now()}});
+        await addLog(env, stu.id, [{t: "sent", kind: key.split(":")[1], videos: fd.getAll("video").length, pages: pages.length, auto: fd.get("auto") ? 1 : 0}]);
         return out({ok: true});
       } catch (e) { return out({error: "Yuborilmadi: " + e.message}, 500); }
     }
@@ -1034,6 +1062,12 @@ export default {
           for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
         if (path === "/teacher/login") { const sv = await env.KV.get("seed:v1"); return out({ok: true, seeded: !!sv, seedv: +(sv || 0), name: TT.name, admin: TT.admin}); }
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
+        if (path === "/teacher/log") {
+          const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : dayKey(); const q = nn(b.q || "");
+          const studs = (await getStudents(env)).filter(s => myGid.includes(s.gid) && (!q || nn(s.name).includes(q)) && (!b.gid || s.gid === b.gid));
+          const res = []; for (const st of studs) { const L0 = await J(env, `log:${st.id}:${day}`, []); if (L0.length || q) res.push({sid: st.id, name: st.name, grp: (myG.find(g => g.id === st.gid) || {}).title || "", events: L0}); }
+          return out({date: day, students: res});
+        }
         if (path === "/teacher/bank") {
           const bank = await allBank(env, kind);
           if (kind === "speaking") for (const p of ["1.2", "2"]) bank[p] = await withImages(env, bank[p] || []);
@@ -1126,6 +1160,7 @@ export default {
       if (!stu && (!env.CLASS_CODE || (b.code || "").trim() !== env.CLASS_CODE)) return out({error: "PIN kod noto'g'ri."}, 401);
       const gName = async () => stu ? ((await getGroups(env)).find(g => g.id === stu.gid) || {}).title || "" : "";
 
+      if (path === "/log") { if (stu) await addLog(env, stu.id, (b.events || []).slice(0, 80).map(cleanEv)); return out({ok: true}); }
       if (path === "/home") {
         const bank = await allBank(env, kind);
         const hw = stu ? await hwOf(env, kind, stu.gid) : JSON.parse(await env.KV.get("hw:" + kind) || "null");
@@ -1199,6 +1234,7 @@ export default {
         await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.total, max: r.max, off: r.tasks.some(t => t.on_topic === false), miss: r.tasks.some(t => t.missing), late: !!r.late, away, at: r.at, ...sc}});
         if (stu) await saveProfile(env, stu, {at: r.at, k: "writing", m: r.mode, t: r.title, tot: r.total, max: r.max, cr: critAvg(r.tasks.filter(t => !t.missing)), rules: [...new Set(r.tasks.flatMap(t => (t.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
+        if (stu) await addLog(env, stu.id, [{t: "graded", kind: "writing", mode: r.mode, title: r.title, score: r.total, max: r.max}]);
         return out(r);
       }
 
@@ -1237,6 +1273,8 @@ export default {
         await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), miss: (r.parts || []).some(p => (p.unanswered || []).length), late: !!r.late, away, at: r.at}});
         if (stu) await saveProfile(env, stu, {at: r.at, k: "speaking", m: r.mode, t: r.title, tot: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), cr: critAvg(r.parts), rules: [...new Set(r.parts.flatMap(p => (p.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
+        if (stu) { await addLog(env, stu.id, [{t: "graded", kind: "speaking", mode: r.mode, title: r.title, score: r.overall, max: 5, pron: (r.pron || []).length}]);
+          if (stu.thread && ["hw", "exam"].includes(r.mode) && (r.pron || []).length) await PUT(env, "pq:" + r.at, {sid: stu.id, gid: stu.gid, words: r.pron.map(p => p.word)}, {expirationTtl: 2 * 864e5}); }
         return out(r);
       }
 

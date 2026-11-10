@@ -52,6 +52,27 @@ const idb=(()=>{let db;const open=()=>db||(db=new Promise((res,rej)=>{const r=in
   const tx=async(m,f)=>{const d=await open();return new Promise((res,rej)=>{const t=d.transaction("s",m);const q=f(t.objectStore("s"));t.oncomplete=()=>res(q&&q.result);t.onerror=()=>rej(t.error)})};
   return{get:k=>tx("readonly",s=>s.get(k)).catch(()=>null),set:(k,v)=>tx("readwrite",s=>s.put(v,k)).catch(()=>{}),del:k=>tx("readwrite",s=>s.delete(k)).catch(()=>{})}})();
 
+/* Faoliyat jurnali — o'qituvchi har bir harakatni sana/soat bilan ko'radi */
+const LOG={buf:[],add(t,d){if(!ME)return;this.buf.push({t,at:Date.now(),...(d||{})});if(this.buf.length>=25)this.flush()},
+  flush(beacon){if(!this.buf.length||!API||!ME)return;const body=JSON.stringify({code:ls.get("aok_code"),events:this.buf.splice(0)});
+    if(beacon&&navigator.sendBeacon){try{navigator.sendBeacon(API+"/log",new Blob([body],{type:"text/plain"}));return}catch(e){}}
+    fetch(API+"/log",{method:"POST",headers:{"content-type":"text/plain"},body,keepalive:true}).catch(()=>{})}};
+setInterval(()=>LOG.flush(),60000);
+window.addEventListener("pagehide",()=>{LOG.add("leave");LOG.flush(true)});
+document.addEventListener("visibilitychange",()=>{if(document.hidden)LOG.flush(true)});
+/* Jo'natish navbati: internet uzilsa ham saqlanadi va o'zi qayta yuboriladi */
+const OUTK="outbox";
+async function outboxAll(){return (await idb.get(OUTK))||[]}
+async function outboxPut(job){const L=(await outboxAll()).filter(j=>j.key!==job.key);L.push(job);await idb.set(OUTK,L)}
+async function outboxDel(key){await idb.set(OUTK,(await outboxAll()).filter(j=>j.key!==key))}
+async function sendJob(job){const fd=new FormData();fd.append("code",job.code);fd.append("key",job.key);fd.append("caption",job.caption);if(job.auto)fd.append("auto","1");
+  (job.videos||[]).forEach((v,i)=>fd.append("video",v,`speaking${i}.${/mp4/.test(v.type)?"mp4":"webm"}`));(job.pages||[]).forEach((p,i)=>fd.append("page",p,`page${i+1}.png`));
+  const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));
+  if(!r.ok||j.error){const e=new Error(j.error||("Server xatosi "+r.status));e.fatal=r.status>=400&&r.status<500;throw e}return j}
+let FLUSHING=false;
+async function outboxFlush(){if(FLUSHING||!API)return;FLUSHING=true;try{for(const job of await outboxAll()){try{await sendJob(job);await outboxDel(job.key);LOG.add("outbox_sent",{key:job.key})}catch(e){if(e.fatal){await outboxDel(job.key);LOG.add("send_fail",{msg:e.message})}}}}finally{FLUSHING=false}}
+setInterval(outboxFlush,20000);window.addEventListener("online",outboxFlush);
+
 /* rasmni katta qilib ochish */
 document.addEventListener("click",e=>{const im=e.target.closest(".ex-imgs img,.ck-thumbs img");if(!im)return;
   const o=document.createElement("div");o.className="lightbox";o.innerHTML=`<img src="${im.src}" alt=""><span>✕</span>`;o.onclick=()=>o.remove();document.body.appendChild(o)});
@@ -129,7 +150,7 @@ function wirePron(box,d,clips){
         rec.onstop=async()=>{st.getTracks().forEach(t=>t.stop());rb.classList.remove("on");const bl=new Blob(ch,{type:rec.mimeType||"audio/webm"});
           pc.textContent="⏳";pc.style.background="";
           try{const r=await post("/pron",{code:ls.get("aok_code"),word:p.word,audio:await b64(bl),mime:bl.type});
-            pc.textContent=r.score+"%";pc.style.background=`hsl(${Math.round(r.score*1.2)},72%,${r.score>55?38:45}%)`;pc.title=r.tip||"";pc.style.color="#fff";d._pct[p.word]=r.score;
+            LOG.add("pron_try",{word:p.word,score:r.score});pc.textContent=r.score+"%";pc.style.background=`hsl(${Math.round(r.score*1.2)},72%,${r.score>55?38:45}%)`;pc.title=r.tip||"";pc.style.color="#fff";d._pct[p.word]=r.score;
             let t=tr.querySelector(".ptip");if(!t){t=document.createElement("small");t.className="ptip";pc.after(t)}t.textContent=(r.heard?`«${r.heard}» · `:"")+(r.tip||"")}
           catch(err){pc.textContent="⚠";pc.title=err.message}};
         rec.start();rb.classList.add("on");setTimeout(()=>{if(rec.state==="recording")rec.stop()},3000)}catch(e){alert("Mikrofonga ruxsat bering")}};
@@ -168,27 +189,33 @@ function tgCaption(d){
   return L.join("\n");
 }
 async function sendTG(box,d,btn,auto){
-  btn.disabled=true;const old=btn.textContent;btn.textContent=auto?"⏳ Guruhga avtomatik yuborilmoqda…":"⏳ Tayyorlanmoqda…";
-  try{const pages=await a4Pages(box,d);btn.textContent="⏳ Yuborilmoqda…";
-    const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("caption",tgCaption(d));
-    (d.kind==="speaking"?VSEG:[]).forEach((v,i)=>fd.append("video",v,`speaking${i}.${/mp4/.test(v.type)?"mp4":"webm"}`));
-    pages.forEach((p,i)=>fd.append("page",p,`page${i+1}.png`));
-    const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));
-    if(!r.ok||j.error) throw new Error(j.error||("Server xatosi "+r.status));
-    const hadVideo=d.kind==="speaking"&&VSEG.length;VSEG=[];d._sent=true;
-    msg(hadVideo?"✅ Video va feedback guruhdagi topic'ingizga yuborildi.":"✅ Feedback guruhdagi topic'ingizga yuborildi.");
+  if(d._sent){msg("✅ Bu natija allaqachon guruhga yuborilgan — qayta tashlanmaydi.");return}
+  btn.disabled=true;btn.textContent=auto?"⏳ Guruhga avtomatik yuborilmoqda…":"⏳ Tayyorlanmoqda…";
+  let job=null;
+  try{const pages=await a4Pages(box,d);
+    job={key:d.key,code:ls.get("aok_code"),caption:tgCaption(d),pages,videos:d.kind==="speaking"?VSEG.slice():[],auto:!!auto,at:Date.now()};
+    await outboxPut(job);VSEG=[];               // navbatga yozildi — sahifa yopilsa ham yo'qolmaydi
+    btn.textContent="⏳ Yuborilmoqda…";
+    let ok=false,last="";
+    for(let i=0;i<6&&!ok;i++){try{const r=await sendJob(job);ok=true;if(r.dup)LOG.add("send_dup")}catch(e){last=e.message;if(e.fatal)break;btn.textContent=`⏳ Internet sekin — qayta urinilmoqda (${i+2}/6)…`;await sleep(5000*(i+1))}}
+    if(!ok) throw new Error(last||"yuborilmadi");
+    await outboxDel(job.key);d._sent=true;LOG.add("sent_ok",{auto:auto?1:0,videos:job.videos.length,pages:pages.length});
+    const hadVideo=job.videos.length;msg(hadVideo?"✅ Video va feedback guruhdagi topic'ingizga yuborildi.":"✅ Feedback guruhdagi topic'ingizga yuborildi.");
     if(d.kind==="speaking"&&(d.pron||[]).length){btn.disabled=false;btn.textContent="📤 Talaffuz natijasini jo'natish";btn.onclick=e=>sendPron(d,e.currentTarget)}
     else btn.textContent="✅ Telegram'ga yuborildi";
-    const h=box.querySelector(".send-hint");if(h)h.textContent=d.kind==="speaking"&&(d.pron||[]).length?"✅ Video va feedback topic'ingizga tushdi. Endi talaffuz mashqini bajaring (🎤 Ayting) va «📤 Talaffuz natijasini jo'natish»ni bosing — foizlaringiz ham guruhga boradi.":"✅ Feedback topic'ingizga tushdi."}
-  catch(e){btn.disabled=false;btn.textContent="📤 Jo'nat";msg((auto?"⚠️ Avtomatik yuborilmadi: ":"❌ ")+e.message+" — «📤 Jo'nat» tugmasini bosib qayta urinib ko'ring.",true)}
+    const h=box.querySelector(".send-hint");if(h)h.textContent=d.kind==="speaking"&&(d.pron||[]).length?"✅ Video va feedback topic'ingizga tushdi. Endi talaffuz mashqini bajaring (🎤 Ayting) va «📤 Talaffuz natijasini jo'natish»ni bosing. Mashq qilmasangiz, bot 30 daqiqadan keyin «talaffuz mashqini qilmadingiz» deb yozadi.":"✅ Feedback topic'ingizga tushdi."}
+  catch(e){LOG.add("send_fail",{msg:e.message});
+    if(job){btn.disabled=true;btn.textContent="⏳ Navbatda — internet tiklanishi bilan o'zi yuboriladi";msg("⚠️ Hozir yuborilmadi ("+e.message+"). Natija saqlangan — internet tiklanishi bilan o'zi yuboriladi, sahifani yopsangiz ham keyingi kirishda yuboriladi.",true);d._sent=true}
+    else{btn.disabled=false;btn.textContent="📤 Jo'nat";msg("❌ "+e.message,true)}}
 }
 async function sendPron(d,btn){
   const pc=Object.entries(d._pct||{});if(!pc.length) return msg("Avval kamida bitta so'zni 🎤 Ayting tugmasi bilan mashq qiling.",true);
+  const sig=JSON.stringify(pc);if(d._pronSig===sig){msg("✅ Bu talaffuz natijasi allaqachon yuborilgan. Yana mashq qilsangiz, yangi natijani yuborishingiz mumkin.");return}
   btn.disabled=true;const e=s=>esc(s).replace(/&quot;/g,'"');
   const cap=`🗣 <b>Talaffuz mashqi</b> — ${e(d.student_name)}\n`+pc.map(([w,v])=>`${v>=80?"🟢":v>=55?"🟡":"🔴"} ${e(w)} — <b>${v}%</b>`).join("\n")+`\n\nO'rtacha: <b>${Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length)}%</b> · ${pc.length}/${(d.pron||[]).length} so'z mashq qilindi`;
-  try{const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("extra","pron");fd.append("caption",cap);
+  try{const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("extra","pron");fd.append("caption",cap);fd.append("n",pc.length);fd.append("avg",Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length));
     const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));if(!r.ok||j.error) throw new Error(j.error||("Server xatosi "+r.status));
-    msg("✅ Talaffuz natijalari topic'ingizga yuborildi.");btn.textContent="✅ Talaffuz yuborildi · yana mashq qilsangiz qayta bosing";btn.disabled=false}
+    d._pronSig=sig;msg("✅ Talaffuz natijalari topic'ingizga yuborildi.");btn.textContent="✅ Talaffuz yuborildi · yana mashq qilsangiz qayta bosing";btn.disabled=false}
   catch(err){btn.disabled=false;msg("❌ "+err.message,true)}
 }
 async function saveA4(box,d,btn){btn.disabled=true;try{const pages=await a4Pages(box,d);pages.forEach((p,i)=>{const a=document.createElement("a");a.download=`${(d.student_name||"oquvchi").replace(/\s+/g,"_")}_${d.kind}_${i+1}.png`;a.href=URL.createObjectURL(p);a.click()})}catch(e){alert("Saqlanmadi: "+e.message)}btn.disabled=false}
@@ -208,7 +235,7 @@ let HOME=null,ME=null;
 async function studentLogin(btn){
   msg("");const code=$("#ck_code").value.trim();if(!code) return msg("PIN kodni kiriting.",true);
   loading(true,btn,"Kirilmoqda…");
-  try{HOME=await post("/home",{code,kind:PAGE});ls.set("aok_code",code);ME=HOME.me;renderHome();step(2);checkResume()}catch(e){msg("❌ "+e.message,true)}
+  try{HOME=await post("/home",{code,kind:PAGE});ls.set("aok_code",code);ME=HOME.me;renderHome();step(2);checkResume();LOG.add("login",{page:PAGE});outboxFlush()}catch(e){msg("❌ "+e.message,true)}
   loading(false,btn);
 }
 const left=t=>{const s=Math.max(0,t-Date.now())/1000;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d} kun ${h} soat`:h?`${h} soat ${m} daqiqa`:`${m} daqiqa`};
@@ -288,7 +315,7 @@ async function startRun(mode,btn){
       if(saved&&saved.exam===r.value&&saved.code===ls.get("aok_code")&&saved.deadline>Date.now()-3600e3) data=saved.data;  // sahifa yangilansa ham o'sha savollar va o'sha vaqt
       else{loading(true,btn,"Imtihon tuzilmoqda…");data=await post("/start",{code:ls.get("aok_code"),kind:PAGE,mode:"exam",exam:r.value});data.exam=r.value}}
   }catch(e){loading(false,btn);return msg("❌ "+e.message,true)}
-  loading(false,btn);RUN={mode,title:data.title,items:data.items,exam:data.exam};
+  loading(false,btn);RUN={mode,title:data.title,items:data.items,exam:data.exam};LOG.add("start",{page:PAGE,mode,title:data.title||"",n:(data.items||[]).length});LOG.flush();
   PAGE==="writing"?writingRun():speakingRun();
 }
 document.addEventListener("click",e=>{const b=e.target.closest("[data-start]");if(b)startRun(b.dataset.start,b)});
@@ -312,15 +339,15 @@ const th=()=>{const b=$("#thumbs");if(!b)return;b.innerHTML="";IM.forEach((im,i)
   $("#goWriting").disabled=!IM.length};
 if(PAGE==="writing"){
   $("#goLogin").onclick=e=>studentLogin(e.currentTarget);
-  $("#files").addEventListener("change",async e=>{for(const f of [...e.target.files].slice(0,8-IM.length)){try{IM.push(await compress(f))}catch(err){msg(err.message,true)}}e.target.value="";th()});
+  $("#files").addEventListener("change",async e=>{LOG.add("photo",{n:e.target.files.length});for(const f of [...e.target.files].slice(0,8-IM.length)){try{IM.push(await compress(f))}catch(err){msg(err.message,true)}}e.target.value="";th()});
   $("#wBack").onclick=()=>{clearInterval(wTimer);step(2)};
   $("#goWriting").onclick=async e=>{const btn=e.currentTarget;msg("");if(!IM.length) return msg("Rasm yuklang.",true);if(btn.disabled&&btn._busy)return;btn._busy=true;
-    const lab="AI xatingizni o'qiyapti, ismingiz va Task'larni aniqlayapti, ideal javobni tekshiryapti… (30–90 soniya)";loading(true,btn,lab);
+    const lab="AI xatingizni o'qiyapti, ismingiz va Task'larni aniqlayapti, ideal javobni tekshiryapti… (30–90 soniya)";loading(true,btn,lab);LOG.add("submit",{page:"writing",photos:IM.length});LOG.flush();
     try{const d=await postRetry("/writing",{code:ls.get("aok_code"),mode:RUN.mode,title:RUN.title,ids:RUN.items.map(x=>x.id),images:IM.map(({mime,data})=>({mime,data}))},lab);
       clearInterval(wTimer);if(RUN.mode==="exam")ls.del("aok_wexam");step(4);showReport($("#ckResult"),d,null,`<button data-act="again">🏠 Bosh oyna</button>`);
       if(d.saved) msg("✅ Natija saqlandi"+(d.can_send?". «📤 Jo'nat» tugmasi bilan Telegram topic'ingizga yuboring.":"."));
       $('[data-act="again"]').onclick=()=>{$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
-    catch(err){msg("❌ "+err.message,true)}
+    catch(err){LOG.add("error",{msg:err.message});msg("❌ "+err.message,true)}
     btn._busy=false;loading(false,btn)};
 }
 async function refreshHome(){try{HOME=await post("/home",{code:ls.get("aok_code"),kind:PAGE});ME=HOME.me;renderHome()}catch(e){}}
@@ -346,7 +373,7 @@ function countdown(total,phase){return new Promise(res=>{const end=Date.now()+to
 const vis=()=>new Promise(r=>{if(!document.hidden)return r();const f=()=>{if(!document.hidden){document.removeEventListener("visibilitychange",f);r()}};document.addEventListener("visibilitychange",f)});
 document.addEventListener("visibilitychange",()=>{if(!RUN||PAGE!=="speaking"||!RUN.live)return;
   if(document.hidden){AWAY.n++;AWAY.t0=Date.now();if(RUN.mode!=="exam"&&CUR)CUR.fin("away")}
-  else if(AWAY.t0){AWAY.s+=(Date.now()-AWAY.t0)/1000;AWAY.t0=0;saveRun()}});
+  else if(AWAY.t0){const sec=Math.round((Date.now()-AWAY.t0)/1000);AWAY.s+=sec;AWAY.t0=0;saveRun();LOG.add("away",{sec,mode:RUN.mode})}});
 async function getStream(video){
   try{return await navigator.mediaDevices.getUserMedia(video?{audio:{echoCancellation:true,noiseSuppression:true},video:{facingMode:"user",width:{ideal:320},height:{ideal:240},frameRate:{ideal:15,max:20}}}:{audio:true})}
   catch(e){if(video){msg("⚠️ Kamera ochilmadi — faqat ovoz yoziladi.",true);return navigator.mediaDevices.getUserMedia({audio:true})}throw e}
@@ -367,7 +394,7 @@ async function checkResume(){
   const total=buildSteps(s.items).length;
   box.hidden=false;box.innerHTML=`🔄 <b>Tugallanmagan topshiriq:</b> ${esc(MODES[s.mode]||"")} · ${esc(s.title||"")} — ${s.clips.length}/${total} savol bajarilgan.
     <div class="rep-acts"><button type="button" class="ck-go" id="rsGo">▶ Davom ettirish</button><button type="button" class="ck-go alt" id="rsDel">🗑 Bekor qilish</button></div>`;
-  $("#rsGo").onclick=()=>{box.hidden=true;RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;AWAY=s.away||{n:0,s:0};
+  $("#rsGo").onclick=()=>{box.hidden=true;LOG.add("resume",{done:s.clips.length,of:total});RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;AWAY=s.away||{n:0,s:0};
     if(s.mode==="exam"&&s.clips.length<total){CLIPS.push({part:buildSteps(s.items)[s.clips.length].part,question:buildSteps(s.items)[s.clips.length].q,blob:new Blob([],{type:"audio/webm"}),empty:true});AWAY.n++}
     speakingRun(true)};
   $("#rsDel").onclick=()=>{idb.del(runKey());box.hidden=true}
@@ -396,21 +423,21 @@ async function speakingRun(resume){
     r=await countdown(s.ans,"ans");try{rec.stop()}catch(e){}await done;
     if(r==="away"){await vis();msg("⏸ Siz chiqib ketdingiz — bu savolga qaytadan javob bering.",true);i--;continue}
     beep(520,160);msg("");
-    {const bl=new Blob(ch,{type:rec.mimeType||"audio/webm"});CLIPS.push({part:s.part,question:s.q,blob:bl,empty:bl.size<2500})}
+    {const bl=new Blob(ch,{type:rec.mimeType||"audio/webm"});CLIPS.push({part:s.part,question:s.q,blob:bl,empty:bl.size<2500});LOG.add("answer",{q:i+1,of:steps.length,part:s.part,empty:bl.size<2500?1:0,how:r})}
     RUN.i=i+1;saveRun();
   }
   RUN.live=false;await stopVideo();STREAM.getTracks().forEach(t=>t.stop());const cam=$("#rCam");if(cam){cam.srcObject=null;cam.hidden=true}
   step(4);await submitSpeaking();
 }
 async function submitSpeaking(){
-  const lab="AI javoblaringizni tinglab baholayapti va ideal javoblarni tekshiryapti… (30–120 soniya)";loading(true,null,lab);
+  const lab="AI javoblaringizni tinglab baholayapti va ideal javoblarni tekshiryapti… (30–120 soniya)";loading(true,null,lab);LOG.add("submit",{page:"speaking",n:CLIPS.length});LOG.flush();
   try{const clips=[];for(const c of CLIPS) clips.push({part:c.part,question:c.question,audio:await b64(c.blob),mime:c.blob.type||"audio/webm",empty:!!c.empty||c.blob.size<2500});
     const d=await postRetry("/speaking",{code:ls.get("aok_code"),name:ls.get("aok_name"),mode:RUN.mode,title:RUN.title,clips,away:RUN.mode==="exam"?{n:AWAY.n,s:AWAY.s}:null},lab);
     idb.del(runKey());
     showReport($("#ckResult"),d,CLIPS,`<button data-act="again">🏠 Bosh oyna</button>`);
     if(d.saved) msg("✅ Natija saqlandi"+(d.can_send?". «📤 Jo'nat» bilan video va feedbackni Telegram topic'ingizga yuboring.":"."));
     $('[data-act="again"]').onclick=()=>{if(VSEG.length&&d.can_send&&!d._sent&&!confirm("Video hali yuborilmadi. Chiqsangiz video o'chadi. Chiqasizmi?"))return;VSEG=[];$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
-  catch(err){msg("❌ "+err.message+" — javoblaringiz saqlangan, qayta yuborish uchun tugmani bosing.",true);$("#ckResult").innerHTML=`<button class="ck-go" id="retry">🔁 Qayta yuborish</button>`;$("#ckResult").hidden=false;
+  catch(err){LOG.add("error",{msg:err.message});msg("❌ "+err.message+" — javoblaringiz saqlangan, qayta yuborish uchun tugmani bosing.",true);$("#ckResult").innerHTML=`<button class="ck-go" id="retry">🔁 Qayta yuborish</button>`;$("#ckResult").hidden=false;
     $("#retry").onclick=()=>{$("#ckResult").hidden=true;msg("");submitSpeaking()}}
   loading(false);
 }
@@ -440,7 +467,7 @@ if(PAGE==="teacher"){
       try{const r=await post("/teacher/import",{tcode:T(),items:SEED.items,version:SEED.version});msg(`✅ Bazaga ${r.added} ta yangi savol qo'shildi${r.updated?`, ${r.updated} tasiga tur belgilandi`:""} (${r.skipped} tasi bor edi).`);box.hidden=true;await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)}}
   tIn.addEventListener("keydown",e=>{if(e.key==="Enter")$("#goLogin").click()});
   $$(".ktabs button").forEach(b=>b.onclick=async()=>{KIND=b.dataset.k;$$(".ktabs button").forEach(x=>x.classList.toggle("on",x===b));SEL.clear();EDIT=null;await load()});
-  $$(".ttabs button").forEach(b=>b.onclick=()=>{$$(".ttabs button").forEach(x=>x.classList.toggle("on",x===b));$$(".ttp").forEach(p=>p.hidden=p.dataset.t!==b.dataset.t);if(b.dataset.t==="res")loadResults();if(b.dataset.t==="stu")loadStudents()});
+  $$(".ttabs button").forEach(b=>b.onclick=()=>{$$(".ttabs button").forEach(x=>x.classList.toggle("on",x===b));$$(".ttp").forEach(p=>p.hidden=p.dataset.t!==b.dataset.t);if(b.dataset.t==="res")loadResults();if(b.dataset.t==="stu")loadStudents();if(b.dataset.t==="log")loadLog()});
   const allItems=()=>partsOf(KIND).flatMap(p=>BANK[p]||[]);
   const topics=()=>[...new Set(allItems().map(x=>x.topic))].sort();
   function render(){
@@ -540,6 +567,26 @@ if(PAGE==="teacher"){
     $("#stuList").innerHTML=(j.groups||[]).length?j.groups.map(g=>{const L=S.filter(s=>s.gid===g.id);return `<details class="tg" open><summary>📚 ${esc(g.title)} <small>${L.length}</small></summary>
       <table class="rep-tb"><tr><th>#</th><th>O'quvchi</th><th>PIN</th><th>Topic</th></tr>${L.map((s,i)=>`<tr><td>${i+1}</td><td>${esc(s.name)}</td><td><b>${esc(s.pin)}</b></td><td>${s.thread?"✅":"⚠️ ulanmagan"}</td></tr>`).join("")}</table></details>`}).join("")
       :`<div class="ck-msg">Hali guruh yo'q. Telegram'da <b>AOK Radar</b> botni guruhga qo'shib admin qiling — o'quvchilar va PIN'lar shu yerda chiqadi.</div>`}
+  /* --- 🕓 faoliyat --- */
+  const EV={login:["🔑","Saytga kirdi"],start:["▶️","Boshladi"],answer:["🎙","Savolga javob"],away:["🚪","Sahifadan chiqib ketdi"],resume:["🔄","Davom ettirdi"],photo:["📷","Rasm yukladi"],
+    submit:["📨","Topshirdi"],graded:["🤖","AI baholadi"],sent:["📤","Telegram'ga tushdi"],sent_ok:["✅","Jo'natish tasdiqlandi"],send_dup:["♻️","Qayta jo'natishga urindi (takrorlanmadi)"],send_fail:["⚠️","Jo'natish xatosi"],
+    outbox_sent:["📤","Navbatdagi natija keyinroq yuborildi"],pron_try:["🎤","Talaffuz mashqi"],pron_sent:["🗣","Talaffuz natijasini yubordi"],pron_missed:["⏰","Talaffuz mashqini qilmadi (bot eslatdi)"],error:["❌","Xato"],leave:["👋","Sahifani yopdi"]};
+  const tm=t=>{const d=new Date(t);return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`};
+  const evText=e=>{const x=[];if(e.mode)x.push(MODES[e.mode]||e.mode);if(e.title)x.push(e.title);if(e.page)x.push(e.page==="speaking"?"Speaking":"Writing");if(e.kind)x.push(e.kind==="speaking"?"Speaking":"Writing");
+    if(e.q)x.push(`${e.q}/${e.of} savol${e.part?" (Part "+e.part+")":""}${e.empty?" — ❌ jim":""}${e.how==="skip"?" · erta tugatdi":""}`);if(e.n&&!e.q)x.push(e.n+" ta");if(e.score!=null)x.push(`ball: ${fmt(e.score)}/${e.max}`);
+    if(e.word)x.push(`${e.word} — ${e.score}%`);if(e.sec)x.push(e.sec+" s");if(e.videos!=null)x.push(`🎥${e.videos} · 📄${e.pages}${e.auto?" · avtomatik":""}`);if(e.avg)x.push("o'rtacha "+e.avg+"%");if(e.msg)x.push(e.msg);if(e.done!=null)x.push(`${e.done}/${e.of} bajarilgan`);
+    return x.map(esc).join(" · ")};
+  async function loadLog(){const day=$("#lgDate").value,q=$("#lgQ").value.trim();$("#lgList").innerHTML=`<div class="ck-load"><div class="ck-spin"></div><span>Yuklanmoqda…</span></div>`;
+    try{const j=await post("/teacher/log",{tcode:T(),date:day,q});
+      $("#lgList").innerHTML=j.students.length?j.students.map(st=>{const evs=st.events.slice().sort((a,b)=>a.at-b.at).filter(e=>e.t!=="pron_try"||$("#lgPron").checked);
+        return `<details class="tg" ${q||j.students.length<4?"open":""}><summary>${esc(st.name)} <small>${esc(st.grp)} · ${st.events.length} ta harakat${st.events.length?` · ${tm(st.events[0].at)}–${tm(st.events[st.events.length-1].at)}`:""}</small></summary>
+        ${evs.length?`<table class="rep-tb lg"><tr><th>Vaqt</th><th>Harakat</th><th>Tafsilot</th></tr>${evs.map(e=>`<tr class="ev-${esc(e.t)}"><td>${tm(e.at)}</td><td>${(EV[e.t]||["•",e.t]).join(" ")}</td><td>${evText(e)}</td></tr>`).join("")}</table>`:`<p class="hint">Bu sanada harakat yo'q.</p>`}</details>`}).join("")
+        :`<div class="ck-msg">Bu sanada hech kim saytda ishlamagan${q?" (qidiruv: "+esc(q)+")":""}.</div>`}
+    catch(err){$("#lgList").innerHTML=`<div class="ck-msg err">❌ ${esc(err.message)}</div>`}}
+  {const d=new Date();$("#lgDate").value=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`}
+  $("#lgDate").onchange=loadLog;$("#lgPron").onchange=loadLog;let lgT;$("#lgQ").oninput=()=>{clearTimeout(lgT);lgT=setTimeout(loadLog,400)};
+  $("#lgPrev").onclick=()=>{const d=new Date($("#lgDate").value);d.setDate(d.getDate()-1);$("#lgDate").value=d.toISOString().slice(0,10);loadLog()};
+  $("#lgNext").onclick=()=>{const d=new Date($("#lgDate").value);d.setDate(d.getDate()+1);$("#lgDate").value=d.toISOString().slice(0,10);loadLog()};
   /* --- natijalar --- */
   async function loadResults(){const j=await post("/teacher/results",{tcode:T(),kind:KIND});const R=j.results||[];
     $("#rTable").innerHTML=R.length?`<table class="rep-tb"><tr><th>O'quvchi</th><th>Rejim</th><th>Ball</th><th>Vaqt</th><th></th></tr>`+R.map(r=>`<tr><td>${esc(r.name)}${r.grp?`<small style="display:block;opacity:.7">${esc(r.grp)}</small>`:""}</td>
