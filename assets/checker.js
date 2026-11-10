@@ -440,16 +440,23 @@ if(PAGE==="teacher"){
     ft.innerHTML=`<option value="">${p?"Barcha turlar":"Avval bo'lim tanlang"}</option>`+Object.entries(T).map(([k,n])=>`<option value="${k}">${esc(n)} (${allItems().filter(x=>(x.part||x.wtype)===p&&x.qtype===k).length})</option>`).join("");ft.disabled=!p;ft.value=T[v]?v:""}
   function list(){const p=$("#fPart").value,t=$("#fTopic").value,ty=$("#fType").value,q=$("#fSearch").value.toLowerCase().trim();
     let L=allItems().filter(x=>(!p||(x.part||x.wtype)===p)&&(!t||x.topic===t)&&(!ty||x.qtype===ty)&&(!q||keyOf(x).toLowerCase().includes(q)));
-    const groups={};L.forEach(x=>(groups[x.topic]=groups[x.topic]||[]).push(x));
     $("#bankCount").textContent=`${L.length} ta savol · ${SEL.size} ta belgilangan`;
-    $("#bankList").innerHTML=Object.keys(groups).sort().map(g=>`<details class="tg" data-g="${esc(g)}" ${q||OPEN.has(g)?"open":""}><summary>${esc(g)} <small>${groups[g].length}</small></summary>${groups[g].map(x=>`<div class="bi">
+    const row=x=>`<div class="bi">
       <input type="checkbox" data-sel="${x.id}" ${SEL.has(x.id)?"checked":""}><span class="pp">${(x.part||x.wtype).replace("T","Task ")}</span>
       ${qtName(x)?`<span class="qt">${esc(qtName(x))}</span>`:""}<span class="bt">${esc(keyOf(x).slice(0,140))}${(x.part==="1.2"||x.part==="2")?((x.images||[]).length?" 🖼":` <em class='noimg'>rasm yo'q${x.pics?": "+esc(x.pics.join(" ↔ ")):""}</em>`):""}</span>
       ${Object.values(HWS).some(h=>h&&h.ids.includes(x.id))||(HW&&HW.ids.includes(x.id))?'<span class="tag">📌</span>':""}${EXAMS.some(e=>e.ids.includes(x.id))?'<span class="tag">📝</span>':""}
-      <button type="button" data-ed="${x.id}">✏️</button><button type="button" data-del="${x.id}">🗑</button></div>`).join("")}</details>`).join("")||`<div class="ck-msg">Savol topilmadi.</div>`;
+      <button type="button" data-ed="${x.id}">✏️</button><button type="button" data-del="${x.id}">🗑</button></div>`;
+    // 1-daraja: bo'lim (Part / Task) → 2-daraja: mavzu → savollar. Hammasi yig'ilgan turadi.
+    const auto=!!(q||t);
+    $("#bankList").innerHTML=partsOf(KIND).filter(pp=>L.some(x=>(x.part||x.wtype)===pp)).map(pp=>{
+      const LP=L.filter(x=>(x.part||x.wtype)===pp);const groups={};LP.forEach(x=>(groups[x.topic]=groups[x.topic]||[]).push(x));
+      const pk="p:"+pp,pOpen=auto||!!p||OPEN.has(pk);
+      return `<details class="pg" data-g="${esc(pk)}" ${pOpen?"open":""}><summary>${esc(PNAME[pp])} <small>${LP.length} ta savol · ${Object.keys(groups).length} mavzu</small></summary>`+
+        Object.keys(groups).sort().map(g=>{const tk="t:"+pp+"|"+g;return `<details class="tg" data-g="${esc(tk)}" ${auto||OPEN.has(tk)?"open":""}><summary>${esc(g)} <small>${groups[g].length}</small></summary>${groups[g].map(row).join("")}</details>`}).join("")+`</details>`;
+    }).join("")||`<div class="ck-msg">Savol topilmadi.</div>`;
   }
   const OPEN=new Set(); // mavzular yopiq turadi — faqat siz ochganlari ochiq qoladi
-  $("#bankList").addEventListener("toggle",e=>{const d=e.target;if(!d.matches||!d.matches("details.tg")||$("#fSearch").value.trim())return;d.open?OPEN.add(d.dataset.g):OPEN.delete(d.dataset.g)},true);
+  $("#bankList").addEventListener("toggle",e=>{const d=e.target;if(!d.matches||!d.matches("details.tg,details.pg")||$("#fSearch").value.trim()||$("#fTopic").value)return;d.open?OPEN.add(d.dataset.g):OPEN.delete(d.dataset.g)},true);
   $("#fPart").onchange=()=>{typeOpts();list()};["#fTopic","#fType"].forEach(s=>$(s).onchange=list);$("#fSearch").oninput=list;
   $("#bankList").addEventListener("change",e=>{const c=e.target.closest("[data-sel]");if(!c)return;c.checked?SEL.add(c.dataset.sel):SEL.delete(c.dataset.sel);$("#bankCount").textContent=$("#bankCount").textContent.replace(/· \d+ ta/,`· ${SEL.size} ta`)});
   $("#bankList").addEventListener("click",async e=>{const b=e.target.closest("button");if(!b)return;

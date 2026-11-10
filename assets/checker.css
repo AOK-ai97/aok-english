@@ -172,3 +172,7 @@ body[data-ck] .ck-task p,body[data-ck] .ck-task b{color:#102040}
 
 .bi .qt{flex:none;font-size:11px;font-weight:700;background:#EEF3FA;color:#1F3864;border-radius:6px;padding:2px 6px;white-space:nowrap}
 @media(max-width:600px){.bi .qt{display:none}}
+
+.pg>summary{font-weight:800;font-size:17px;color:#fff;background:#1F3864;border-radius:10px;padding:10px 12px;margin:6px 0;cursor:pointer}
+.pg>summary small{opacity:.8;font-weight:400;font-size:13px}
+.pg>.tg{margin-left:10px}
