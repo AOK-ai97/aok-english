@@ -339,7 +339,7 @@ function hpTable(hp){
 const hpEnd = (g, hp) => Math.max(...hp.items.filter(i => i.due).map(i => i.due), nextLesson(g, dayKey(hp.at)));
 async function hpConfirm(env, g, hp){
   return pm(env, hp.by, `📋 <b>${H(g.title)} — Homework</b> (${ddmm(hp.at)})\n\n${hpTable(hp)}\n\n🗓 Topshirish ${DAY_UZ[wdOf(dayKey(hpEnd(g, hp)))]} ${ddmm(hpEnd(g, hp))} ${hhmm(hpEnd(g, hp))} gacha qabul qilinadi.\n<i>15 daqiqada tasdiqlamasangiz, o'zi ishga tushadi.</i>`,
-    kb([[{text: "✅ To'g'ri", callback_data: "hpok:" + g.id}, {text: "✏️ Tuzatish", callback_data: "hped:" + g.id}]]));
+    kb([[{text: "✅ To'g'ri", callback_data: "hpok:" + g.id}, {text: "✏️ Tuzatish", callback_data: "hped:" + g.id}], [{text: "🗑 Bekor qilish (nazorat qilinmasin)", callback_data: "hpdel:" + g.id}]]));
 }
 const hsubKey = (hp, sid) => `hs:${hp.id}:${sid}`;
 async function hpProgress(env, g, hp, s, prof){
@@ -702,6 +702,7 @@ async function onCallback(env, cq){
     if (b === "links") return askNextLink(env, w); return pm(env, r.uid, ASK[b]); }
   if (a === "hpok" && g) { const hp = await J(env, "hp:" + g.id, null); if (!hp) return; hp.st = "active"; await PUT(env, "hp:" + g.id, hp);
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(g.title)}</b> — Homework nazoratga olindi.\n\n${hpTable(hp)}`}); }
+  if (a === "hpdel" && g) { await env.KV.delete("hp:" + g.id); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🗑 <b>${H(g.title)}</b> — bu Homework nazorat qilinmaydi. Keyingi #Homework postini bot yana o'qiydi.`}); }
   if (a === "hped" && g) { await PUT(env, wizK(r.uid), {uid: r.uid, gid: g.id, step: "hpfix"}); return pm(env, r.uid, ASK.hpfix); }
   if (a === "skip") { const w = await J(env, wizK(r.uid), null); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
   if (a === "wdone") { const w = await J(env, wizK(r.uid), null); if (!w) return; return finishWizard(env, w); }
@@ -876,7 +877,7 @@ async function cron(env){
         const left = Math.min(...pend.map(i => i.due)) - now;
         await toTopic(env, g.id, s.thread, await radarText(env, "remind", s.name, `bajarilmagan: ${pend.map(i => `${i.title}${i.count > 1 ? ` (${pr[i.id].n}/${i.count})` : ""}`).join("; ")}; eng yaqin muddatgacha ${Math.floor(left / 3600e3)} soat ${Math.round(left % 3600e3 / 60e3)} daqiqa qoldi`));
         st.rem[s.id] = now; ch = true; }
-      const late = items.filter(it => !pr[it.id].ok && now >= it.due && !st.late[s.id + ":" + it.id]);
+      const late = items.filter(it => !pr[it.id].ok && now >= it.due && it.due > hp.at + 30 * 60e3 && !st.late[s.id + ":" + it.id]); // post paytida muddati o'tib bo'lgan vazifa uchun tanbeh yo'q
       if (late.length) { late.forEach(it => st.late[s.id + ":" + it.id] = 1); ch = true; kun.push({s, late});
         await toTopic(env, g.id, s.thread, await radarText(env, "late", s.name, `muddat o'tdi, bajarilmagan: ${late.map(i => i.title).join("; ")}`)); }
     }
