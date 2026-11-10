@@ -2833,7 +2833,11 @@
 "images": [],
 "id": "s6k",
 "created": 1794268800235,
-"qtype": "usul"
+"qtype": "usul",
+"pics": [
+"a family eating a home-cooked meal at the table",
+"teenagers eating fast food burgers and fries"
+]
 },
 {
 "kind": "speaking",
@@ -2909,7 +2913,11 @@
 "images": [],
 "id": "s6q",
 "created": 1794268800241,
-"qtype": "usul"
+"qtype": "usul",
+"pics": [
+"a young man cycling in a green park",
+"a man driving a car in heavy city traffic"
+]
 },
 {
 "kind": "speaking",
@@ -3021,7 +3029,11 @@
 "images": [],
 "id": "s6z",
 "created": 1794268800250,
-"qtype": "usul"
+"qtype": "usul",
+"pics": [
+"two friends talking face to face in a café",
+"a teenager chatting online on a smartphone alone in his room"
+]
 },
 {
 "kind": "writing",
@@ -3623,7 +3635,11 @@
 "images": [],
 "id": "s8d",
 "created": 1794268800300,
-"qtype": "joy"
+"qtype": "joy",
+"pics": [
+"a quiet Uzbek village with fields and small houses",
+"a busy modern city street with tall buildings"
+]
 },
 {
 "kind": "writing",
@@ -4177,7 +4193,11 @@
 "images": [],
 "id": "s9n",
 "created": 1794268800346,
-"qtype": "joy"
+"qtype": "joy",
+"pics": [
+"people working at computers in a modern office",
+"workers working outdoors in a field or on a building site"
+]
 },
 {
 "kind": "speaking",
@@ -4781,7 +4801,11 @@
 "images": [],
 "id": "sb1",
 "created": 1794268800396,
-"qtype": "joy"
+"qtype": "joy",
+"pics": [
+"a family eating dinner together at home",
+"friends eating in a busy restaurant"
+]
 },
 {
 "kind": "speaking",

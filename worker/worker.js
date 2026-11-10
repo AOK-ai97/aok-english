@@ -1045,7 +1045,8 @@ export default {
             const arr = await getBank(env, k, p); const have = new Map(arr.map(x => [norm(keyText(x)), x])); let ch = false;
             for (const it of items.filter(x => x.kind === k && (x.part || x.wtype) === p)) {
               const key = norm(keyText(it)); const ex = have.get(key);
-              if (ex) { skipped++; if (it.qtype && !ex.qtype) { ex.qtype = it.qtype; ch = true; updated++; } if (it.pics && !ex.pics) { ex.pics = it.pics; ch = true; } continue; }
+              if (ex) { skipped++; if (it.qtype && !ex.qtype) { ex.qtype = it.qtype; ch = true; updated++; } if (it.pics && !ex.pics) { ex.pics = it.pics; ch = true; }
+                if ((it.images || []).length && !(ex.images || []).length) { ex.images = it.images; ch = true; updated++; } continue; }
               have.set(key, it); arr.push(it); added++; ch = true;
             }
             if (ch) await putBank(env, k, p, arr);
