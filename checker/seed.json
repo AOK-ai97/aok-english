@@ -1,5 +1,5 @@
 {
-"version": 3,
+"version": 4,
 "items": [
 {
 "kind": "speaking",
@@ -4833,7 +4833,14 @@
 "What are the advantages of eating at home over eating out?",
 "Would you prefer to eat at home or in a café? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A06a.jpg"
+},
+{
+"url": "img/A06b.jpg"
+}
+],
 "id": "sb1",
 "created": 1794268800396,
 "qtype": "joy",
@@ -5589,7 +5596,14 @@
 "What are the advantages of small family celebrations over big parties?",
 "Which would you prefer for your birthday, a big party or a small celebration? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A07a.jpg"
+},
+{
+"url": "img/A07b.jpg"
+}
+],
 "pics": [
 "a big wedding party",
 "a small family dinner"
@@ -5607,7 +5621,14 @@
 "What are the advantages of celebrating outdoors over celebrating at home?",
 "Where would you prefer to celebrate New Year, at home or outside? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A08a.jpg"
+},
+{
+"url": "img/A08b.jpg"
+}
+],
 "pics": [
 "a family celebrating New Year at home",
 "people watching fireworks in a city square"
@@ -5625,7 +5646,14 @@
 "What are the advantages of paying by card over paying in cash?",
 "Which do you prefer to use, cash or a bank card? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A09a.jpg"
+},
+{
+"url": "img/A09b.jpg"
+}
+],
 "pics": [
 "paying with cash",
 "paying by phone"
@@ -5643,7 +5671,14 @@
 "What are the advantages of modern home appliances over doing housework by hand?",
 "Do you think people today work less at home than in the past? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A10a.jpg"
+},
+{
+"url": "img/A10b.jpg"
+}
+],
 "pics": [
 "washing clothes by hand",
 "using a washing machine"
