@@ -101,21 +101,30 @@ function fixTask(t){
   return t;
 }
 
+// Model eskirsa ("no longer available" / 404) — keyingi modelga o'tadi; ishlagan model eslab qolinadi
+const GOOD = {};
 async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
-  const model = lite ? (env.LITE_MODEL || "gemini-2.5-flash-lite") : (env.MODEL || "gemini-2.5-flash");
+  const main = [env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash"], light = [env.LITE_MODEL, "gemini-3.5-flash-lite", ...main];
+  const list = [...new Set([GOOD[lite ? "l" : "m"], ...(lite ? light : main)].filter(Boolean))];
   let last = "";
-  for (let i=0; i<4; i++){ // band bo'lsa kutib qayta urinadi
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method:"POST", headers:{"content-type":"application/json","x-goog-api-key":env.GEMINI_KEY},
-      body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
-        generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) });
-    const j = await r.json().catch(()=>({}));
-    if (r.ok) return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}");
-    last = (j.error && j.error.message) || ("Gemini " + r.status);
-    if (![429,500,503].includes(r.status)) throw new Error(last);
-    if (i < 3) await new Promise(res => setTimeout(res, [3000,8000,15000][i]));
-    else { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; throw e; }
+  for (const model of list) {
+    let gone = false;
+    for (let i=0; i<4; i++){
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method:"POST", headers:{"content-type":"application/json","x-goog-api-key":env.GEMINI_KEY},
+        body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
+          generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) });
+      const j = await r.json().catch(()=>({}));
+      if (r.ok) { GOOD[lite ? "l" : "m"] = model; return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}"); }
+      last = (j.error && j.error.message) || ("Gemini " + r.status);
+      if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { gone = true; break; }
+      if (![429,500,503].includes(r.status)) throw new Error(last);
+      if (i < 3) await new Promise(res => setTimeout(res, [3000,8000,15000][i]));
+      else { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; throw e; }
+    }
+    if (!gone) break;
   }
+  throw new Error(last);
 }
 
 // Ideal javobni tekshirish: 5/5 bo'lmasa tuzatiladi (2 martagacha)
@@ -973,7 +982,7 @@ export default {
       "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin"};
     const out = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {...cors, "content-type": "application/json; charset=utf-8"}});
     if (req.method === "OPTIONS") return new Response(null, {headers: cors});
-    if (req.method !== "POST") return out({ok: true, service: "AOK checker + Radar", version: 7, kv: !!env.KV, bot: !!env.TG_TOKEN});
+    if (req.method !== "POST") return out({ok: true, service: "AOK checker + Radar", version: 8, kv: !!env.KV, bot: !!env.TG_TOKEN});
     if (!allow.includes(origin)) return out({error: "Ruxsat yo'q (origin)."}, 403);
     if (!env.KV) return out({error: "KV ulanmagan (Cloudflare → Bindings → KV namespace, nomi: KV)."}, 500);
 
