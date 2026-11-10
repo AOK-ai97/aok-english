@@ -1,5 +1,5 @@
 {
-"version": 2,
+"version": 3,
 "items": [
 {
 "kind": "speaking",
@@ -2830,7 +2830,14 @@
 "What are the advantages of home-cooked meals over fast food?",
 "Do you prefer cooking at home or ordering food?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A01a.jpg"
+},
+{
+"url": "img/A01b.jpg"
+}
+],
 "id": "s6k",
 "created": 1794268800235,
 "qtype": "usul",
@@ -2910,7 +2917,14 @@
 "What are the advantages of cycling over driving a car?",
 "Do you prefer walking to school or going by car?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A02a.jpg"
+},
+{
+"url": "img/A02b.jpg"
+}
+],
 "id": "s6q",
 "created": 1794268800241,
 "qtype": "usul",
@@ -3026,7 +3040,14 @@
 "What are the advantages of talking face to face over chatting online?",
 "Which of these would you prefer? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A03a.jpg"
+},
+{
+"url": "img/A03b.jpg"
+}
+],
 "id": "s6z",
 "created": 1794268800250,
 "qtype": "usul",
@@ -3632,7 +3653,14 @@
 "What are the advantages of living in a village over living in a city?",
 "Would you prefer to live in a city or in a village? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A04a.jpg"
+},
+{
+"url": "img/A04b.jpg"
+}
+],
 "id": "s8d",
 "created": 1794268800300,
 "qtype": "joy",
@@ -4190,7 +4218,14 @@
 "What are the advantages of working in an office over working outdoors?",
 "Would you prefer to work indoors or outdoors? Why?"
 ],
-"images": [],
+"images": [
+{
+"url": "img/A05a.jpg"
+},
+{
+"url": "img/A05b.jpg"
+}
+],
 "id": "s9n",
 "created": 1794268800346,
 "qtype": "joy",
