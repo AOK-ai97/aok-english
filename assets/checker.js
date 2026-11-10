@@ -20,7 +20,7 @@ async function post(path,body){
   return j;
 }
 const step=n=>{$$("[data-step]").forEach(e=>e.hidden=e.dataset.step!==String(n));window.scrollTo({top:0,behavior:"smooth"})};
-const imgSrc=im=>im.url?im.url:(im.data?("data:image/jpeg;base64,"+im.data):"");
+const imgSrc=im=>typeof im==="string"?im:im&&im.url?im.url:(im&&im.data?("data:image/jpeg;base64,"+im.data):(im&&im.thumb)||"");
 const b64=blob=>new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result.split(",")[1]);fr.onerror=rej;fr.readAsDataURL(blob)});
 function compress(file,max=1800,q=.85){return new Promise((res,rej)=>{const img=new Image();const u=URL.createObjectURL(file);
   img.onload=()=>{const k=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
@@ -30,6 +30,9 @@ function beep(f=880,ms=220){try{const A=window._ac||(window._ac=new (window.Audi
 function sayWord(w){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(w);u.lang="en-GB";u.rate=.8;
   const vs=speechSynthesis.getVoices();const v=vs.find(v=>/en-GB/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang));if(v)u.voice=v;speechSynthesis.speak(u)}catch(e){}}
 
+/* rasmni katta qilib ochish */
+document.addEventListener("click",e=>{const im=e.target.closest(".ex-imgs img,.ck-thumbs img");if(!im)return;
+  const o=document.createElement("div");o.className="lightbox";o.innerHTML=`<img src="${im.src}" alt=""><span>✕</span>`;o.onclick=()=>o.remove();document.body.appendChild(o)});
 /* ================= SAVOL KARTASI (imtihon ko'rinishi) ================= */
 function itemHTML(it,i){
   if(it.kind==="writing"){
@@ -279,7 +282,7 @@ if(PAGE==="teacher"){
   let FIMG=[];
   function form(){const it=EDIT||{};const part=it.part||it.wtype||$("#iPart").value||partsOf(KIND)[0];
     $("#iPart").innerHTML=partsOf(KIND).map(p=>`<option value="${p}">${PNAME[p]}</option>`).join("");$("#iPart").value=partsOf(KIND).includes(part)?part:partsOf(KIND)[0];$("#iPart").disabled=!!EDIT;
-    $("#iTopic").value=it.topic||"";FIMG=(it.images||[]).map(x=>({...x,thumb:imgSrc(x)}));fields(it);$("#iSave").textContent=EDIT?"💾 O'zgarishni saqlash":"➕ Bazaga qo'shish";$("#iCancel").hidden=!EDIT}
+    $("#iTopic").value=it.topic||"";FIMG=(it.images||[]).map(x=>typeof x==="string"?{url:x,thumb:x}:({...x,thumb:imgSrc(x)}));fields(it);$("#iSave").textContent=EDIT?"💾 O'zgarishni saqlash":"➕ Bazaga qo'shish";$("#iCancel").hidden=!EDIT}
   function fields(it){const p=$("#iPart").value;const q=it.q||[];let h="";
     const ta=(id,lab,v,ph,r=3)=>`<label>${lab}<textarea id="${id}" rows="${r}" placeholder="${esc(ph||"")}">${esc(v||"")}</textarea></label>`;
     const tx=(id,lab,v,ph)=>`<label>${lab}<input type="text" id="${id}" value="${esc(v||"")}" placeholder="${esc(ph||"")}"></label>`;

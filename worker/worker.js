@@ -136,7 +136,7 @@ async function allBank(env, kind){ const ps = kind==="writing" ? WPARTS : SPARTS
 async function withImages(env, items){
   return Promise.all(items.map(async it => {
     if (!it.images || !it.images.length) return it;
-    const imgs = await Promise.all(it.images.map(async im => im.k ? ({data: await env.KV.get(im.k)}) : im));
+    const imgs = await Promise.all(it.images.map(async im => typeof im === "string" ? {url: im} : im.k ? ({data: await env.KV.get(im.k)}) : im));
     return {...it, images: imgs};
   }));
 }
@@ -166,7 +166,7 @@ export default {
       "Access-Control-Allow-Methods":"POST, OPTIONS","Access-Control-Allow-Headers":"content-type","Vary":"Origin"};
     const out = (o, s=200) => new Response(JSON.stringify(o), {status:s, headers:{...cors,"content-type":"application/json; charset=utf-8"}});
     if (req.method === "OPTIONS") return new Response(null, {headers:cors});
-    if (req.method !== "POST") return out({ok:true, service:"AOK checker", version:4, kv: !!env.KV});
+    if (req.method !== "POST") return out({ok:true, service:"AOK checker", version:6, kv: !!env.KV});
     if (!allow.includes(origin)) return out({error:"Ruxsat yo'q (origin)."}, 403);
     if (!env.KV) return out({error:"KV ulanmagan (Cloudflare → Bindings → KV namespace, nomi: KV)."}, 500);
     let b; try { b = await req.json(); } catch { return out({error:"Noto'g'ri so'rov."}, 400); }
@@ -179,6 +179,7 @@ export default {
         if (path === "/teacher/login") return out({ok:true, seeded: !!(await env.KV.get("seed:v1"))});
         if (path === "/teacher/bank") {
           const bank = await allBank(env, kind);
+          if (kind === "speaking") for (const p of ["1.2","2"]) bank[p] = await withImages(env, bank[p] || []); // yuklangan rasmlar ko'rinsin
           const hw = JSON.parse(await env.KV.get("hw:"+kind) || "null");
           const exams = JSON.parse(await env.KV.get("exams") || "[]").filter(e => e.kind === kind);
           return out({bank, homework: hw, exams});
@@ -214,7 +215,7 @@ export default {
           // rasmlar: yangi yuklanganlari alohida kalitda
           const old = arr.find(x => x.id === clean_it.id);
           const imgs = [];
-          for (const im of (it.images||[]).slice(0, part==="1.2"?2:1)) {
+          for (let im of (it.images||[]).slice(0, part==="1.2"?2:1)) { if (typeof im === "string") im = {url: im};
             if (im.url || im.k) imgs.push(im.url ? {url:im.url} : {k:im.k});
             else if (im.data) { const ik = "img:"+uid(); await env.KV.put(ik, im.data); imgs.push({k:ik}); }
           }
