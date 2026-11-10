@@ -41,6 +41,7 @@ function reportHTML(d){
   let h=`<div class="rep" id="rep"><div class="rep-h"><div class="rep-badge">${esc(initials(name))}</div><div><h2>${esc(name)}</h2>
    <div class="sub">Writing · ${esc(d.topic_uz||d.title||"")} · ${sc} · Jami: <b>${fmt(d.total)} / ${tasks.length*5}</b></div></div></div>`;
   tasks.forEach(t=>{h+=`<div class="rep-t"><b>Task ${esc(t.task)}</b><span>${esc(TASKS[t.task]||"")}</span><em>${esc(t.word_count)} so'z</em></div>
+    ${t.on_topic===false?`<div class="rep-off">⚠️ <b>Mavzuga mos emas — 0 ball.</b> ${esc(t.topic_check||"")}</div>`:""}
     <div class="rep-l">Yozgan matni (o'zgarishsiz)</div><div class="rep-txt">${esc(t.transcript)}</div>
     <div class="rep-l">Xatolar va to'g'ri varianti</div>${errList(t.errors)}${crTable(t,"Task "+t.task)}`});
   return h+`</div>`;
@@ -173,7 +174,7 @@ if(PAGE==="teacher"){
     $("#rTitle").textContent=a?a.title:"";step(3);
     $("#rTable").innerHTML=R.length?`<table class="rep-tb"><tr><th>O'quvchi</th><th>Turi</th><th>Ball</th><th>Vaqt</th><th></th></tr>`+R.map(r=>`<tr><td>${esc(r.name)}</td>
       <td>${r.kind==="speaking"?"🎤 Part "+esc(r.part):"✍️ "+[r.t11!=null?"1.1: "+fmt(r.t11):"",r.t12!=null?"1.2: "+fmt(r.t12):""].filter(Boolean).join(" · ")}</td>
-      <td><b>${fmt(r.total)} / ${r.max||5}</b></td><td>${dt(r.at)}</td><td><button data-k="${esc(r.key)}">👁 Ko'rish</button> <button data-x="${esc(r.key)}">🗑</button></td></tr>`).join("")+`</table>`
+      <td><b>${fmt(r.total)} / ${r.max||5}</b>${r.off?' <span title="Mavzuga mos emas">⚠️</span>':""}</td><td>${dt(r.at)}</td><td><button data-k="${esc(r.key)}">👁 Ko'rish</button> <button data-x="${esc(r.key)}">🗑</button></td></tr>`).join("")+`</table>`
       :`<div class="ck-msg">Hali natija yo'q.</div>`;
     $("#ckResult").hidden=true}
   $("#rTable").addEventListener("click",async e=>{const b=e.target.closest("button");if(!b)return;

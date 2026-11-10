@@ -13,6 +13,8 @@ Students upload photos of HANDWRITTEN letters. The photos may contain Task 1.1 a
 Task 1.1 = informal letter to a friend, about 50 words. Task 1.2 = formal letter to a manager/director, 120-150 words.
 First decide which letters are present: informal (Hi/Hey ..., Take care) = "1.1", formal (Dear Sir or Madam / Dear Manager ..., Yours faithfully) = "1.2". Return only the tasks that are really written, in order 1.1 then 1.2.
 "student_name": the student's name taken from the signatures (prefer the FULL name from the Task 1.2 signature, else the name under Task 1.1). Write it in normal Latin spelling with capital letters (e.g. "Aziza Shovqiyeva"). If no name is written, return "Noma'lum".
+TOPIC CHECK (very important): compare each letter with the email/topic given above. "on_topic" = false if the letter answers a DIFFERENT email or topic (e.g. the email is about a new park but the student wrote about a birthday party / a trip / any other subject), or it does not answer the email's questions at all. A weak or short answer that IS about the right topic stays on_topic = true. If no email/topic was given, on_topic = true.
+"topic_check": one short UZBEK sentence: what the letter is about and whether it matches the email (e.g. "Xat tug'ilgan kun haqida, email esa yangi park haqida — mavzuga mos emas.").
 For EACH task found:
 1. "transcript": copy the student's text EXACTLY as written — keep every spelling, grammar and punctuation mistake, keep line breaks (use \\n). Ignore words that the student crossed out. Do NOT correct anything here.
 2. "word_count": number of words in the transcript.
@@ -37,15 +39,19 @@ Answer ONLY with JSON matching the schema.`;
 const ERR = {type:"ARRAY",items:{type:"OBJECT",properties:{wrong:{type:"STRING"},correct:{type:"STRING"},explain:{type:"STRING"}},required:["wrong","correct","explain"]}};
 const CRIT = {type:"ARRAY",items:{type:"OBJECT",properties:{name:{type:"STRING"},score:{type:"NUMBER"},comment:{type:"STRING"}},required:["name","score","comment"]}};
 const W_SCHEMA = {type:"OBJECT",properties:{student_name:{type:"STRING"},topic_uz:{type:"STRING"},tasks:{type:"ARRAY",items:{type:"OBJECT",properties:{
-  task:{type:"STRING"},transcript:{type:"STRING"},word_count:{type:"INTEGER"},errors:ERR,criteria:CRIT,overall:{type:"NUMBER"}},
-  required:["task","transcript","word_count","errors","criteria","overall"]}}},required:["student_name","topic_uz","tasks"]};
+  task:{type:"STRING"},on_topic:{type:"BOOLEAN"},topic_check:{type:"STRING"},transcript:{type:"STRING"},word_count:{type:"INTEGER"},errors:ERR,criteria:CRIT,overall:{type:"NUMBER"}},
+  required:["task","on_topic","topic_check","transcript","word_count","errors","criteria","overall"]}}},required:["student_name","topic_uz","tasks"]};
 const S_SCHEMA = {type:"OBJECT",properties:{transcript:{type:"STRING"},errors:ERR,criteria:CRIT,overall:{type:"NUMBER"},
   better_answer:{type:"STRING"},spoken_feedback:{type:"STRING"}},required:["transcript","errors","criteria","overall","better_answer","spoken_feedback"]};
 
 const half = x => Math.floor(Math.max(0, Math.min(5, +x || 0)) * 2) / 2;
 function fixScores(o){ // ballarni qoidaga keltirish
   const fix = t => { t.criteria.forEach(c => c.score = half(c.score));
-    t.overall = half(t.criteria.reduce((a,c)=>a+c.score,0) / (t.criteria.length||1)); return t; };
+    t.overall = half(t.criteria.reduce((a,c)=>a+c.score,0) / (t.criteria.length||1));
+    if (t.on_topic === false) { // boshqa mavzu — imtihondagidek 0 ball
+      const tr = t.criteria.find(c=>/task/i.test(c.name)); if (tr) { tr.score = 0; tr.comment = "Mavzuga mos emas: " + (t.topic_check||"xat boshqa mavzuda yozilgan.") + " Email savollariga javob bering."; }
+      t.overall = 0; }
+    return t; };
   if (o.tasks) { o.tasks.forEach(fix); o.total = o.tasks.reduce((a,t)=>a+t.overall,0); } else fix(o);
   return o;
 }
@@ -127,7 +133,7 @@ export default {
         if (!r.tasks || !r.tasks.length) return out({error:"Rasmda xat topilmadi. Aniqroq, yorug' joyda qayta rasmga oling."}, 422);
         r.kind = "writing"; r.aid = b.aid || ""; r.title = a ? a.title : ""; r.at = Date.now();
         if (env.KV && b.aid) {
-          const sc = {}; r.tasks.forEach(t => sc["t"+t.task.replace(".","")] = t.overall);
+          const sc = {}; r.tasks.forEach(t => sc["t"+t.task.replace(".","")] = t.overall); sc.off = r.tasks.some(t=>t.on_topic===false);
           await env.KV.put(`r:${b.aid}:${r.at}`, JSON.stringify(r), {metadata:{kind:"writing", name:r.student_name, at:r.at, total:r.total, max:r.tasks.length*5, ...sc}});
           r.saved = true;
         }
