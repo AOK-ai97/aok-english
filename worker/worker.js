@@ -314,7 +314,7 @@ For each line/task return:
 "weekday": 0–6 (0 = Sunday) if a weekday is named, else -1;
 "date": "YYYY-MM-DD" if a calendar date is named, else "".
 Answer ONLY with JSON.`;
-const HP_SCHEMA = {type:"OBJECT",properties:{items:{type:"ARRAY",items:{type:"OBJECT",properties:{title:STR,type:{type:"STRING",enum:HP_TYPES},count:{type:"INTEGER"},due_kind:STR,time:STR,weekday:{type:"INTEGER"},date:STR},required:["title","type","count","due_kind","time","weekday","date"]}}},required:["items"]};
+const HP_SCHEMA = {type:"OBJECT",properties:{items:{type:"ARRAY",items:{type:"OBJECT",properties:{title:STR,type:STR,count:{type:"INTEGER"},due_kind:STR,time:STR,weekday:{type:"INTEGER"},date:STR},required:["title","type","count","due_kind","time","weekday","date"]}}},required:["items"]};
 function hpDue(g, postAt, it){
   const dk = dayKey(postAt); const tm = String(it.time || "").match(/^(\d{1,2}):(\d{2})$/); const mins = tm ? (+tm[1]) * 60 + (+tm[2]) : null;
   switch (it.due_kind) {
@@ -749,7 +749,8 @@ async function onGroupMessage(env, msg){
       if (th && !g.hwt) { g.hwt = th; await PUT(env, "groups", gs); }
       const old = await J(env, "hp:" + gid, null); if (old && old.st !== "done") await hpFinalize(env, g, old);
       const hp = {id: uid(), at: Date.now(), by: pid, text: clean(text, 3000), items: [], refs: [], st: "draft", mid: msg.message_id};
-      try { hp.items = await hpParse(env, g, text, hp.at); } catch (e) { hp.items = []; await pm(env, pid, "⏳ AI band bo'lgani uchun Homework hali o'qilmadi — 5 daqiqada qayta urinaman."); hp.retry = 1; }
+      try { hp.items = await hpParse(env, g, text, hp.at); } catch (e) { hp.items = []; hp.retry = 1; hp.err = String(e.message || e).slice(0, 200);
+        await pm(env, pid, `⏳ Homework hali o'qilmadi — 5 daqiqada qayta urinaman.\n<i>Sabab: ${H(hp.err)}</i>`); }
       await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); if (hp.items.length) await hpConfirm(env, g, hp);
       await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "✍"}]});
       return;
@@ -853,7 +854,12 @@ async function cron(env){
   const hpGroups = new Set();
   for (const g of gs) {
     const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue;
-    if (hp.retry && !hp.items.length) { try { hp.items = await hpParse(env, g, hp.text, hp.at); hp.retry = 0; await PUT(env, "hp:" + g.id, hp); if (hp.items.length) await hpConfirm(env, g, hp); } catch (e) {} continue; }
+    if (hp.retry && !hp.items.length) {
+      if (hp.retry > 6) continue;
+      try { hp.items = await hpParse(env, g, hp.text, hp.at); hp.retry = 0; await PUT(env, "hp:" + g.id, hp); if (hp.items.length) await hpConfirm(env, g, hp); }
+      catch (e) { hp.retry++; hp.err = String(e.message || e).slice(0, 200); await PUT(env, "hp:" + g.id, hp);
+        if (hp.retry > 6) await pm(env, hp.by, `❌ Homework postini o'qib bo'lmadi.\n<i>Sabab: ${H(hp.err)}</i>\nPostni qayta edit qilib ko'ring.`); }
+      continue; }
     if (!hp.items.length) continue;
     hpGroups.add(g.id);
     if (hp.st === "draft" && now - (hp.at2 || hp.at) > 15 * 60e3) { hp.st = "active"; await PUT(env, "hp:" + g.id, hp); await pm(env, hp.by, `✅ <b>${H(g.title)}</b> — Homework avtomatik nazoratga olindi.`); }
