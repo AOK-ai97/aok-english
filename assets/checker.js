@@ -167,26 +167,40 @@ function tgCaption(d){
   if(d.repeats)L.push(`🔁 Takroriy xatolar: ${d.repeats} ta`);if(d.late)L.push("⏰ Muddatdan kech topshirildi");
   return L.join("\n");
 }
-async function sendTG(box,d,btn){
-  btn.disabled=true;const old=btn.textContent;btn.textContent="⏳ Tayyorlanmoqda…";
+async function sendTG(box,d,btn,auto){
+  btn.disabled=true;const old=btn.textContent;btn.textContent=auto?"⏳ Guruhga avtomatik yuborilmoqda…":"⏳ Tayyorlanmoqda…";
   try{const pages=await a4Pages(box,d);btn.textContent="⏳ Yuborilmoqda…";
     const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("caption",tgCaption(d));
     (d.kind==="speaking"?VSEG:[]).forEach((v,i)=>fd.append("video",v,`speaking${i}.${/mp4/.test(v.type)?"mp4":"webm"}`));
     pages.forEach((p,i)=>fd.append("page",p,`page${i+1}.png`));
     const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));
     if(!r.ok||j.error) throw new Error(j.error||("Server xatosi "+r.status));
-    btn.textContent="✅ Telegram'ga yuborildi";msg(d.kind==="speaking"&&VSEG.length?"✅ Video va feedback guruhdagi topic'ingizga yuborildi.":"✅ Feedback guruhdagi topic'ingizga yuborildi.");VSEG=[]}
-  catch(e){btn.disabled=false;btn.textContent=old;msg("❌ "+e.message,true)}
+    const hadVideo=d.kind==="speaking"&&VSEG.length;VSEG=[];d._sent=true;
+    msg(hadVideo?"✅ Video va feedback guruhdagi topic'ingizga yuborildi.":"✅ Feedback guruhdagi topic'ingizga yuborildi.");
+    if(d.kind==="speaking"&&(d.pron||[]).length){btn.disabled=false;btn.textContent="📤 Talaffuz natijasini jo'natish";btn.onclick=e=>sendPron(d,e.currentTarget)}
+    else btn.textContent="✅ Telegram'ga yuborildi";
+    const h=box.querySelector(".send-hint");if(h)h.textContent=d.kind==="speaking"&&(d.pron||[]).length?"✅ Video va feedback topic'ingizga tushdi. Endi talaffuz mashqini bajaring (🎤 Ayting) va «📤 Talaffuz natijasini jo'natish»ni bosing — foizlaringiz ham guruhga boradi.":"✅ Feedback topic'ingizga tushdi."}
+  catch(e){btn.disabled=false;btn.textContent="📤 Jo'nat";msg((auto?"⚠️ Avtomatik yuborilmadi: ":"❌ ")+e.message+" — «📤 Jo'nat» tugmasini bosib qayta urinib ko'ring.",true)}
+}
+async function sendPron(d,btn){
+  const pc=Object.entries(d._pct||{});if(!pc.length) return msg("Avval kamida bitta so'zni 🎤 Ayting tugmasi bilan mashq qiling.",true);
+  btn.disabled=true;const e=s=>esc(s).replace(/&quot;/g,'"');
+  const cap=`🗣 <b>Talaffuz mashqi</b> — ${e(d.student_name)}\n`+pc.map(([w,v])=>`${v>=80?"🟢":v>=55?"🟡":"🔴"} ${e(w)} — <b>${v}%</b>`).join("\n")+`\n\nO'rtacha: <b>${Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length)}%</b> · ${pc.length}/${(d.pron||[]).length} so'z mashq qilindi`;
+  try{const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("extra","pron");fd.append("caption",cap);
+    const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));if(!r.ok||j.error) throw new Error(j.error||("Server xatosi "+r.status));
+    msg("✅ Talaffuz natijalari topic'ingizga yuborildi.");btn.textContent="✅ Talaffuz yuborildi · yana mashq qilsangiz qayta bosing";btn.disabled=false}
+  catch(err){btn.disabled=false;msg("❌ "+err.message,true)}
 }
 async function saveA4(box,d,btn){btn.disabled=true;try{const pages=await a4Pages(box,d);pages.forEach((p,i)=>{const a=document.createElement("a");a.download=`${(d.student_name||"oquvchi").replace(/\s+/g,"_")}_${d.kind}_${i+1}.png`;a.href=URL.createObjectURL(p);a.click()})}catch(e){alert("Saqlanmadi: "+e.message)}btn.disabled=false}
 function showReport(box,d,clips,acts){
   const send=d.can_send&&PAGE!=="teacher"?`<button class="ck-go" data-act="send">📤 Jo'nat${d.kind==="speaking"&&VSEG.length?" (video + feedback)":""}</button>`:"";
+  const autoSend=!!(send&&(d.mode==="hw"||d.mode==="exam"));
   box.innerHTML=`<div class="rep-wrap">${(d.kind==="speaking"?pronHTML(d,clips):"")+reportHTML(d)}</div><div class="rep-acts">${send}${acts||""}<button class="pri" data-act="a4">📄 A4 sahifalarni saqlash</button></div>
-    ${send?`<p class="hint">📤 Jo'nat — ${d.kind==="speaking"&&VSEG.length?"video, ":""}talaffuz natijalari va feedback A4 sahifalarda guruhdagi topic'ingizga tushadi. Avval talaffuz mashqini bajarsangiz, foizlar ham qo'shiladi.</p>`:""}`;
+    ${send?`<p class="hint send-hint">${autoSend?"⏳ Vazifa/Exam natijasi guruhdagi topic'ingizga avtomatik yuborilmoqda…":`📤 Jo'nat — feedback A4 sahifalarda guruhdagi topic'ingizga tushadi. Avval talaffuz mashqini bajarsangiz, foizlar ham qo'shiladi.`}</p>`:""}`;
   box.hidden=false;box.scrollIntoView({behavior:"smooth"});
   if(d.kind==="speaking") wirePron(box,d,clips);
   box.querySelector('[data-act="a4"]').onclick=e=>saveA4(box,d,e.currentTarget);
-  const sb=box.querySelector('[data-act="send"]');if(sb)sb.onclick=e=>sendTG(box,d,e.currentTarget);
+  const sb=box.querySelector('[data-act="send"]');if(sb){sb.onclick=e=>sendTG(box,d,e.currentTarget);if(autoSend&&!d._sent)setTimeout(()=>sendTG(box,d,sb,true),600)}
 }
 
 /* ================= O'QUVCHI: kirish + oynalar ================= */
@@ -395,7 +409,7 @@ async function submitSpeaking(){
     idb.del(runKey());
     showReport($("#ckResult"),d,CLIPS,`<button data-act="again">🏠 Bosh oyna</button>`);
     if(d.saved) msg("✅ Natija saqlandi"+(d.can_send?". «📤 Jo'nat» bilan video va feedbackni Telegram topic'ingizga yuboring.":"."));
-    $('[data-act="again"]').onclick=()=>{if(VSEG.length&&d.can_send&&!confirm("Video hali yuborilmadi. Chiqsangiz video o'chadi. Chiqasizmi?"))return;VSEG=[];$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
+    $('[data-act="again"]').onclick=()=>{if(VSEG.length&&d.can_send&&!d._sent&&!confirm("Video hali yuborilmadi. Chiqsangiz video o'chadi. Chiqasizmi?"))return;VSEG=[];$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
   catch(err){msg("❌ "+err.message+" — javoblaringiz saqlangan, qayta yuborish uchun tugmani bosing.",true);$("#ckResult").innerHTML=`<button class="ck-go" id="retry">🔁 Qayta yuborish</button>`;$("#ckResult").hidden=false;
     $("#retry").onclick=()=>{$("#ckResult").hidden=true;msg("");submitSpeaking()}}
   loading(false);

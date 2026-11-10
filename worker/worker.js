@@ -995,6 +995,9 @@ export default {
         if (!g || !stu.thread) return out({error: "Sizning topic'ingiz hali ulanmagan — o'qituvchiga ayting."}, 400);
         const key = String(fd.get("key") || ""); const rv = await env.KV.getWithMetadata(key);
         if (!key.startsWith("r:") || !rv.metadata || rv.metadata.sid !== stu.id) return out({error: "Natija topilmadi."}, 404);
+        if (fd.get("extra") === "pron") { // talaffuz mashqi natijasi — qo'shimcha xabar
+          const rr = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
+          return rr.ok ? out({ok: true}) : out({error: "Telegram: " + rr.description}, 502); }
         if (rv.metadata.sent) return out({error: "Bu natija allaqachon yuborilgan ✅"}, 409);
         const base = {chat_id: g.id, message_thread_id: stu.thread};
         const r0 = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
