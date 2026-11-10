@@ -160,3 +160,12 @@ td.up{color:#1B5E20;font-weight:700}td.dn{color:#B71C1C;font-weight:700}
 .a4 .pb,.a4 .pbh{display:none}
 .a4-top{font-size:13px;color:#5b6b86;border-bottom:2px solid #1F3864;padding-bottom:6px;margin-bottom:14px}
 .rep-blk{break-inside:avoid}
+/* Qorong'i rejimda ham Checker oynasi yorug' va aniq ko'rinsin */
+body[data-ck] section.blk{background:#F7F9FC;color:#102040;color-scheme:light;border-color:#dde3ec}
+body[data-ck] section.blk a{color:#1F3864}
+body[data-ck] .ex-card,body[data-ck] .ck-asg,body[data-ck] .sec-pick label,body[data-ck] .run{color:#102040}
+body[data-ck] .ex-card p,body[data-ck] .ex-card li,body[data-ck] .ex-s{color:#102040}
+body[data-ck] .ck-mail{color:#1a2436;background:#EEF2F7}
+body[data-ck] .hint{color:#33415c;opacity:1}
+body[data-ck] .ck-task{background:#EEF4FB}
+body[data-ck] .ck-task p,body[data-ck] .ck-task b{color:#102040}

@@ -271,13 +271,165 @@ function dayMark(rec){
 }
 const dayScore = rec => { if (!rec || rec.st) return null; const ls = Object.values(rec.it || {}).filter(x => x.l != null).map(x => Math.min(x.l, 5)); return ls.length ? avg(ls) : null; };
 
+/* ---------------- O'qituvchilar va rollar ---------------- */
+const getTeachers = env => J(env, "teachers", []);
+async function roleOf(env, uid){
+  uid = String(uid || ""); if (!uid) return null;
+  if (uid === String(env.OWNER_ID)) return {admin: true, uid, name: "Bosh admin"};
+  const t = (await getTeachers(env)).find(x => String(x.tg) === uid); return t ? {admin: false, uid, t, name: t.name} : null;
+}
+const canG = (r, g) => !!(r && g && (r.admin || (r.t.groups || []).includes(g.id)));
+async function staffIds(env, g){ const ts = (await getTeachers(env)).filter(t => t.tg && (t.groups || []).includes(g.id)).map(t => String(t.tg)); return [...new Set([String(env.OWNER_ID), ...ts])]; }
+const pm = (env, uid, text, extra) => say(env, uid, text, extra);
+function newCode(ts, env){ let c; do { c = String(100000 + Math.floor(Math.random() * 900000)); } while (ts.some(t => t.code === c) || c === env.TEACHER_CODE); return c; }
+
+/* ---------------- Dars kunlari (davomat postidan o'rganiladi) ---------------- */
+const DAYS = [[0,/(^|[^a-z'])(sunday|yakshanba|sun)\b/],[1,/(^|[^a-z'])(monday|dushanba|mon)\b/],[2,/(^|[^a-z'])(tuesday|seshanba|tue)\b/],[3,/(^|[^a-z'])(wednesday|chorshanba|wed)\b/],
+  [4,/(^|[^a-z'])(thursday|payshanba|thu)\b/],[5,/(^|[^a-z'])(friday|juma|fri)\b/],[6,/(^|[^a-z'])(saturday|shanba|sat)\b/]];
+const DAY_EN = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DAY_UZ = ["yakshanba","dushanba","seshanba","chorshanba","payshanba","juma","shanba"];
+function parseDays(text){ const t = String(text || "").toLowerCase(); const d = DAYS.filter(([, re]) => re.test(t)).map(([i]) => i); return d.length >= 2 ? d : null; }
+function lessonEnd(g){ const m = String(g.time || "").match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/); return m ? (+m[3]) * 60 + (+m[4]) : 18 * 60; }
+const atLocal = (dk, mins) => Date.parse(dk + "T00:00:00Z") - TZ + mins * 60e3;      // dk = "YYYY-MM-DD" mahalliy
+const addDays = (dk, n) => new Date(Date.parse(dk + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+const wdOf = dk => new Date(dk + "T00:00:00Z").getUTCDay();
+function nextLesson(g, fromDk){ // keyingi dars kuni (post kunidan keyin), dars tugashidan 15 daqiqa oldin
+  const days = g.days && g.days.length ? g.days : null;
+  for (let i = 1; i <= 8; i++) { const dk = addDays(fromDk, i); if (!days || days.includes(wdOf(dk))) return atLocal(dk, lessonEnd(g) - 15); if (!days && i >= 2) break; }
+  return atLocal(addDays(fromDk, 2), lessonEnd(g) - 15);
+}
+
+/* ---------------- Homework posti (#Homework) ---------------- */
+const HP_TYPES = ["shadowing","site_writing","site_speaking","voice","photo","text","video","in_class","none"];
+const HP_ICON = {shadowing:"🎧", site_writing:"✍️", site_speaking:"🎤", voice:"🎙", photo:"📷", text:"💬", video:"🎥", in_class:"🏫", none:"ℹ️"};
+const HP_HOW = {shadowing:"ovozli xabar (shadowing)", site_writing:"AOK Checker · Writing", site_speaking:"AOK Checker · Speaking", voice:"ovozli xabar", photo:"rasm", text:"matn", video:"video", in_class:"darsda so'raladi", none:"—"};
+const SUBMIT = t => !["in_class", "none"].includes(t);
+const HP_SYS = `You read a homework post written by an English teacher in Uzbek (Telegram). Split it into separate tasks, in the same order.
+For each line/task return:
+"title": short Uzbek title exactly in the teacher's words (max 70 chars);
+"type": one of shadowing (listen to the attached audio and repeat it, send a voice message), site_writing (Writing Task 1.1 / 1.2 / 2 checked on the AOK website — "AOK check"), site_speaking (Speaking Part 1.1/1.2/2/3 checked on the AOK website), voice (send a voice message/audio, not shadowing), photo (written work to send as a photo), text (send as a text message), video (send a video), in_class (memorise / learn / read / do exercises — checked in the next lesson, nothing to send), none (bring money/books/things, announcements, not a task);
+"count": how many submissions (e.g. "2 ta audio shadowing" → 2; default 1);
+"due_kind": today | tomorrow | next_lesson | weekday | date | none — from words like "bugun", "ertaga", "keyingi darsga qadar", "juma kuni", "15-noyabr";
+"time": "HH:MM" if a time is written (e.g. "23:59", "21:00"), else "";
+"weekday": 0–6 (0 = Sunday) if a weekday is named, else -1;
+"date": "YYYY-MM-DD" if a calendar date is named, else "".
+Answer ONLY with JSON.`;
+const HP_SCHEMA = {type:"OBJECT",properties:{items:{type:"ARRAY",items:{type:"OBJECT",properties:{title:STR,type:{type:"STRING",enum:HP_TYPES},count:{type:"INTEGER"},due_kind:STR,time:STR,weekday:{type:"INTEGER"},date:STR},required:["title","type","count","due_kind","time","weekday","date"]}}},required:["items"]};
+function hpDue(g, postAt, it){
+  const dk = dayKey(postAt); const tm = String(it.time || "").match(/^(\d{1,2}):(\d{2})$/); const mins = tm ? (+tm[1]) * 60 + (+tm[2]) : null;
+  switch (it.due_kind) {
+    case "today": return atLocal(dk, mins ?? 23 * 60 + 59);
+    case "tomorrow": return atLocal(addDays(dk, 1), mins ?? 23 * 60 + 59);
+    case "weekday": if (it.weekday >= 0) { for (let i = 1; i <= 7; i++) { const d = addDays(dk, i); if (wdOf(d) === it.weekday) return atLocal(d, mins ?? ((g.days || []).includes(it.weekday) ? lessonEnd(g) - 15 : 23 * 60 + 59)); } } break;
+    case "date": if (/^\d{4}-\d{2}-\d{2}$/.test(it.date)) return atLocal(it.date, mins ?? 23 * 60 + 59); break;
+  }
+  const nl = nextLesson(g, dk); return mins !== null && it.due_kind === "next_lesson" ? atLocal(dayKey(nl), mins) : nl;
+}
+async function hpParse(env, g, text, postAt, fix){
+  const today = dayKey(postAt);
+  const ctx = `Post date: ${today} (${DAY_EN[wdOf(today)]}). Lesson days: ${(g.days || []).map(d => DAY_EN[d]).join(", ") || "unknown"}.\n\nPOST:\n${clean(text, 3000)}` + (fix ? `\n\nTEACHER'S CORRECTION (apply it, it overrides the post):\n${clean(fix, 800)}` : "");
+  const r = await gemini(env, HP_SYS, [{text: ctx}], HP_SCHEMA, 0.1, true);
+  return (r.items || []).slice(0, 15).map((it, i) => ({id: "i" + (i + 1), title: clean(it.title, 90), type: HP_TYPES.includes(it.type) ? it.type : "in_class", count: Math.max(1, Math.min(10, +it.count || 1)),
+    due: SUBMIT(it.type) ? hpDue(g, postAt, it) : null}));
+}
+function hpTable(hp){
+  return hp.items.map((it, i) => `${i + 1}. ${HP_ICON[it.type]} <b>${H(it.title)}</b>\n     ${H(HP_HOW[it.type])}${it.count > 1 && SUBMIT(it.type) ? ` ×${it.count}` : ""}${it.due ? ` · ⏰ ${DAY_UZ[wdOf(dayKey(it.due))]} ${ddmm(it.due)} ${hhmm(it.due)}` : ""}`).join("\n") +
+    (hp.refs && hp.refs.length ? `\n\n🎧 Shadowing audiolari: ${hp.refs.map(r => H(r.name)).join(", ")}` : "");
+}
+const hpEnd = (g, hp) => Math.max(...hp.items.filter(i => i.due).map(i => i.due), nextLesson(g, dayKey(hp.at)));
+async function hpConfirm(env, g, hp){
+  return pm(env, hp.by, `📋 <b>${H(g.title)} — Homework</b> (${ddmm(hp.at)})\n\n${hpTable(hp)}\n\n🗓 Topshirish ${DAY_UZ[wdOf(dayKey(hpEnd(g, hp)))]} ${ddmm(hpEnd(g, hp))} ${hhmm(hpEnd(g, hp))} gacha qabul qilinadi.\n<i>15 daqiqada tasdiqlamasangiz, o'zi ishga tushadi.</i>`,
+    kb([[{text: "✅ To'g'ri", callback_data: "hpok:" + g.id}, {text: "✏️ Tuzatish", callback_data: "hped:" + g.id}]]));
+}
+const hsubKey = (hp, sid) => `hs:${hp.id}:${sid}`;
+async function hpProgress(env, g, hp, s, prof){
+  const sub = await J(env, hsubKey(hp, s.id), {it: {}}); prof = prof || await getProfile(env, s.id);
+  const res = {};
+  for (const it of hp.items.filter(i => SUBMIT(i.type))) {
+    let n = 0, info = "";
+    if (it.type === "site_writing" || it.type === "site_speaking") { const k = it.type === "site_writing" ? "writing" : "speaking";
+      const e = (prof.h || []).filter(x => x.k === k && x.at >= hp.at).sort((a, b) => b.at - a.at); n = e.length ? Math.min(it.count, e.length) : 0; if (e[0]) info = `${fmtN(e[0].tot)}/${e[0].max}`; }
+    else { const x = sub.it[it.id]; n = x ? x.n : 0; if (x && x.best != null) info = x.best + "%"; }
+    res[it.id] = {n, need: it.count, ok: n >= it.count, info, late: false};
+  }
+  return res;
+}
+async function hpSummary(env, g, hp, final){
+  const studs = (await getStudents(env)).filter(s => s.gid === g.id); const items = hp.items.filter(i => SUBMIT(i.type));
+  let t = `📊 <b>${final ? "YAKUNIY NATIJA" : "HOLAT"} — ${H(g.title)}</b>\n📋 Homework ${ddmm(hp.at)}\n` + items.map((it, i) => `${i + 1}. ${HP_ICON[it.type]} ${H(it.title)}`).join("\n") + "\n\n";
+  let full = 0;
+  for (const [i, s] of studs.entries()) {
+    const pr = await hpProgress(env, g, hp, s); const done = items.filter(it => pr[it.id].ok).length; if (done === items.length) full++;
+    t += `${i + 1}. ${H(s.name)} — ${items.map(it => pr[it.id].ok ? "✅" : pr[it.id].n ? "🟡" : "❌").join("")} <b>${done}/${items.length}</b>${items.map(it => pr[it.id].info ? ` · ${HP_ICON[it.type]}${pr[it.id].info}` : "").join("")}\n`;
+  }
+  return t + `\n✅ To'liq bajardi: <b>${full}/${studs.length}</b>   (✅ bajardi · 🟡 chala · ❌ yo'q)`;
+}
+
+/* ---------------- Shadowing tekshiruvi ---------------- */
+const SH_SYS = `You check a SHADOWING homework of an English learner (Uzbekistan). The learner listened to an ORIGINAL recording and recorded himself repeating it.
+You get the ORIGINAL recording(s) (numbered) and the STUDENT recording${"(s)"}. Optionally an EARLIER recording of the same student for voice comparison.
+Return:
+"ref": number of the original that the student shadowed (1-based; 0 if none matches);
+"coverage": 0–100 — how much of that original's text the student really said;
+"pron": 0–100 pronunciation accuracy (sounds, word stress) of the student;
+"fluency": 0–100 (rhythm, speed, intonation compared with the original);
+"wrong": up to 8 mispronounced words: {"word", "tip" (very short UZBEK tip)};
+"voices": how many different human voices are clearly audible in the STUDENT recording;
+"playback": true if the STUDENT recording seems to contain the original audio itself (studio-quality native voice, the original playing from a speaker/phone, identical to the original) instead of the student's own voice;
+"other_person": true if the student's voice clearly differs from the EARLIER recording (only when an earlier recording is given; else false);
+"suspect_uz": one short UZBEK sentence explaining any suspicion (empty if none);
+"note_uz": 1–2 short UZBEK sentences of feedback for the student (what was good, what to fix).
+Be fair: background noise, accent and quiet voice are NOT cheating. Answer ONLY with JSON.`;
+const SH_SCHEMA = {type:"OBJECT",properties:{ref:{type:"INTEGER"},coverage:NUM,pron:NUM,fluency:NUM,wrong:{type:"ARRAY",items:{type:"OBJECT",properties:{word:STR,tip:STR},required:["word","tip"]}},voices:{type:"INTEGER"},playback:{type:"BOOLEAN"},other_person:{type:"BOOLEAN"},suspect_uz:STR,note_uz:STR},required:["ref","coverage","pron","fluency","wrong","voices","playback","other_person","suspect_uz","note_uz"]};
+async function tgFileB64(env, file_id, max = 15e6){
+  const f = await tg(env, "getFile", {file_id}); if (!f.ok || !f.result.file_path || (f.result.file_size || 0) > max) return null;
+  const r = await fetch(`https://api.telegram.org/file/bot${env.TG_TOKEN}/${f.result.file_path}`); if (!r.ok) return null;
+  const u8 = new Uint8Array(await r.arrayBuffer()); let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return {data: btoa(s), path: f.result.file_path};
+}
+const audioMime = (m, path) => (m && m.mime_type) || (/\.mp3$/i.test(path) ? "audio/mpeg" : /\.m4a$/i.test(path) ? "audio/mp4" : /\.wav$/i.test(path) ? "audio/wav" : "audio/ogg");
+async function checkShadowing(env, g, hp, s, msg, studs){
+  const it = hp.items.find(i => i.type === "shadowing"); const media = msg.voice || msg.audio || msg.document;
+  const reply = (text) => toTopic(env, g.id, msg.message_thread_id || s.thread, text, {reply_to_message_id: msg.message_id, allow_sending_without_reply: true});
+  const fwd = !!(msg.forward_origin || msg.forward_from || msg.forward_sender_name || msg.forward_date);
+  if (fwd) { await reply(`⚠️ ${H(first(s.name))}, shadowing'ni <b>o'zingiz yozib</b> yuboring — forward qilingan audio qabul qilinmaydi 🙂`);
+    for (const id of await staffIds(env, g)) await pm(env, id, `⚠️ <b>${H(s.name)}</b> (${H(g.title)}) shadowing o'rniga <b>forward qilingan audio</b> yubordi.`); return; }
+  const mine = await tgFileB64(env, media.file_id); if (!mine) return reply("⚠️ Audio juda katta yoki yuklab bo'lmadi. Iltimos, qisqaroq ovozli xabar yuboring.");
+  const parts = []; const refs = (hp.refs || []).slice(0, 4);
+  for (const [i, r] of refs.entries()) { const a = await tgFileB64(env, r.file_id); if (a) { parts.push({text: `ORIGINAL ${i + 1} — "${r.name}":`}); parts.push({inline_data: {mime_type: r.mime || audioMime(null, a.path), data: a.data}}); } }
+  if (!parts.length) parts.push({text: "(No original audio is available — judge only pronunciation and fluency; ref=0, coverage = estimate of how complete and natural the passage sounds.)"});
+  if (s.vf && s.vf !== media.file_id) { const old = await tgFileB64(env, s.vf, 4e6); if (old) { parts.push({text: "EARLIER recording of the same student (voice comparison only):"}); parts.push({inline_data: {mime_type: "audio/ogg", data: old.data}}); } }
+  parts.push({text: `STUDENT recording${msg.caption ? ` (caption: "${clean(msg.caption, 80)}")` : ""}:`}); parts.push({inline_data: {mime_type: audioMime(media, mine.path), data: mine.data}});
+  let r; try { r = await gemini(env, SH_SYS, parts, SH_SCHEMA, 0.1); } catch (e) { return reply("⏳ AI hozir band — shadowing'ingiz saqlandi, o'qituvchi tekshiradi."); }
+  const cov = Math.round(Math.max(0, Math.min(100, +r.coverage || 0))), pron = Math.round(Math.max(0, Math.min(100, +r.pron || 0))), flu = Math.round(Math.max(0, Math.min(100, +r.fluency || 0)));
+  const refName = r.ref > 0 && refs[r.ref - 1] ? refs[r.ref - 1].name : (msg.caption || "");
+  const sus = !!(r.playback || (r.voices || 1) > 1 || r.other_person || (msg.audio && !msg.voice));
+  const counted = cov >= 40 && !r.playback;
+  const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0, refs: [], best: null, list: []};
+  const key = refName || ("#" + (x.list.length + 1));
+  if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; }
+  x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: Date.now(), ref: key, cov, pron, flu, sus}); x.list = x.list.slice(-10);
+  await PUT(env, k, sub, {expirationTtl: 30 * 864e5});
+  if (msg.voice) { const studsAll = studs || await getStudents(env); const ss = studsAll.find(y => y.id === s.id); if (ss && !ss.vf) { ss.vf = msg.voice.file_id; await PUT(env, "students", studsAll); } }
+  const bar = v => v >= 85 ? "🟢" : v >= 65 ? "🟡" : v >= 40 ? "🟠" : "🔴";
+  let t = `📡 <b>Shadowing${refName ? " — " + H(refName) : ""}</b> ${counted ? "✅" : "🔁"}\n${bar(cov)} To'liqlik: <b>${cov}%</b>\n${bar(pron)} Talaffuz: <b>${pron}%</b>\n${bar(flu)} Ravonlik: <b>${flu}%</b>`;
+  if ((r.wrong || []).length) t += `\n\n❗ <b>Xato so'zlar:</b>\n` + r.wrong.slice(0, 8).map(w => `• <b>${H(w.word)}</b> — ${H(w.tip)}`).join("\n");
+  if (r.note_uz) t += `\n\n💬 ${H(r.note_uz)}`;
+  t += counted ? `\n\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}` : `\n\n🔁 Hisobga olinmadi: matnning ko'p qismi aytilmagan. Qaytadan, to'liq yozib yuboring.`;
+  await reply(t);
+  if (sus) for (const id of await staffIds(env, g)) await pm(env, id, `⚠️ <b>Shubhali shadowing</b> — ${H(s.name)} (${H(g.title)})\n${r.playback ? "🔊 Asl audio o'ynatilgan bo'lishi mumkin\n" : ""}${(r.voices || 1) > 1 ? `👥 ${r.voices} xil ovoz eshitildi\n` : ""}${r.other_person ? "🧑‍🤝‍🧑 Ovoz oldingi yozuvlariga o'xshamaydi\n" : ""}${msg.audio && !msg.voice ? "📁 Ovozli xabar emas, audio fayl yuklangan\n" : ""}${r.suspect_uz ? "💬 " + H(r.suspect_uz) : ""}\n<i>AI taxmini — tekshirib ko'ring.</i>`);
+}
+
 /* ---------------- Natijalar / davomat matnlari ---------------- */
-async function latestHw(env){ const o = {}; for (const k of KINDS) o[k] = await J(env, "hw:" + k, null); return o; }
+async function hwOf(env, kind, gid){ const h = await J(env, `hw:${kind}:${gid}`, null); if (h && h.ids && h.ids.length) return h; const l = await J(env, "hw:" + kind, null); return hwFor(l, gid) ? l : null; }
+async function latestHw(env, gid){ const o = {}; for (const k of KINDS) o[k] = gid ? await hwOf(env, k, gid) : await J(env, "hw:" + k, null); return o; }
 const hwFor = (hw, gid) => hw && hw.ids && hw.ids.length && (!hw.groups || !hw.groups.length || hw.groups.includes(gid));
 function subOf(prof, kind, hw){ return (prof.h || []).filter(e => e.k === kind && e.hw === hw.at).sort((a, b) => b.at - a.at)[0] || null; }
+const recentHp = async (env, g) => { const hp = await J(env, "hp:" + g.id, null); return hp && Date.now() - hp.at < 10 * 864e5 ? hp : null; };
 async function resultsText(env, g){
+  const hp = await recentHp(env, g); if (hp) return hpSummary(env, g, hp, hp.st === "done");
   const studs = (await getStudents(env)).filter(s => s.gid === g.id);
-  const hws = await latestHw(env); const act = KINDS.filter(k => hwFor(hws[k], g.id));
+  const hws = await latestHw(env, g.id); const act = KINDS.filter(k => hws[k]);
   if (!act.length) return `📊 <b>${H(g.title)}</b>\nHozircha bu guruhga vazifa berilmagan.`;
   let t = `📊 <b>NATIJALAR — ${H(g.title)}</b>\n`;
   for (const k of act) t += `${KIND_UZ[k]}: ${H(hws[k].title)}${hws[k].due ? ` · ⏰ muddat ${ddmm(hws[k].due)} ${hhmm(hws[k].due)}` : ""}\n`;
@@ -298,11 +450,12 @@ async function davomatText(env, g){
   let present = 0;
   const lines = studs.map((s, i) => { const m = dayMark(day[s.id]); if (m.startsWith("✅")) present++; return `${i + 1}. ${H(s.name)} ${m}`; });
   const pct = studs.length ? Math.round(present / studs.length * 100) : 0;
-  return `#attendance\n👨‍🏫 Teacher: ${H(g.teacher || "A. Ozodbek")}\n🕘 Time: ${H(g.time || "16:00-18:00")}\n📅 Date: ${ddmmyyyy(Date.now())}\n\n${lines.join("\n")}\n\n${pct}%`;
+  return `#attendance\n👨‍🏫 Teacher: ${H(g.teacher || "A. Ozodbek")}\n🕘 Time: ${H(g.time || "16:00-18:00")}\n📅 Date: ${ddmmyyyy(Date.now())}${g.days && g.days.length ? "\n" + g.days.map(d => DAY_EN[d]).join("-") : ""}\n\n${lines.join("\n")}\n\n${pct}%`;
 }
 async function holatText(env, g){
-  const studs = (await getStudents(env)).filter(s => s.gid === g.id); const hws = await latestHw(env);
-  const act = KINDS.filter(k => hwFor(hws[k], g.id)); if (!act.length) return "Hozir faol vazifa yo'q.";
+  const hp = await recentHp(env, g); if (hp) return hpSummary(env, g, hp, false);
+  const studs = (await getStudents(env)).filter(s => s.gid === g.id); const hws = await latestHw(env, g.id);
+  const act = KINDS.filter(k => hws[k]); if (!act.length) return "Hozir faol vazifa yo'q.";
   let t = `🔎 <b>${H(g.title)} — vazifa holati</b>\n`;
   for (const s of studs) { const p = await getProfile(env, s.id); t += `${act.map(k => subOf(p, k, hws[k]) ? "✅" : "▫️").join("")} ${H(s.name)}${s.thread ? "" : " ⚠️ topic ulanmagan"}\n`; }
   return t + `\n(${act.map(k => KIND_UZ[k]).join(" · ")})`;
@@ -322,73 +475,75 @@ function weekStats(prof, grades, from, to){
   const days = grades.filter(([t]) => t >= from && t < to).map(([, r]) => r);
   const att = days.length ? days.filter(r => !r || !r.st).length / days.length * 100 : null;
   const ds = days.map(dayScore).filter(x => x !== null);
-  return {sp: avg(sp), wr: avg(wr), att, dars: ds.length ? avg(ds) / 5 * 100 : null, n: h.length};
+  const hw = (prof.hwc || []).filter(e => e.at >= from && e.at < to).map(e => e.total ? e.done / e.total * 100 : 0);
+  return {sp: avg(sp), wr: avg(wr), att, dars: ds.length ? avg(ds) / 5 * 100 : null, hw: avg(hw), n: h.length};
 }
 const arrow = (a, b) => a == null || b == null ? "" : a - b > 3 ? " ↑" : b - a > 3 ? " ↓" : " →";
 async function weeklyReport(env, g){
   const studs = (await getStudents(env)).filter(s => s.gid === g.id); if (!studs.length) return;
   const now = Date.now(), W = 6;
-  const grDays = []; // [ts, {sid:rec}]
+  const grDays = [];
   for (let i = 0; i < W * 7; i++) { const t = now - i * 864e5; const d = await env.KV.get(`gr:${g.id}:${dayKey(t)}`); if (d) grDays.push([t, JSON.parse(d)]); }
   const rows = [], charts = [];
   for (const s of studs) {
     const p = await getProfile(env, s.id); const gr = grDays.filter(([, d]) => d[s.id] !== undefined).map(([t, d]) => [t, d[s.id]]);
     const weeks = []; for (let w = W - 1; w >= 0; w--) weeks.push(weekStats(p, gr, now - (w + 1) * WEEK, now - w * WEEK));
     const cur = weeks[W - 1], prev = weeks[W - 2];
-    const all = x => [x.sp, x.wr, x.dars].filter(v => v != null);
-    const score = all(cur).length ? avg(all(cur)) : null, pscore = all(prev).length ? avg(all(prev)) : null;
-    rows.push({s, cur, prev, score, pscore});
+    const all = x => [x.sp, x.wr, x.dars, x.hw].filter(v => v != null);
+    rows.push({s, cur, prev, score: all(cur).length ? avg(all(cur)) : null, pscore: all(prev).length ? avg(all(prev)) : null});
     charts.push({s, weeks});
   }
   const f = v => v == null ? "—" : Math.round(v) + "%";
   let t = `📈 <b>HAFTALIK HISOBOT — ${H(g.title)}</b>\n🗓 ${ddmm(now - WEEK + 864e5)} – ${ddmm(now)}\n\n`;
-  rows.forEach((r, i) => { t += `${i + 1}. <b>${H(r.s.name)}</b>${arrow(r.score, r.pscore)}\n   🎤 ${f(r.cur.sp)}${arrow(r.cur.sp, r.prev.sp)} · ✍️ ${f(r.cur.wr)}${arrow(r.cur.wr, r.prev.wr)} · 📋 ${f(r.cur.att)} · 🎯 ${f(r.cur.dars)}${arrow(r.cur.dars, r.prev.dars)}\n`; });
+  rows.forEach((r, i) => { t += `${i + 1}. <b>${H(r.s.name)}</b>${arrow(r.score, r.pscore)}\n   🎤 ${f(r.cur.sp)}${arrow(r.cur.sp, r.prev.sp)} · ✍️ ${f(r.cur.wr)}${arrow(r.cur.wr, r.prev.wr)} · 📝 ${f(r.cur.hw)}${arrow(r.cur.hw, r.prev.hw)} · 📋 ${f(r.cur.att)} · 🎯 ${f(r.cur.dars)}${arrow(r.cur.dars, r.prev.dars)}\n`; });
   const ranked = rows.filter(r => r.score != null).sort((a, b) => b.score - a.score);
   const grow = rows.filter(r => r.score != null && r.pscore != null).sort((a, b) => (b.score - b.pscore) - (a.score - a.pscore));
   if (ranked[0]) t += `\n🏆 Hafta yulduzi: <b>${H(ranked[0].s.name)}</b> (${f(ranked[0].score)})`;
   if (grow[0] && grow[0].score - grow[0].pscore > 3) t += `\n🚀 Eng ko'p o'sgan: <b>${H(grow[0].s.name)}</b> (+${Math.round(grow[0].score - grow[0].pscore)}%)`;
   const down = grow.filter(r => r.pscore - r.score > 3).map(r => H(r.s.name));
   if (down.length) t += `\n📉 E'tibor kerak: ${down.join(", ")}`;
-  t += `\n\n🎤 Speaking · ✍️ Writing · 📋 Davomat · 🎯 Darsdagi baholar\n↑ o'sdi · ↓ tushdi · → o'zgarmadi`;
+  t += `\n\n🎤 Speaking · ✍️ Writing · 📝 Uy vazifasi · 📋 Davomat · 🎯 Darsdagi baholar\n↑ o'sdi · ↓ tushdi · → o'zgarmadi`;
   await toTopic(env, g.id, g.res, t);
-  // har o'quvchiga line chart (albom, 10 tadan)
   const labels = []; for (let w = W - 1; w >= 0; w--) labels.push(ddmm(now - w * WEEK));
   const media = charts.map(c => {
-    const ds = [["🎤 Speaking","#2E7D32","sp"],["✍️ Writing","#1565C0","wr"],["🎯 Darsdagi baho","#EF6C00","dars"],["📋 Davomat","#8E24AA","att"]]
-      .map(([l, col, k]) => ({label: l.replace(/^\S+ /, ""), data: c.weeks.map(w => w[k] == null ? null : Math.round(w[k])), borderColor: col, backgroundColor: col, fill: false, spanGaps: true, borderWidth: 3, pointRadius: 4}));
-    const cfg = {type:"line", data:{labels, datasets: ds}, options:{title:{display:true, text: c.s.name + " — oxirgi 6 hafta", fontSize: 18}, legend:{position:"bottom"},
-      scales:{yAxes:[{ticks:{min:0, max:100, stepSize:20}}]}}};
-    const url = "https://quickchart.io/chart?w=700&h=420&bkg=white&c=" + encodeURIComponent(JSON.stringify(cfg));
-    return {type:"photo", media: url, caption: `📈 ${c.s.name}`};
+    const ds = [["Speaking","#2E7D32","sp"],["Writing","#1565C0","wr"],["Uy vazifasi","#00838F","hw"],["Darsdagi baho","#EF6C00","dars"],["Davomat","#8E24AA","att"]]
+      .map(([l, col, k]) => ({label: l, data: c.weeks.map(w => w[k] == null ? null : Math.round(w[k])), borderColor: col, backgroundColor: col, fill: false, spanGaps: true, borderWidth: 3, pointRadius: 4}));
+    const cfg = {type:"line", data:{labels, datasets: ds}, options:{title:{display:true, text: c.s.name + " — oxirgi 6 hafta", fontSize: 18}, legend:{position:"bottom"}, scales:{yAxes:[{ticks:{min:0, max:100, stepSize:20}}]}}};
+    return {type:"photo", media: "https://quickchart.io/chart?w=700&h=420&bkg=white&c=" + encodeURIComponent(JSON.stringify(cfg)), caption: `📈 ${c.s.name}`};
   });
   for (let i = 0; i < media.length; i += 10) {
-    const chunk = media.slice(i, i + 10);
-    await tg(env, chunk.length > 1 ? "sendMediaGroup" : "sendPhoto", chunk.length > 1
-      ? {chat_id: g.id, message_thread_id: g.res > 1 ? g.res : undefined, media: chunk}
-      : {chat_id: g.id, message_thread_id: g.res > 1 ? g.res : undefined, photo: chunk[0].media, caption: chunk[0].caption});
+    const chunk = media.slice(i, i + 10); const th = g.res > 1 ? g.res : undefined;
+    await tg(env, chunk.length > 1 ? "sendMediaGroup" : "sendPhoto", chunk.length > 1 ? {chat_id: g.id, message_thread_id: th, media: chunk} : {chat_id: g.id, message_thread_id: th, photo: chunk[0].media, caption: chunk[0].caption});
   }
 }
 
 /* ---------------- Bot: menyular ---------------- */
-async function mainMenu(env, chat, edit){
-  const gs = (await getGroups(env)).filter(g => g.active !== false); const studs = await getStudents(env);
-  const text = gs.length ? `📡 <b>AOK Radar</b>\nGuruhni tanlang:` : `📡 <b>AOK Radar</b>\nHali guruh ulanmagan.\n\nBotni guruhga qo'shing va <b>admin</b> qiling — guruh shu yerda o'zi paydo bo'ladi.`;
+async function myGroups(env, r){ return (await getGroups(env)).filter(g => g.active !== false && canG(r, g)); }
+async function mainMenu(env, r, edit){
+  const gs = await myGroups(env, r); const studs = await getStudents(env);
+  const text = gs.length ? `📡 <b>AOK Radar</b>${r.admin ? "" : ` · ${H(r.name)}`}\nGuruhni tanlang:` : `📡 <b>AOK Radar</b>\nHali guruh yo'q.\n\nBotni guruhga qo'shing va <b>admin</b> qiling — guruh shu yerda o'zi paydo bo'ladi.`;
   const rows = gs.map(g => [{text: `📚 ${g.title} (${studs.filter(s => s.gid === g.id).length})`, callback_data: "g:" + g.id}]);
-  return edit ? tg(env, "editMessageText", {chat_id: chat, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : say(env, chat, text, kb(rows));
+  if (r.admin) rows.push([{text: "👩‍🏫 O'qituvchilar", callback_data: "tl"}]);
+  return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, text, kb(rows));
 }
-function groupKb(g){
-  return kb([[{text:"📊 Natijalar", callback_data:"res:" + g.id}, {text:"📋 Davomat", callback_data:"dav:" + g.id}],
+function groupKb(g, r){
+  const rows = [[{text:"📊 Natijalar", callback_data:"res:" + g.id}, {text:"📋 Davomat", callback_data:"dav:" + g.id}],
     [{text:"🔎 Holat", callback_data:"hol:" + g.id}, {text:"🔑 PIN kodlar", callback_data:"pin:" + g.id}],
-    [{text:"📈 Haftalik hisobot", callback_data:"wk:" + g.id}, {text:"⚙️ Sozlamalar", callback_data:"set:" + g.id}],
-    [{text:"🗑 Guruhni yopish", callback_data:"del1:" + g.id}], [{text:"⬅️ Orqaga", callback_data:"menu"}]]);
+    [{text:"📈 Haftalik hisobot", callback_data:"wk:" + g.id}, {text:"⚙️ Sozlamalar", callback_data:"set:" + g.id}]];
+  if (r.admin) rows.push([{text:"🗑 Guruhni yopish", callback_data:"del1:" + g.id}]);
+  rows.push([{text:"⬅️ Orqaga", callback_data:"menu"}]); return kb(rows);
 }
-async function groupMenu(env, chat, g, edit){
-  const n = (await getStudents(env)).filter(s => s.gid === g.id);
-  const text = `📚 <b>${H(g.title)}</b>\n👥 ${n.length} ta o'quvchi · 🔗 ${n.filter(s => s.thread).length} ta topic ulangan${g.quiet ? "\n🔕 Eslatmalar o'chiq" : ""}\n\nResults: ${g.res ? "✅" : "❌"} · Davomat: ${g.dav ? "✅" : "❌"} · Kun e'tirozi: ${g.kun ? "✅" : "❌"}`;
-  return edit ? tg(env, "editMessageText", {chat_id: chat, message_id: edit, text, parse_mode: "HTML", ...groupKb(g)}) : say(env, chat, text, groupKb(g));
+async function groupMenu(env, r, g, edit){
+  const n = (await getStudents(env)).filter(s => s.gid === g.id); const ts = (await getTeachers(env)).filter(t => (t.groups || []).includes(g.id));
+  const hp = await recentHp(env, g);
+  const text = `📚 <b>${H(g.title)}</b>\n👥 ${n.length} ta o'quvchi · 🔗 ${n.filter(s => s.thread).length} ta topic ulangan${g.quiet ? "\n🔕 Eslatmalar o'chiq" : ""}\n` +
+    `🗓 Darslar: ${g.days && g.days.length ? g.days.map(d => DAY_UZ[d]).join(", ") : "noma'lum (davomat postidan o'rganiladi)"} · ${H(g.time || "16:00-18:00")}\n` +
+    `👩‍🏫 O'qituvchi: ${ts.length ? ts.map(t => H(t.name)).join(", ") : "siz"}\n📋 Homework: ${hp ? `${ddmm(hp.at)} (${hp.st === "done" ? "yakunlangan" : hp.st === "draft" ? "tasdiq kutilmoqda" : "faol"})` : "yo'q"}\n\n` +
+    `Results: ${g.res ? "✅" : "❌"} · Davomat: ${g.dav ? "✅" : "❌"} · Kun e'tirozi: ${g.kun ? "✅" : "❌"} · Homework: ${g.hwt ? "✅" : "—"}`;
+  return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text, parse_mode: "HTML", ...groupKb(g, r)}) : pm(env, r.uid, text, groupKb(g, r));
 }
 function settingsKb(g){
-  return kb([[{text:"🔗 Kun e'tirozi topic", callback_data:"w:kun:" + g.id}], [{text:"🔗 Results topic", callback_data:"w:res:" + g.id}], [{text:"🔗 Davomat topic", callback_data:"w:dav:" + g.id}],
+  return kb([[{text:"🔗 Kun e'tirozi topic", callback_data:"w:kun:" + g.id}], [{text:"🔗 Results topic", callback_data:"w:res:" + g.id}], [{text:"🔗 Davomat topic", callback_data:"w:dav:" + g.id}], [{text:"🔗 Homework topic", callback_data:"w:hwt:" + g.id}],
     [{text:"👥 O'quvchilar qo'shish", callback_data:"w:list:" + g.id}], [{text:"🔗 Ulanmagan topiclarni ulash", callback_data:"w:links:" + g.id}],
     [{text: g.quiet ? "🔔 Eslatmalarni yoqish" : "🔕 Eslatmalarni o'chirish", callback_data:"quiet:" + g.id}], [{text:"⬅️ Orqaga", callback_data:"g:" + g.id}]]);
 }
@@ -396,56 +551,92 @@ const ASK = {
   kun: "📌 <b>Kun e'tirozi</b> topic linkini yuboring.\n\n<i>Topic nomini bosib turing (telefonda) yoki o'ng tugma (kompyuterda) → «Copy link».</i>",
   res: "📊 <b>Results</b> topic linkini yuboring.",
   dav: "📋 <b>Davomat</b> topic linkini yuboring.",
-  list: "👥 <b>O'quvchilar ro'yxatini</b> yuboring — har qatorda bitta ism. Xohlasangiz yoniga topic linki:\n\n<code>Aziza Karimova\nBexruz Islomjonov - https://t.me/c/4306427312/41</code>"
+  hwt: "📝 <b>Homework</b> topic linkini yuboring. (Ixtiyoriy: #Homework yozilgan postni bot o'zi ham topadi.)",
+  list: "👥 <b>O'quvchilar ro'yxatini</b> yuboring — har qatorda bitta ism. Xohlasangiz yoniga topic linki:\n\n<code>Aziza Karimova\nBexruz Islomjonov - https://t.me/c/4306427312/41</code>",
+  tname: "👩‍🏫 Yangi o'qituvchining <b>ism familiyasini</b> yozing:",
+  hpfix: "✏️ Nimani tuzatay? Oddiy so'z bilan yozing, masalan:\n<code>2-vazifa rasm emas, ovozli bo'ladi</code>\n<code>4-vazifa muddati juma 18:00</code>"
 };
+const wizK = uid => "wiz:" + uid;
 async function askNextLink(env, w){
   const studs = await getStudents(env); const q = studs.filter(s => s.gid === w.gid && !s.thread && s.thread !== 0);
   if (!q.length) return finishWizard(env, w);
-  const s = q[0]; w.step = "links"; w.sid = s.id; await PUT(env, "wiz", w);
-  return owner(env, `🔗 <b>${H(s.name)}</b> — topic linkini yuboring.\n(${studs.filter(x => x.gid === w.gid && x.thread).length + 1}/${studs.filter(x => x.gid === w.gid).length})`,
+  const s = q[0]; w.step = "links"; w.sid = s.id; await PUT(env, wizK(w.uid), w);
+  return pm(env, w.uid, `🔗 <b>${H(s.name)}</b> — topic linkini yuboring.\n(${studs.filter(x => x.gid === w.gid && x.thread).length + 1}/${studs.filter(x => x.gid === w.gid).length})`,
     kb([[{text:"⏭ O'tkazib yuborish", callback_data:"skip"}, {text:"✅ Keyinroq ulayman", callback_data:"wdone"}]]));
 }
 async function finishWizard(env, w){
-  await env.KV.delete("wiz"); const g = (await getGroups(env)).find(x => x.id === w.gid); if (!g) return;
+  await env.KV.delete(wizK(w.uid)); const g = (await getGroups(env)).find(x => x.id === w.gid); if (!g) return;
   const studs = await getStudents(env); if (studs.some(s => s.thread === 0)) { studs.forEach(s => { if (s.thread === 0) s.thread = null; }); await PUT(env, "students", studs); }
-  await owner(env, `✅ <b>${H(g.title)}</b> nazoratga olindi!`);
-  await owner(env, await pinText(env, g)); return groupMenu(env, env.OWNER_ID, g);
+  await pm(env, w.uid, `✅ <b>${H(g.title)}</b> nazoratga olindi!\n\n💡 Davomat topic'iga dars kunlari va vaqtini bir marta yozib qo'ying, masalan:\n<code>Time: 16:00-18:00\nTuesday-Thursday-Saturday</code>\nBot "keyingi darsgacha" muddatini shundan hisoblaydi.`);
+  await pm(env, w.uid, await pinText(env, g)); const r = await roleOf(env, w.uid); return r && groupMenu(env, r, g);
 }
 async function wizardNext(env, w){
   const g = (await getGroups(env)).find(x => x.id === w.gid);
   const order = ["kun", "res", "dav", "list"];
   if (w.flow === "setup") {
     const nx = order.find(k => k === "list" ? !w.listed : !g[k]);
-    if (nx) { w.step = nx; await PUT(env, "wiz", w); return owner(env, `<b>${order.indexOf(nx) + 1}/4.</b> ` + ASK[nx]); }
-    if (w.type === "new") { await owner(env, "🆕 Yangi guruh: o'quvchilar topic'larini guruhda o'zingiz oching. <b>Topic nomi o'quvchi ismi bilan bir xil bo'lsa, bot uni o'zi ulaydi.</b>"); return finishWizard(env, w); }
+    if (nx) { w.step = nx; await PUT(env, wizK(w.uid), w); return pm(env, w.uid, `<b>${order.indexOf(nx) + 1}/4.</b> ` + ASK[nx]); }
+    if (w.type === "new") { await pm(env, w.uid, "🆕 Yangi guruh: o'quvchilar topic'larini guruhda o'zingiz oching. <b>Topic nomi o'quvchi ismi bilan bir xil bo'lsa, bot uni o'zi ulaydi.</b>"); return finishWizard(env, w); }
     return askNextLink(env, w);
   }
-  await env.KV.delete("wiz"); return groupMenu(env, env.OWNER_ID, g);
+  await env.KV.delete(wizK(w.uid)); const r = await roleOf(env, w.uid); return groupMenu(env, r, g);
+}
+async function teachersMenu(env, uid, edit){
+  const ts = await getTeachers(env); const gs = (await getGroups(env)).filter(g => g.active !== false);
+  const text = `👩‍🏫 <b>O'qituvchilar</b>\n\n` + (ts.length ? ts.map((t, i) => `${i + 1}. <b>${H(t.name)}</b> — ${t.tg ? "✅ botga ulangan" : "⏳ hali ulanmagan"}\n     📚 ${(t.groups || []).map(id => H((gs.find(g => g.id === id) || {}).title || "?")).join(", ") || "guruh berilmagan"}`).join("\n") : "Hali o'qituvchi qo'shilmagan.") +
+    `\n\nHar bir o'qituvchi o'z kodi bilan saytdagi panelga kiradi va botga shu kodni yuborib ulanadi. Baza hammaga umumiy.`;
+  const rows = ts.map(t => [{text: "✏️ " + t.name, callback_data: "t:" + t.id}]); rows.push([{text: "➕ Yangi o'qituvchi", callback_data: "ta"}]); rows.push([{text: "⬅️ Orqaga", callback_data: "menu"}]);
+  return edit ? tg(env, "editMessageText", {chat_id: uid, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : pm(env, uid, text, kb(rows));
+}
+async function teacherCard(env, uid, t, edit){
+  const gs = (await getGroups(env)).filter(g => g.active !== false);
+  const text = `👩‍🏫 <b>${H(t.name)}</b>\n🔑 Kod: <code>${t.code}</code>\n${t.tg ? "✅ Botga ulangan" : "⏳ Botga hali ulanmagan — o'qituvchi botga /start bosib shu kodni yuborsin"}\n\n📚 Guruhlarini belgilang:`;
+  const rows = gs.map(g => [{text: ((t.groups || []).includes(g.id) ? "✅ " : "▫️ ") + g.title, callback_data: `tg:${t.id}:${g.id}`}]);
+  rows.push([{text: "🔑 Yangi kod", callback_data: "tk:" + t.id}, {text: "🗑 O'chirish", callback_data: "td1:" + t.id}]); rows.push([{text: "⬅️ Orqaga", callback_data: "tl"}]);
+  return edit ? tg(env, "editMessageText", {chat_id: uid, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : pm(env, uid, text, kb(rows));
 }
 async function onPrivate(env, msg){
-  const text = (msg.text || "").trim(); const w = await J(env, "wiz", null);
-  if (/^\/(start|guruhlar|menu)/.test(text)) { if (w) await env.KV.delete("wiz"); return mainMenu(env, msg.chat.id); }
-  const gs = await getGroups(env); const one = gs.filter(g => g.active !== false);
-  const pickG = async (cmd) => one.length === 1 ? one[0] : (await owner(env, "Guruhni tanlang:", kb(one.map(g => [{text: g.title, callback_data: cmd + ":" + g.id}]))), null);
-  if (/^\/natijalar/.test(text)) { const g = await pickG("res"); return g && cbAction(env, "res", g); }
-  if (/^\/davomat/.test(text)) { const g = await pickG("dav"); return g && cbAction(env, "dav", g); }
-  if (/^\/holat/.test(text)) { const g = await pickG("hol"); return g && cbAction(env, "hol", g); }
-  if (/^\/pinlar/.test(text)) { for (const g of one) await owner(env, await pinText(env, g)); return; }
-  if (/^\/hisobot/.test(text)) { const g = await pickG("wk"); return g && cbAction(env, "wk", g); }
-  if (/^\/(jim|yoq)/.test(text)) { const q = /^\/jim/.test(text); for (const g of gs) g.quiet = q; await PUT(env, "groups", gs); return owner(env, q ? "🔕 Eslatmalar o'chirildi. Qayta yoqish: /yoq" : "🔔 Eslatmalar yoqildi."); }
-  if (/^\/(ochir|yangipin)\s+/.test(text)) {
-    const studs = await getStudents(env); const q = nn(text.replace(/^\/\S+\s+/, "")); const s = studs.find(x => nn(x.name) === q) || studs.find(x => nn(x.name).includes(q));
-    if (!s) return owner(env, "❓ Bunday o'quvchi topilmadi.");
-    if (/^\/ochir/.test(text)) { await PUT(env, "students", studs.filter(x => x.id !== s.id)); return owner(env, `🗑 ${H(s.name)} ro'yxatdan o'chirildi.`); }
-    s.pin = newPin(studs); await PUT(env, "students", studs); return owner(env, `🔑 ${H(s.name)} — yangi PIN: <code>${s.pin}</code>`);
+  const me = String(msg.from.id); const text = (msg.text || "").trim(); let r = await roleOf(env, me);
+  if (!r) { // o'qituvchi kodini yuborsa — ulanadi
+    const ts = await getTeachers(env); const t = /^\d{6}$/.test(text) && ts.find(x => x.code === text);
+    if (t) { t.tg = me; await PUT(env, "teachers", ts); await pm(env, me, `✅ Xush kelibsiz, <b>${H(t.name)}</b>!\nSiz AOK Radar'ga o'qituvchi sifatida ulandingiz.`);
+      await pm(env, env.OWNER_ID, `👩‍🏫 <b>${H(t.name)}</b> botga ulandi.`); return mainMenu(env, await roleOf(env, me)); }
+    return pm(env, me, "📡 <b>AOK Radar</b>\nBu bot AOK English o'qituvchilari uchun. O'quvchi bo'lsangiz, natijalaringiz guruhdagi topic'ingizga keladi 🙂\n\n👩‍🏫 O'qituvchi bo'lsangiz — 6 xonali kodingizni yuboring.");
   }
-  if (!w) return owner(env, "📡 Menyu uchun /start bosing.");
-  const g = gs.find(x => x.id === w.gid); if (!g) { await env.KV.delete("wiz"); return; }
-  if (["kun", "res", "dav"].includes(w.step)) {
-    const l = parseLink(text); if (!l) return owner(env, "❗ Link topilmadi. <code>https://t.me/c/…/…</code> ko'rinishidagi linkni yuboring.");
-    if (l.chat !== g.id) return owner(env, "❗ Bu link boshqa guruhniki. Shu guruhdagi topic linkini yuboring.");
-    g[w.step] = l.thread; await PUT(env, "groups", gs); await owner(env, "✅ Saqlandi.");
-    if (w.flow !== "setup") { await env.KV.delete("wiz"); return groupMenu(env, env.OWNER_ID, g); }
+  const w = await J(env, wizK(me), null);
+  if (/^\/(start|guruhlar|menu)/.test(text)) { if (w) await env.KV.delete(wizK(me)); return mainMenu(env, r); }
+  const one = await myGroups(env, r);
+  const pickG = async (cmd) => one.length === 1 ? one[0] : (await pm(env, me, "Guruhni tanlang:", kb(one.map(g => [{text: g.title, callback_data: cmd + ":" + g.id}]))), null);
+  if (/^\/natijalar/.test(text)) { const g = await pickG("res"); return g && cbAction(env, r, "res", g); }
+  if (/^\/davomat/.test(text)) { const g = await pickG("dav"); return g && cbAction(env, r, "dav", g); }
+  if (/^\/holat/.test(text)) { const g = await pickG("hol"); return g && cbAction(env, r, "hol", g); }
+  if (/^\/pinlar/.test(text)) { for (const g of one) await pm(env, me, await pinText(env, g)); return; }
+  if (/^\/hisobot/.test(text)) { const g = await pickG("wk"); return g && cbAction(env, r, "wk", g); }
+  if (/^\/(jim|yoq)/.test(text)) { const q = /^\/jim/.test(text); const gs = await getGroups(env); for (const g of gs) if (canG(r, g)) g.quiet = q; await PUT(env, "groups", gs); return pm(env, me, q ? "🔕 Eslatmalar o'chirildi. Qayta yoqish: /yoq" : "🔔 Eslatmalar yoqildi."); }
+  if (/^\/(ochir|yangipin)\s+/.test(text)) {
+    const studs = await getStudents(env); const gids = one.map(g => g.id); const mineS = studs.filter(x => gids.includes(x.gid));
+    const q = nn(text.replace(/^\/\S+\s+/, "")); const s = mineS.find(x => nn(x.name) === q) || mineS.find(x => nn(x.name).includes(q));
+    if (!s) return pm(env, me, "❓ Bunday o'quvchi topilmadi.");
+    if (/^\/ochir/.test(text)) { await PUT(env, "students", studs.filter(x => x.id !== s.id)); return pm(env, me, `🗑 ${H(s.name)} ro'yxatdan o'chirildi.`); }
+    s.pin = newPin(studs); await PUT(env, "students", studs); return pm(env, me, `🔑 ${H(s.name)} — yangi PIN: <code>${s.pin}</code>`);
+  }
+  if (!w) return pm(env, me, "📡 Menyu uchun /start bosing.");
+  if (w.step === "tname" && r.admin) {
+    const ts = await getTeachers(env); const t = {id: uid(), name: text.slice(0, 60), code: newCode(ts, env), tg: null, groups: [], at: Date.now()};
+    ts.push(t); await PUT(env, "teachers", ts); await env.KV.delete(wizK(me)); return teacherCard(env, me, t);
+  }
+  const gs = await getGroups(env); const g = gs.find(x => x.id === w.gid); if (!g || !canG(r, g)) { await env.KV.delete(wizK(me)); return; }
+  if (w.step === "hpfix") {
+    const hp = await J(env, "hp:" + g.id, null); if (!hp) { await env.KV.delete(wizK(me)); return; }
+    try { hp.items = await hpParse(env, g, hp.text, hp.at, [hp.fix, text].filter(Boolean).join("\n")); hp.fix = [hp.fix, text].filter(Boolean).join("\n"); }
+    catch (e) { return pm(env, me, "⏳ AI hozir band, bir daqiqadan keyin qayta yozing."); }
+    hp.st = "draft"; hp.at2 = Date.now(); await PUT(env, "hp:" + g.id, hp); await env.KV.delete(wizK(me)); return hpConfirm(env, g, hp);
+  }
+  if (["kun", "res", "dav", "hwt"].includes(w.step)) {
+    const l = parseLink(text); if (!l) return pm(env, me, "❗ Link topilmadi. <code>https://t.me/c/…/…</code> ko'rinishidagi linkni yuboring.");
+    if (l.chat !== g.id) return pm(env, me, "❗ Bu link boshqa guruhniki. Shu guruhdagi topic linkini yuboring.");
+    g[w.step] = l.thread; await PUT(env, "groups", gs); await pm(env, me, "✅ Saqlandi.");
+    if (w.flow !== "setup") { await env.KV.delete(wizK(me)); return groupMenu(env, r, g); }
     return wizardNext(env, w);
   }
   if (w.step === "list") {
@@ -459,53 +650,74 @@ async function onPrivate(env, msg){
       else if (!s.thread) { const th = Object.keys(topics).find(k => nn(topics[k]) === nn(s.name)); if (th) { s.thread = +th; linked++; } }
     }
     await PUT(env, "students", studs); w.listed = true;
-    await owner(env, `✅ ${add} ta o'quvchi qo'shildi${linked ? `, ${linked} ta topic ulandi` : ""}.`);
+    await pm(env, me, `✅ ${add} ta o'quvchi qo'shildi${linked ? `, ${linked} ta topic ulandi` : ""}.`);
     if (w.flow !== "setup") return w.type === "new" ? finishWizard(env, w) : askNextLink(env, w);
     return wizardNext(env, w);
   }
   if (w.step === "links") {
-    const l = parseLink(text); if (!l) return owner(env, "❗ Link topilmadi. Topic linkini yuboring yoki «O'tkazib yuborish»ni bosing.");
-    if (l.chat !== g.id) return owner(env, "❗ Bu link boshqa guruhniki.");
+    const l = parseLink(text); if (!l) return pm(env, me, "❗ Link topilmadi. Topic linkini yuboring yoki «O'tkazib yuborish»ni bosing.");
+    if (l.chat !== g.id) return pm(env, me, "❗ Bu link boshqa guruhniki.");
     const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid);
     const busy = studs.find(x => x.gid === g.id && x.thread === l.thread && x.id !== w.sid);
-    if (busy) return owner(env, `❗ Bu topic allaqachon <b>${H(busy.name)}</b>ga ulangan.`);
-    if ([g.kun, g.res, g.dav].includes(l.thread)) return owner(env, "❗ Bu Results/Davomat/Kun e'tirozi topic'i. O'quvchi topic'ini yuboring.");
-    if (s) { s.thread = l.thread; await PUT(env, "students", studs); await owner(env, `✅ ${H(s.name)} ulandi.`); }
+    if (busy) return pm(env, me, `❗ Bu topic allaqachon <b>${H(busy.name)}</b>ga ulangan.`);
+    if ([g.kun, g.res, g.dav, g.hwt].includes(l.thread)) return pm(env, me, "❗ Bu Results/Davomat/Kun e'tirozi/Homework topic'i. O'quvchi topic'ini yuboring.");
+    if (s) { s.thread = l.thread; await PUT(env, "students", studs); await pm(env, me, `✅ ${H(s.name)} ulandi.`); }
     return askNextLink(env, w);
   }
 }
-async function cbAction(env, a, g){
-  if (a === "res") { const t = await resultsText(env, g); if (g.res) await toTopic(env, g.id, g.res, t); return owner(env, (g.res ? "✅ Results topic'ga yuborildi:\n\n" : "⚠️ Results topic ulanmagan (⚙️ Sozlamalar). Natija:\n\n") + t); }
-  if (a === "dav") { const t = await davomatText(env, g); if (g.dav) await toTopic(env, g.id, g.dav, t); return owner(env, (g.dav ? "✅ Davomat topic'ga yuborildi:\n\n" : "⚠️ Davomat topic ulanmagan (⚙️ Sozlamalar).\n\n") + t); }
-  if (a === "hol") return owner(env, await holatText(env, g));
-  if (a === "pin") return owner(env, await pinText(env, g));
-  if (a === "wk") { if (!g.res) return owner(env, "⚠️ Results topic ulanmagan."); await weeklyReport(env, g); return owner(env, "✅ Haftalik hisobot Results topic'ga yuborildi."); }
+async function cbAction(env, r, a, g){
+  const uid = r.uid;
+  if (a === "res") { const t = await resultsText(env, g); if (g.res) await toTopic(env, g.id, g.res, t); return pm(env, uid, (g.res ? "✅ Results topic'ga yuborildi:\n\n" : "⚠️ Results topic ulanmagan (⚙️ Sozlamalar). Natija:\n\n") + t); }
+  if (a === "dav") { const t = await davomatText(env, g); if (g.dav) await toTopic(env, g.id, g.dav, t); return pm(env, uid, (g.dav ? "✅ Davomat topic'ga yuborildi:\n\n" : "⚠️ Davomat topic ulanmagan (⚙️ Sozlamalar).\n\n") + t); }
+  if (a === "hol") return pm(env, uid, await holatText(env, g));
+  if (a === "pin") return pm(env, uid, await pinText(env, g));
+  if (a === "wk") { if (!g.res) return pm(env, uid, "⚠️ Results topic ulanmagan."); await weeklyReport(env, g); return pm(env, uid, "✅ Haftalik hisobot Results topic'ga yuborildi."); }
 }
 async function onCallback(env, cq){
-  if (String(cq.from.id) !== String(env.OWNER_ID)) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Bu bot AOK English o'qituvchisi uchun.", show_alert: true});
+  const r = await roleOf(env, cq.from.id);
+  if (!r) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Bu bot AOK English o'qituvchilari uchun.", show_alert: true});
   await tg(env, "answerCallbackQuery", {callback_query_id: cq.id});
   const d = cq.data || "", chat = cq.message.chat.id, mid = cq.message.message_id;
-  const gs = await getGroups(env); const [a, b, c] = d.split(":"); const g = gs.find(x => x.id === (c || b));
-  if (a === "menu") return mainMenu(env, chat, mid);
-  if (a === "g" && g) return groupMenu(env, chat, g, mid);
-  if (["res", "dav", "hol", "pin", "wk"].includes(a) && g) return cbAction(env, a, g);
+  const gs = await getGroups(env); const [a, b, c] = d.split(":");
+  if (a === "menu") return mainMenu(env, r, mid);
+  // o'qituvchilar (faqat bosh admin)
+  if (["tl", "ta", "t", "tg", "tk", "td1", "td2"].includes(a)) {
+    if (!r.admin) return;
+    const ts = await getTeachers(env); const t = ts.find(x => x.id === b);
+    if (a === "tl") return teachersMenu(env, r.uid, mid);
+    if (a === "ta") { await PUT(env, wizK(r.uid), {uid: r.uid, step: "tname"}); return pm(env, r.uid, ASK.tname); }
+    if (!t) return;
+    if (a === "t") return teacherCard(env, r.uid, t, mid);
+    if (a === "tg") { t.groups = t.groups || []; t.groups = t.groups.includes(c) ? t.groups.filter(x => x !== c) : [...t.groups, c]; await PUT(env, "teachers", ts); return teacherCard(env, r.uid, t, mid); }
+    if (a === "tk") { t.code = newCode(ts, env); t.tg = null; await PUT(env, "teachers", ts); return teacherCard(env, r.uid, t, mid); }
+    if (a === "td1") return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `⚠️ <b>${H(t.name)}</b> o'chirilsinmi? U botga va panelga kira olmay qoladi (baza va natijalar qoladi).`, ...kb([[{text: "🗑 Ha, o'chir", callback_data: "td2:" + t.id}, {text: "Yo'q", callback_data: "t:" + t.id}]])});
+    if (a === "td2") { await PUT(env, "teachers", ts.filter(x => x.id !== t.id)); return teachersMenu(env, r.uid, mid); }
+  }
+  const g = gs.find(x => x.id === (c || b)); if (g && !canG(r, g)) return;
+  if (a === "g" && g) return groupMenu(env, r, g, mid);
+  if (["res", "dav", "hol", "pin", "wk"].includes(a) && g) return cbAction(env, r, a, g);
   if (a === "set" && g) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: `⚙️ <b>${H(g.title)}</b> — sozlamalar`, parse_mode: "HTML", ...settingsKb(g)});
   if (a === "quiet" && g) { g.quiet = !g.quiet; await PUT(env, "groups", gs); return tg(env, "editMessageReplyMarkup", {chat_id: chat, message_id: mid, ...settingsKb(g)}); }
-  if (a === "typ" && g) { const w = {gid: g.id, flow: "setup", type: b}; await PUT(env, "wiz", w); return wizardNext(env, w); }
-  if (a === "w" && g) { const w = {gid: g.id, flow: "edit", step: b, type: b === "list" ? "old" : undefined}; await PUT(env, "wiz", w);
-    if (b === "links") { w.flow = "edit"; return askNextLink(env, w); } return owner(env, ASK[b]); }
-  if (a === "skip") { const w = await J(env, "wiz", null); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
-  if (a === "wdone") { const w = await J(env, "wiz", null); if (!w) return; const studs = await getStudents(env); studs.forEach(s => { if (s.gid === w.gid && s.thread === 0) s.thread = null; }); await PUT(env, "students", studs); return finishWizard(env, w); }
+  if (a === "typ" && g) { const w = {uid: r.uid, gid: g.id, flow: "setup", type: b}; await PUT(env, wizK(r.uid), w); return wizardNext(env, w); }
+  if (a === "w" && g) { const w = {uid: r.uid, gid: g.id, flow: "edit", step: b, type: b === "list" ? "old" : undefined}; await PUT(env, wizK(r.uid), w);
+    if (b === "links") return askNextLink(env, w); return pm(env, r.uid, ASK[b]); }
+  if (a === "hpok" && g) { const hp = await J(env, "hp:" + g.id, null); if (!hp) return; hp.st = "active"; await PUT(env, "hp:" + g.id, hp);
+    return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(g.title)}</b> — Homework nazoratga olindi.\n\n${hpTable(hp)}`}); }
+  if (a === "hped" && g) { await PUT(env, wizK(r.uid), {uid: r.uid, gid: g.id, step: "hpfix"}); return pm(env, r.uid, ASK.hpfix); }
+  if (a === "skip") { const w = await J(env, wizK(r.uid), null); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
+  if (a === "wdone") { const w = await J(env, wizK(r.uid), null); if (!w) return; return finishWizard(env, w); }
+  if (!r.admin) return;
   if (a === "del1" && g) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `⚠️ <b>${H(g.title)}</b> yopilsinmi?\n\nO'quvchilar, PIN kodlar, davomat va natijalar tarixi o'chadi. Guruhdagi xabarlar va topic'lar tegilmaydi.`,
     ...kb([[{text:"Ha, yopilsin", callback_data:"del2:" + g.id}, {text:"Yo'q", callback_data:"g:" + g.id}]])});
   if (a === "del2" && g) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `❗ <b>OXIRGI TASDIQ</b>\n\n<b>${H(g.title)}</b> butunlay o'chiriladi. Buni qaytarib bo'lmaydi.`,
     ...kb([[{text:"🗑 Ha, butunlay o'chir", callback_data:"del3:" + g.id}], [{text:"Bekor qilish", callback_data:"g:" + g.id}]])});
   if (a === "del3" && g) {
     const studs = await getStudents(env); for (const s of studs.filter(x => x.gid === g.id)) await env.KV.delete("p:" + s.id);
-    await PUT(env, "students", studs.filter(x => x.gid !== g.id)); await PUT(env, "groups", gs.filter(x => x.id !== g.id)); await env.KV.delete("topics:" + g.id);
+    await PUT(env, "students", studs.filter(x => x.gid !== g.id)); await PUT(env, "groups", gs.filter(x => x.id !== g.id)); await env.KV.delete("topics:" + g.id); await env.KV.delete("hp:" + g.id);
+    const ts = await getTeachers(env); ts.forEach(t => t.groups = (t.groups || []).filter(x => x !== g.id)); await PUT(env, "teachers", ts);
     await tg(env, "leaveChat", {chat_id: g.id});
     await tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: `🗑 ${H(g.title)} yopildi, bot guruhdan chiqdi.`, parse_mode: "HTML"});
-    return mainMenu(env, chat);
+    return mainMenu(env, r);
   }
 }
 async function onGroupMessage(env, msg){
@@ -514,55 +726,111 @@ async function onGroupMessage(env, msg){
   if (!g) return;
   if (g.title !== msg.chat.title && msg.chat.title) { g.title = msg.chat.title; await PUT(env, "groups", gs); }
   const th = msg.message_thread_id; const tname = (msg.forum_topic_created || msg.forum_topic_edited || msg.reply_to_message?.forum_topic_created || {}).name;
-  if (th && tname) { // topic nomini o'rganish va ismga moslab ulash
+  if (th && tname) {
     const topics = await J(env, "topics:" + gid, {});
     if (topics[th] !== tname) { topics[th] = tname; await PUT(env, "topics:" + gid, topics);
+      if (/^\s*home\s*work/i.test(tname) && !g.hwt) { g.hwt = th; await PUT(env, "groups", gs); }
       const studs = await getStudents(env); const s = studs.find(x => x.gid === gid && !x.thread && nn(x.name) === nn(tname));
-      if (s && ![g.kun, g.res, g.dav].includes(th)) { s.thread = th; await PUT(env, "students", studs); await owner(env, `🔗 <b>${H(s.name)}</b> topic'i avtomatik ulandi.`); } }
+      if (s && ![g.kun, g.res, g.dav, g.hwt].includes(th)) { s.thread = th; await PUT(env, "students", studs); for (const id of await staffIds(env, g)) await pm(env, id, `🔗 <b>${H(s.name)}</b> topic'i avtomatik ulandi (${H(g.title)}).`); } }
   }
-  const isOwner = (msg.from && String(msg.from.id) === String(env.OWNER_ID)) || (msg.sender_chat && String(msg.sender_chat.id) === gid);
-  if (!isOwner || !th) return;
-  const text = msg.text || msg.caption || ""; if (!text) return;
-  if (th === g.dav) { // Teacher / Time sozlamasi
-    const te = text.match(/teacher\s*:\s*(.+)/i), ti = text.match(/time\s*:\s*(.+)/i);
-    if (te || ti) { if (te) g.teacher = te[1].trim().slice(0, 60); if (ti) g.time = ti[1].trim().slice(0, 40); await PUT(env, "groups", gs);
-      await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👌"}]}); }
+  const text = msg.text || msg.caption || "";
+  const r = msg.from ? await roleOf(env, msg.from.id) : null;
+  const staff = canG(r, g) || (msg.sender_chat && String(msg.sender_chat.id) === gid);
+  if (staff) {
+    const pid = r ? r.uid : String(env.OWNER_ID);
+    // dars vaqti / kunlari va o'qituvchi (davomat topic'ida yoki #attendance postida)
+    if (th === g.dav || /#attendance/i.test(text)) {
+      const te = text.match(/teacher\s*:\s*(.+)/i), ti = text.match(/time\s*:\s*([0-9:.\s–—-]+)/i), dy = parseDays(text);
+      if (te || ti || dy) { if (te) g.teacher = te[1].trim().slice(0, 60); if (ti) g.time = ti[1].trim().slice(0, 40); if (dy) g.days = dy; await PUT(env, "groups", gs);
+        await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👌"}]}); }
+      if (th === g.dav) return;
+    }
+    // #Homework posti
+    if (/#\s*home\s*work/i.test(text)) {
+      if (th && !g.hwt) { g.hwt = th; await PUT(env, "groups", gs); }
+      const old = await J(env, "hp:" + gid, null); if (old && old.st !== "done") await hpFinalize(env, g, old);
+      const hp = {id: uid(), at: Date.now(), by: pid, text: clean(text, 3000), items: [], refs: [], st: "draft", mid: msg.message_id};
+      try { hp.items = await hpParse(env, g, text, hp.at); } catch (e) { hp.items = []; await pm(env, pid, "⏳ AI band bo'lgani uchun Homework hali o'qilmadi — 5 daqiqada qayta urinaman."); hp.retry = 1; }
+      await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); if (hp.items.length) await hpConfirm(env, g, hp);
+      await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "✍"}]});
+      return;
+    }
+    // Homework ostidan tashlangan shadowing audiolari
+    const au = msg.audio || msg.voice || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
+    if (au && th && (th === g.hwt)) {
+      const hp = await J(env, "hp:" + gid, null);
+      if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || ""}].slice(0, 6);
+        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👌"}]}); }
+      return;
+    }
+    if (!th) return;
+    const s = (await getStudents(env)).find(x => x.gid === gid && x.thread === th); if (!s || !text) return;
+    const pg = parseGrades(text); if (!pg.st && !Object.keys(pg.it).length) return;
+    const k = `gr:${gid}:${dayKey()}`; const day = await J(env, k, {});
+    const rec = day[s.id] || {it: {}}; rec.prev = rec.prev || {};
+    for (const [name, v] of Object.entries(pg.it)) { const old = rec.it[name]; if (old && old.l != null && v.l != null && v.l > old.l) rec.prev[name] = old.l; rec.it[name] = v; }
+    if (pg.st) rec.st = pg.st; else if (Object.keys(pg.it).length) rec.st = null;
+    rec.due = Date.now() + 10 * 60e3; rec.v = (rec.v || 0) + 1; day[s.id] = rec; await PUT(env, k, day, {expirationTtl: 120 * 864e5});
+    await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👀"}]});
     return;
   }
-  const s = (await getStudents(env)).find(x => x.gid === gid && x.thread === th); if (!s) return;
-  const pg = parseGrades(text); if (!pg.st && !Object.keys(pg.it).length) return;
-  const k = `gr:${gid}:${dayKey()}`; const day = await J(env, k, {});
-  const rec = day[s.id] || {it: {}}; rec.prev = rec.prev || {};
-  for (const [name, v] of Object.entries(pg.it)) { const old = rec.it[name]; if (old && old.l != null && v.l != null && v.l > old.l) rec.prev[name] = old.l; rec.it[name] = v; }
-  if (pg.st) rec.st = pg.st; else if (Object.keys(pg.it).length) rec.st = null;
-  rec.due = Date.now() + 10 * 60e3; rec.v = (rec.v || 0) + 1; day[s.id] = rec; await PUT(env, k, day, {expirationTtl: 120 * 864e5});
-  await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👀"}]});
+  // ---- o'quvchi xabari: uy vazifasini topshirish ----
+  if (!msg.from || msg.from.is_bot) return;
+  const studs = await getStudents(env); const fid = String(msg.from.id);
+  let s = th ? studs.find(x => x.gid === gid && x.thread === th) : null;
+  if (s && !s.tg) { s.tg = fid; await PUT(env, "students", studs); }
+  if (s && s.tg && s.tg !== fid) s = null;                 // boshqa odam birovning topic'iga yozdi
+  if (!s) s = studs.find(x => x.gid === gid && x.tg === fid); // Results yoki boshqa topic'da — Telegram ID orqali
+  if (!s) return;
+  const hp = await J(env, "hp:" + gid, null); if (!hp || hp.st === "done" || !hp.items.length) return;
+  const media = msg.voice || msg.audio || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
+  if (media && hp.items.some(i => i.type === "shadowing")) return checkShadowing(env, g, hp, s, msg, studs);
+  const kindOf = msg.voice || msg.audio ? "voice" : (msg.photo || (msg.document && /^image\//.test(msg.document.mime_type || ""))) ? "photo" : msg.video || msg.video_note ? "video" : (msg.text && msg.text.length >= 40) ? "text" : null;
+  if (!kindOf) return;
+  const it = hp.items.find(i => i.type === kindOf) || (kindOf === "photo" ? hp.items.find(i => i.type === "text") : kindOf === "text" ? hp.items.find(i => i.type === "photo") : null);
+  if (!it) return;
+  const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0};
+  if (msg.media_group_id && x.mg === msg.media_group_id) return; // bitta albom — bitta topshirish
+  x.mg = msg.media_group_id || null; x.n++; x.at = Date.now(); await PUT(env, k, sub, {expirationTtl: 30 * 864e5});
+  await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👍"}]});
 }
 async function onMember(env, up){
   const chat = up.chat; if (!["group", "supergroup"].includes(chat.type)) return;
   const st = up.new_chat_member && up.new_chat_member.status; const gid = String(chat.id);
-  if (String(up.from.id) !== String(env.OWNER_ID) && ["member", "administrator"].includes(st)) { // begona qo'shsa — chiqib ketadi
-    await say(env, gid, "📡 Bu bot faqat AOK English o'qituvchisi uchun."); return tg(env, "leaveChat", {chat_id: gid}); }
+  const r = await roleOf(env, up.from.id);
+  if (!r && ["member", "administrator"].includes(st)) { await say(env, gid, "📡 Bu bot faqat AOK English o'qituvchilari uchun."); return tg(env, "leaveChat", {chat_id: gid}); }
   const gs = await getGroups(env); let g = gs.find(x => x.id === gid);
   if (st === "administrator") {
-    if (!g) { g = {id: gid, title: chat.title || "Guruh", at: Date.now(), active: true}; gs.push(g); await PUT(env, "groups", gs);
-      if (!chat.is_forum) await owner(env, `⚠️ <b>${H(g.title)}</b> guruhida Topics yoqilmagan. Guruh sozlamalarida <b>Topics</b>ni yoqing.`);
-      return owner(env, `📡 Yangi guruh ulandi: <b>${H(g.title)}</b>\n\nBu guruh yangi ochilganmi yoki eskimi?`,
+    if (!g) { g = {id: gid, title: chat.title || "Guruh", at: Date.now(), active: true, by: r.uid}; gs.push(g); await PUT(env, "groups", gs);
+      if (!r.admin) { const ts = await getTeachers(env); const t = ts.find(x => x.id === r.t.id); t.groups = [...new Set([...(t.groups || []), gid])]; await PUT(env, "teachers", ts);
+        await pm(env, env.OWNER_ID, `📚 <b>${H(r.name)}</b> yangi guruh uladi: <b>${H(g.title)}</b>`); }
+      if (!chat.is_forum) await pm(env, r.uid, `⚠️ <b>${H(g.title)}</b> guruhida Topics yoqilmagan. Guruh sozlamalarida <b>Topics</b>ni yoqing.`);
+      return pm(env, r.uid, `📡 Yangi guruh ulandi: <b>${H(g.title)}</b>\n\nBu guruh yangi ochilganmi yoki eskimi?`,
         kb([[{text:"🆕 Yangi guruh", callback_data:"typ:new:" + gid}, {text:"📂 Eski guruh", callback_data:"typ:old:" + gid}]])); }
-    g.active = true; await PUT(env, "groups", gs); return owner(env, `✅ ${H(g.title)} qayta faol.`);
+    g.active = true; await PUT(env, "groups", gs); return pm(env, r.uid, `✅ ${H(g.title)} qayta faol.`);
   }
-  if (st === "member") return owner(env, `⚠️ <b>${H(chat.title)}</b>: botni <b>admin</b> qiling (Guruh → Administrators → Add admin), shunda guruh ulanadi.`);
-  if (["left", "kicked"].includes(st) && g) { g.active = false; await PUT(env, "groups", gs); return owner(env, `ℹ️ Bot <b>${H(g.title)}</b> guruhidan chiqarildi.`); }
+  if (st === "member") return pm(env, r ? r.uid : env.OWNER_ID, `⚠️ <b>${H(chat.title)}</b>: botni <b>admin</b> qiling (Guruh → Administrators → Add admin), shunda guruh ulanadi.`);
+  if (["left", "kicked"].includes(st) && g) { g.active = false; await PUT(env, "groups", gs); return pm(env, env.OWNER_ID, `ℹ️ Bot <b>${H(g.title)}</b> guruhidan chiqarildi.`); }
 }
 async function onUpdate(env, u){
   if (u.my_chat_member) return onMember(env, u.my_chat_member);
   if (u.callback_query) return onCallback(env, u.callback_query);
   const msg = u.message || u.edited_message; if (!msg) return;
-  if (msg.chat.type === "private") {
-    if (String(msg.from.id) !== String(env.OWNER_ID)) return say(env, msg.chat.id, "📡 <b>AOK Radar</b>\nBu bot AOK English o'qituvchisi uchun. Natijalaringiz guruhdagi topic'ingizga keladi 🙂");
-    return onPrivate(env, msg);
-  }
+  if (msg.chat.type === "private") return onPrivate(env, msg);
+  if (u.edited_message && (msg.voice || msg.audio || msg.photo || msg.video)) return; // tahrir — qayta hisoblanmaydi
   return onGroupMessage(env, msg);
+}
+
+/* ---------------- Homework yakuni ---------------- */
+async function hpFinalize(env, g, hp){
+  if (hp.st === "done") return;
+  const studs = (await getStudents(env)).filter(s => s.gid === g.id); const items = hp.items.filter(i => SUBMIT(i.type));
+  if (items.length) {
+    if (g.res) await toTopic(env, g.id, g.res, await hpSummary(env, g, hp, true));
+    for (const s of studs) { const pr = await hpProgress(env, g, hp, s); const p = await getProfile(env, s.id);
+      p.hwc = [...(p.hwc || []).filter(e => e.id !== hp.id), {id: hp.id, at: hp.at, done: items.filter(it => pr[it.id].ok).length, total: items.length}].slice(-60); await PUT(env, "p:" + s.id, p); }
+  }
+  hp.st = "done"; await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 864e5});
 }
 
 /* ---------------- CRON: har 5 daqiqada ---------------- */
@@ -583,39 +851,67 @@ async function cron(env){
     }
     if (ch) await PUT(env, sk, sent, {expirationTtl: 7 * 864e5});
   }
-  // 2) uy vazifasi: maqtov, eslatma (oxirgi 12 soatda har 3 soatda), muddat o'tganda tanbeh + Kun e'tirozi + Results
-  const hws = await latestHw(env); const act = KINDS.filter(k => hws[k] && hws[k].due && hws[k].ids && hws[k].ids.length);
-  if (act.length && !quiet) {
+  // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
+  const hpGroups = new Set();
+  for (const g of gs) {
+    const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue;
+    if (hp.retry && !hp.items.length) { try { hp.items = await hpParse(env, g, hp.text, hp.at); hp.retry = 0; await PUT(env, "hp:" + g.id, hp); if (hp.items.length) await hpConfirm(env, g, hp); } catch (e) {} continue; }
+    if (!hp.items.length) continue;
+    hpGroups.add(g.id);
+    if (hp.st === "draft" && now - (hp.at2 || hp.at) > 15 * 60e3) { hp.st = "active"; await PUT(env, "hp:" + g.id, hp); await pm(env, hp.by, `✅ <b>${H(g.title)}</b> — Homework avtomatik nazoratga olindi.`); }
+    if (now >= hpEnd(g, hp)) { if (!quiet) await hpFinalize(env, g, hp); continue; }
+    if (quiet || g.quiet) continue;
+    const items = hp.items.filter(i => SUBMIT(i.type)); if (!items.length) continue;
+    const sk = "hst:" + hp.id; const st = await J(env, sk, {rem: {}, late: {}, pr: {}}); let ch = false; const kun = [];
+    for (const s of studs.filter(x => x.gid === g.id && x.thread)) {
+      const pr = await hpProgress(env, g, hp, s);
+      const allOk = items.every(it => pr[it.id].ok);
+      if (allOk && !st.pr[s.id]) { st.pr[s.id] = 1; ch = true; await toTopic(env, g.id, s.thread, await radarText(env, "praise", s.name, `uy vazifasining hamma qismi bajarildi (${items.length}/${items.length}) muddatidan oldin`)); continue; }
+      const pend = items.filter(it => !pr[it.id].ok && now < it.due && it.due - now <= 12 * 3600e3);
+      if (pend.length && now - (st.rem[s.id] || 0) >= 3 * 3600e3 - 5 * 60e3) {
+        const left = Math.min(...pend.map(i => i.due)) - now;
+        await toTopic(env, g.id, s.thread, await radarText(env, "remind", s.name, `bajarilmagan: ${pend.map(i => `${i.title}${i.count > 1 ? ` (${pr[i.id].n}/${i.count})` : ""}`).join("; ")}; eng yaqin muddatgacha ${Math.floor(left / 3600e3)} soat ${Math.round(left % 3600e3 / 60e3)} daqiqa qoldi`));
+        st.rem[s.id] = now; ch = true; }
+      const late = items.filter(it => !pr[it.id].ok && now >= it.due && !st.late[s.id + ":" + it.id]);
+      if (late.length) { late.forEach(it => st.late[s.id + ":" + it.id] = 1); ch = true; kun.push({s, late});
+        await toTopic(env, g.id, s.thread, await radarText(env, "late", s.name, `muddat o'tdi, bajarilmagan: ${late.map(i => i.title).join("; ")}`)); }
+    }
+    if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.late.map(it => `${HP_ICON[it.type]} ${H(it.title)}`).join(", ")}`).join("\n"));
+    if (ch) await PUT(env, sk, st, {expirationTtl: 30 * 864e5});
+  }
+  // 3) saytdagi vazifa muddati (panelda qo'yilgan) — Homework posti bo'lmagan guruhlar uchun
+  if (!quiet) {
     const st = await J(env, "hwst", {}); let ch = false;
-    const S = k => { const id = k + ":" + hws[k].at; return st[id] = st[id] || {pr: {}, rem: {}, late: {}, posted: {}}; };
+    const S = (k, hw) => { const id = k + ":" + hw.at; return st[id] = st[id] || {pr: {}, rem: {}, late: {}, posted: {}}; };
     for (const g of gs) {
-      const mine = act.filter(k => hwFor(hws[k], g.id)); if (!mine.length) continue;
+      if (hpGroups.has(g.id)) continue;
+      const hws = await latestHw(env, g.id); const mine = KINDS.filter(k => hws[k] && hws[k].due); if (!mine.length) continue;
       const kunList = [];
       for (const s of studs.filter(x => x.gid === g.id)) {
         const p = await getProfile(env, s.id); const pend = [], newSub = [], lateMiss = [];
-        for (const k of mine) { const hw = hws[k], e = subOf(p, k, hw), stt = S(k);
+        for (const k of mine) { const hw = hws[k], e = subOf(p, k, hw), stt = S(k, hw);
           if (e && !stt.pr[s.id]) { stt.pr[s.id] = 1; ch = true; newSub.push({k, e}); }
           if (!e && now < hw.due && hw.due - now <= 12 * 3600e3) pend.push(k);
           if (!e && now >= hw.due && !stt.late[s.id]) { stt.late[s.id] = 1; ch = true; lateMiss.push(k); } }
         if (g.quiet || !s.thread) { if (lateMiss.length) kunList.push({s, ks: lateMiss}); continue; }
         if (newSub.length) { const late = newSub.some(x => x.e.late);
           await toTopic(env, g.id, s.thread, await radarText(env, late ? "late_ok" : "praise", s.name, newSub.map(x => `${x.k} uy vazifasi topshirildi${x.e.late ? " (kech)" : " muddatidan oldin"}, ball ${fmtN(x.e.tot)}/${x.e.max}`).join("; "))); }
-        if (pend.length) { const last = Math.max(...pend.map(k => S(k).rem[s.id] || 0));
-          if (now - last >= 3 * 3600e3 - 5 * 60e3) { const left = Math.min(...pend.map(k => hws[k].due)) - now; const t = `${Math.floor(left / 3600e3)} soat ${Math.round(left % 3600e3 / 60e3)} daqiqa`;
-            await toTopic(env, g.id, s.thread, await radarText(env, "remind", s.name, `topshirilmagan: ${pend.map(k => k === "writing" ? "Writing (yozma ish)" : "Speaking").join(" va ")}; muddatgacha ${t} qoldi`));
-            pend.forEach(k => S(k).rem[s.id] = now); ch = true; } }
+        if (pend.length) { const last = Math.max(...pend.map(k => S(k, hws[k]).rem[s.id] || 0));
+          if (now - last >= 3 * 3600e3 - 5 * 60e3) { const left = Math.min(...pend.map(k => hws[k].due)) - now;
+            await toTopic(env, g.id, s.thread, await radarText(env, "remind", s.name, `topshirilmagan: ${pend.map(k => k === "writing" ? "Writing (yozma ish)" : "Speaking").join(" va ")}; muddatgacha ${Math.floor(left / 3600e3)} soat ${Math.round(left % 3600e3 / 60e3)} daqiqa qoldi`));
+            pend.forEach(k => S(k, hws[k]).rem[s.id] = now); ch = true; } }
         if (lateMiss.length) { kunList.push({s, ks: lateMiss});
           await toTopic(env, g.id, s.thread, await radarText(env, "late", s.name, `muddat o'tdi, topshirilmagan: ${lateMiss.map(k => k === "writing" ? "Writing" : "Speaking").join(" va ")}`)); }
       }
-      let post = false; for (const k of mine) { const stt = S(k); if (now >= hws[k].due && !stt.posted[g.id]) { stt.posted[g.id] = 1; ch = true; post = true; } }
+      let post = false; for (const k of mine) { const stt = S(k, hws[k]); if (now >= hws[k].due && !stt.posted[g.id]) { stt.posted[g.id] = 1; ch = true; post = true; } }
       if (post && g.res) await toTopic(env, g.id, g.res, await resultsText(env, g));
       if (kunList.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida topshirilmadi:\n\n` +
         kunList.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.ks.map(k => k === "writing" ? "✍️ Writing topshirmadi" : "🎤 Speaking topshirmadi").join(", ")}`).join("\n"));
     }
-    for (const id of Object.keys(st)) { const [k, at] = id.split(":"); if (!hws[k] || String(hws[k].at) !== at) { delete st[id]; ch = true; } }
+    for (const id of Object.keys(st)) { const at = +id.split(":")[1]; if (now - at > 30 * 864e5) { delete st[id]; ch = true; } }
     if (ch) await PUT(env, "hwst", st);
   }
-  // 3) yakshanba 11:00 — haftalik hisobot
+  // 4) yakshanba 11:00 — haftalik hisobot
   const lt = L(now);
   if (lt.getUTCDay() === 0 && lt.getUTCHours() === 11) {
     const last = await env.KV.get("wk:last"); const today = dayKey(now);
@@ -703,16 +999,22 @@ export default {
     try {
       /* ---------- O'QITUVCHI ---------- */
       if (path.startsWith("/teacher/")) {
-        if (!env.TEACHER_CODE || (b.tcode || "").trim() !== env.TEACHER_CODE) return out({error: "O'qituvchi kodi noto'g'ri."}, 401);
-        if (path === "/teacher/login") return out({ok: true, seeded: !!(await env.KV.get("seed:v1"))});
-        if (path === "/teacher/groups") return out({groups: (await getGroups(env)).filter(g => g.active !== false).map(g => ({id: g.id, title: g.title})), students: await getStudents(env)});
+        const tc = (b.tcode || "").trim(); const TR = env.TEACHER_CODE && tc === env.TEACHER_CODE ? {admin: true, name: "Bosh admin"} : (() => null)();
+        const TT = TR || await (async () => { const t = /^\d{6}$/.test(tc) && (await getTeachers(env)).find(x => x.code === tc); return t ? {admin: false, t, name: t.name} : null; })();
+        if (!TT) return out({error: "O'qituvchi kodi noto'g'ri."}, 401);
+        const myG = (await getGroups(env)).filter(g => g.active !== false && (TT.admin || (TT.t.groups || []).includes(g.id))).map(g => ({id: g.id, title: g.title}));
+        const myGid = myG.map(g => g.id);
+        const writeHw = async (k, mk) => { const tgt = (b.groups || []).map(String).filter(x => myGid.includes(x)); const list = tgt.length ? tgt : (myGid.length ? myGid : ["*"]); let n = 0;
+          for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
+        if (path === "/teacher/login") return out({ok: true, seeded: !!(await env.KV.get("seed:v1")), name: TT.name, admin: TT.admin});
+        if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
         if (path === "/teacher/bank") {
           const bank = await allBank(env, kind);
           if (kind === "speaking") for (const p of ["1.2", "2"]) bank[p] = await withImages(env, bank[p] || []);
-          const hw = JSON.parse(await env.KV.get("hw:" + kind) || "null");
+          const homeworks = {}; for (const g of myG) { const h = await hwOf(env, kind, g.id); if (h) homeworks[g.id] = h; }
+          const legacy = myG.length ? null : await J(env, "hw:" + kind, null);
           const exams = JSON.parse(await env.KV.get("exams") || "[]").filter(e => e.kind === kind);
-          const groups = (await getGroups(env)).filter(g => g.active !== false).map(g => ({id: g.id, title: g.title}));
-          return out({bank, homework: hw, exams, groups});
+          return out({bank, homeworks, homework: legacy, exams, groups: myG, me: {name: TT.name, admin: TT.admin}});
         }
         if (path === "/teacher/import") {
           const items = b.items || []; let added = 0, skipped = 0;
@@ -753,7 +1055,7 @@ export default {
           const i = arr.findIndex(x => x.id === clean_it.id);
           if (i >= 0) arr[i] = clean_it; else arr.push(clean_it);
           await putBank(env, k, part, arr);
-          if (b.homework) await PUT(env, "hw:" + k, {title: clean(b.homework, 120) || clean_it.topic, ids: [clean_it.id], at: Date.now(), due: +b.due || null, groups: (b.groups || []).map(String)});
+          if (b.homework) { const at = Date.now(); await writeHw(k, (old, gid) => ({title: clean(b.homework, 120) || clean_it.topic, ids: [clean_it.id], at, due: +b.due || null, groups: gid === "*" ? [] : [gid]})); }
           return out({ok: true, item: clean_it});
         }
         if (path === "/teacher/item/delete") {
@@ -762,14 +1064,14 @@ export default {
           return out({ok: true});
         }
         if (path === "/teacher/homework") {
-          let ids = (b.ids || []);
-          const old = JSON.parse(await env.KV.get("hw:" + kind) || "null");
-          if (b.onlyDue && old) { old.due = +b.due || null; old.groups = (b.groups || []).map(String); await PUT(env, "hw:" + kind, old); return out({ok: true, count: old.ids.length}); }
-          const keep = b.append && old;
-          if (keep) ids = [...new Set([...old.ids, ...ids])];
-          await PUT(env, "hw:" + kind, {title: clean(b.title, 120) || (keep ? old.title : "") || "Uyga vazifa", ids: ids.slice(0, 20), at: keep ? old.at : Date.now(),
-            due: b.due !== undefined ? (+b.due || null) : (keep ? old.due : null), groups: b.groups ? b.groups.map(String) : (keep ? old.groups : [])});
-          return out({ok: true, count: ids.length});
+          const at = Date.now();
+          const n = await writeHw(kind, (old, gid) => {
+            if (old && (!old.ids || !old.ids.length)) old = null;
+            if (b.onlyDue) return old ? {...old, due: +b.due || null} : null;
+            const keep = b.append && old; const ids = keep ? [...new Set([...old.ids, ...(b.ids || [])])] : (b.ids || []);
+            return {title: clean(b.title, 120) || (keep ? old.title : "") || "Uyga vazifa", ids: ids.slice(0, 20), at: keep ? old.at : at, due: b.due !== undefined ? (+b.due || null) : (keep ? old.due : null), groups: gid === "*" ? [] : [gid]};
+          });
+          return out({ok: true, count: n});
         }
         if (path === "/teacher/audio") { const v = await env.KV.get(clean(b.key, 60)); return v ? out({clips: JSON.parse(v)}) : out({error: "Ovoz o'chirilgan (1 kundan keyin avtomatik o'chadi)."}, 404); }
         if (path === "/teacher/exam/save") {
@@ -782,7 +1084,8 @@ export default {
         if (path === "/teacher/results") {
           const res = []; let cursor;
           do { const l = await env.KV.list({prefix: "r:" + kind + ":", cursor}); res.push(...l.keys.map(k => ({key: k.name, ...(k.metadata || {})}))); cursor = l.list_complete ? null : l.cursor; } while (cursor);
-          return out({results: res.sort((x, y) => (y.at || 0) - (x.at || 0))});
+          const sids = TT.admin ? null : new Set((await getStudents(env)).filter(s => myGid.includes(s.gid)).map(s => s.id));
+          return out({results: res.filter(r => !sids || sids.has(r.sid)).sort((x, y) => (y.at || 0) - (x.at || 0))});
         }
         if (path === "/teacher/result") { const v = await env.KV.get(b.key); return v ? out(JSON.parse(v)) : out({error: "Topilmadi."}, 404); }
         if (path === "/teacher/delresult") { await env.KV.delete(b.key); return out({ok: true}); }
@@ -796,12 +1099,12 @@ export default {
 
       if (path === "/home") {
         const bank = await allBank(env, kind);
-        const hw = JSON.parse(await env.KV.get("hw:" + kind) || "null");
+        const hw = stu ? await hwOf(env, kind, stu.gid) : JSON.parse(await env.KV.get("hw:" + kind) || "null");
         const exams = JSON.parse(await env.KV.get("exams") || "[]").filter(e => e.kind === kind && e.active).map(e => ({id: e.id, name: e.name, at: e.at}));
         const counts = {}, topics = {};
         for (const p in bank) { counts[p] = bank[p].length; for (const it of bank[p]) topics[it.topic] = (topics[it.topic] || 0) + 1; }
         let homework = null;
-        if (hw && hw.ids && hw.ids.length && (!stu || hwFor(hw, stu.gid))) {
+        if (hw && hw.ids && hw.ids.length) {
           homework = {title: hw.title, at: hw.at, due: hw.due || null, items: await withImages(env, await findItems(env, kind, hw.ids))};
           if (stu) { const e = subOf(await getProfile(env, stu.id), kind, hw); if (e) homework.done = {at: e.at, tot: e.tot, max: e.max}; }
         }
@@ -831,7 +1134,7 @@ export default {
       }
 
       // vazifa bo'yicha topshirishmi? (muddat, kechikish)
-      const hwInfo = async () => { if (b.mode !== "hw") return null; const hw = JSON.parse(await env.KV.get("hw:" + kind) || "null"); if (!hw) return null;
+      const hwInfo = async () => { if (b.mode !== "hw") return null; const hw = stu ? await hwOf(env, kind, stu.gid) : JSON.parse(await env.KV.get("hw:" + kind) || "null"); if (!hw) return null;
         return {at: hw.at, late: !!(hw.due && Date.now() > hw.due)}; };
       const away = b.away && typeof b.away === "object" ? {n: Math.min(99, +b.away.n || 0), s: Math.min(99999, Math.round(+b.away.s || 0))} : null;
       const prof = stu ? await getProfile(env, stu.id) : {h: []};
@@ -864,7 +1167,7 @@ export default {
         const prevW = (prof.h || []).filter(e => e.k === "writing").slice(-1)[0]; if (prevW) r.prev = {tot: prevW.tot, max: prevW.max, at: prevW.at};
         const sc = {}; r.tasks.forEach(t => sc["t" + t.task.replace(".", "")] = t.overall);
         r.key = `r:writing:${r.at}`;
-        await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, grp: await gName(), mode: r.mode, title: r.title, total: r.total, max: r.max, off: r.tasks.some(t => t.on_topic === false), miss: r.tasks.some(t => t.missing), late: !!r.late, away, at: r.at, ...sc}});
+        await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.total, max: r.max, off: r.tasks.some(t => t.on_topic === false), miss: r.tasks.some(t => t.missing), late: !!r.late, away, at: r.at, ...sc}});
         if (stu) await saveProfile(env, stu, {at: r.at, k: "writing", m: r.mode, t: r.title, tot: r.total, max: r.max, cr: critAvg(r.tasks.filter(t => !t.missing)), rules: [...new Set(r.tasks.flatMap(t => (t.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
         return out(r);
@@ -902,7 +1205,7 @@ export default {
         const prevS = (prof.h || []).filter(e => e.k === "speaking").slice(-1)[0]; if (prevS) r.prev = {tot: prevS.tot, max: prevS.max, at: prevS.at};
         r.audio_key = `aud:${r.at}`; r.audio_until = r.at + 86400000; r.key = `r:speaking:${r.at}`;
         await env.KV.put(r.audio_key, JSON.stringify(clips.map(c => ({mime: c.mime, audio: c.audio}))), {expirationTtl: 86400});
-        await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, grp: await gName(), mode: r.mode, title: r.title, total: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), miss: (r.parts || []).some(p => (p.unanswered || []).length), late: !!r.late, away, at: r.at}});
+        await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), miss: (r.parts || []).some(p => (p.unanswered || []).length), late: !!r.late, away, at: r.at}});
         if (stu) await saveProfile(env, stu, {at: r.at, k: "speaking", m: r.mode, t: r.title, tot: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), cr: critAvg(r.parts), rules: [...new Set(r.parts.flatMap(p => (p.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
         return out(r);

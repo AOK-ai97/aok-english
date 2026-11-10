@@ -402,10 +402,12 @@ if(PAGE==="speaking"){
 /* ================= O'QITUVCHI ================= */
 if(PAGE==="teacher"){
   const T=()=>ls.get("aok_tcode");const tIn=$("#t_code");tIn.value=T();
-  let KIND="writing",BANK={},HW=null,EXAMS=[],GROUPS=[],SEL=new Set(),EDIT=null;
+  let KIND="writing",BANK={},HW=null,HWS={},EXAMS=[],GROUPS=[],SEL=new Set(),EDIT=null;
   const partsOf=k=>k==="writing"?["T1","T2"]:["1.1","1.2","2","3"];
   const keyOf=it=>it.kind==="writing"?(it.wtype==="T1"?it.email:it.essay):(it.q||[]).join(" ");
-  async function load(){const j=await post("/teacher/bank",{tcode:T(),kind:KIND});BANK=j.bank;HW=j.homework;EXAMS=j.exams;GROUPS=j.groups||[];render()}
+  async function load(){const j=await post("/teacher/bank",{tcode:T(),kind:KIND});BANK=j.bank;HWS=j.homeworks||{};EXAMS=j.exams;GROUPS=j.groups||[];
+    const v=$("#hwView");const cur=v.value;v.innerHTML=GROUPS.map(g=>`<option value="${esc(g.id)}">${esc(g.title)}</option>`).join("")||`<option value="">Barcha o'quvchilar</option>`;if(GROUPS.some(g=>g.id===cur))v.value=cur;
+    HW=GROUPS.length?(HWS[v.value]||null):(j.homework||null);if(j.me)$("#tWho").textContent=`👋 ${j.me.name}${j.me.admin?" (bosh admin)":""} · Baza umumiy · Guruhlar: ${GROUPS.map(g=>g.title).join(", ")||"—"}`;render()}
   $("#goLogin").onclick=async e=>{const btn=e.currentTarget;msg("");const c=tIn.value.trim();if(!c) return msg("O'qituvchi kodini kiriting.",true);
     loading(true,btn,"Kirilmoqda…");try{const j=await post("/teacher/login",{tcode:c});ls.set("aok_tcode",c);$("#seedBox").hidden=j.seeded;await load();step(2)}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
   tIn.addEventListener("keydown",e=>{if(e.key==="Enter")$("#goLogin").click()});
@@ -429,7 +431,7 @@ if(PAGE==="teacher"){
     $("#bankList").innerHTML=Object.keys(groups).sort().map(g=>`<details class="tg" open><summary>${esc(g)} <small>${groups[g].length}</small></summary>${groups[g].map(x=>`<div class="bi">
       <input type="checkbox" data-sel="${x.id}" ${SEL.has(x.id)?"checked":""}><span class="pp">${(x.part||x.wtype).replace("T","Task ")}</span>
       <span class="bt">${esc(keyOf(x).slice(0,140))}${(x.part==="1.2"||x.part==="2")?((x.images||[]).length?" 🖼":" <em class='noimg'>rasm yo'q</em>"):""}</span>
-      ${HW&&HW.ids.includes(x.id)?'<span class="tag">📌</span>':""}${EXAMS.some(e=>e.ids.includes(x.id))?'<span class="tag">📝</span>':""}
+      ${Object.values(HWS).some(h=>h&&h.ids.includes(x.id))||(HW&&HW.ids.includes(x.id))?'<span class="tag">📌</span>':""}${EXAMS.some(e=>e.ids.includes(x.id))?'<span class="tag">📝</span>':""}
       <button type="button" data-ed="${x.id}">✏️</button><button type="button" data-del="${x.id}">🗑</button></div>`).join("")}</details>`).join("")||`<div class="ck-msg">Savol topilmadi.</div>`;
   }
   ["#fPart","#fTopic"].forEach(s=>$(s).onchange=list);$("#fSearch").oninput=list;
@@ -473,10 +475,11 @@ if(PAGE==="teacher"){
   /* --- vazifa: muddat va guruh --- */
   const toLocalInput=t=>{const d=new Date(t);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,16)};
   function hwView(){const it=HW?HW.ids.map(id=>allItems().find(x=>x.id===id)).filter(Boolean):[];
-    $("#hwGroups").innerHTML=GROUPS.length?GROUPS.map(g=>`<label class="chk"><input type="checkbox" value="${esc(g.id)}" ${HW&&(HW.groups||[]).includes(g.id)?"checked":""}> ${esc(g.title)}</label>`).join("")+`<small class="hint">Hech biri belgilanmasa — hamma guruhga.</small>`:`<small class="hint">Bot guruhga ulangach, guruhlar shu yerda chiqadi.</small>`;
+    $("#hwGroups").innerHTML=GROUPS.length?GROUPS.map(g=>`<label class="chk"><input type="checkbox" value="${esc(g.id)}" ${g.id===$("#hwView").value?"checked":""}> ${esc(g.title)}</label>`).join("")+`<small class="hint">Belgilangan guruhlarga beriladi. Hech biri belgilanmasa — sizning hamma guruhlaringizga.</small>`:`<small class="hint">Bot guruhga ulangach, guruhlar shu yerda chiqadi.</small>`;
     $("#hwDue").value=HW&&HW.due?toLocalInput(HW.due):"";
     $("#hwNow").innerHTML=HW?`<div class="hw-t">📌 ${esc(HW.title)} <small>${dt(HW.at)}</small></div>
-      <div class="hw-due">${HW.due?`⏰ Muddat: <b>${dt(HW.due)}</b>`:"⏰ Muddat qo'yilmagan (eslatmalar yuborilmaydi)"} · 👥 ${HW.groups&&HW.groups.length?HW.groups.map(id=>esc((GROUPS.find(g=>g.id===id)||{}).title||id)).join(", "):"hamma guruh"}</div>${it.map(itemHTML).join("")}`:`<div class="ck-msg">Hozircha vazifa yo'q.</div>`}
+      <div class="hw-due">${HW.due?`⏰ Muddat: <b>${dt(HW.due)}</b>`:"⏰ Muddat qo'yilmagan — #Homework postidagi muddat ishlatiladi"} · 👥 ${HW.groups&&HW.groups.length?HW.groups.map(id=>esc((GROUPS.find(g=>g.id===id)||{}).title||id)).join(", "):"hamma guruh"}</div>${it.map(itemHTML).join("")}`:`<div class="ck-msg">Bu guruhda hozircha vazifa yo'q.</div>`}
+  $("#hwView").onchange=()=>{HW=HWS[$("#hwView").value]||null;hwView();list()};
   $("#hwDueSave").onclick=async e=>{if(!HW) return msg("Avval vazifa bering.",true);const btn=e.currentTarget;loading(true,btn,"…");
     try{await post("/teacher/homework",{tcode:T(),kind:KIND,onlyDue:true,due:dueVal(),groups:grpVal()});msg("✅ Muddat va guruh saqlandi. Bot muddatga 12 soat qolganda har 3 soatda eslatadi.");await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
   $("#hwAppend").onclick=async e=>{if(!SEL.size) return msg("Avval Baza bo'limida savollarni belgilang.",true);const btn=e.currentTarget;loading(true,btn,"…");
