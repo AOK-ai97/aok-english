@@ -373,9 +373,11 @@ async function hpSummary(env, g, hp, final){
   let full = 0;
   for (const [i, s] of studs.entries()) {
     const pr = await hpProgress(env, g, hp, s); const done = items.filter(it => pr[it.id].ok).length; if (done === items.length) full++;
-    t += `${i + 1}. ${H(s.name)} — ${items.map(it => pr[it.id].ok ? (pr[it.id].late ? "⏰" : "✅") : pr[it.id].n ? "🟡" : "❌").join("")} <b>${done}/${items.length}</b>${items.map(it => pr[it.id].info ? ` · ${HP_ICON[it.type]}${pr[it.id].info}` : "").join("")}\n`;
+    const cell = it => { const x = pr[it.id]; const when = x.doneAt ? (dayKey(x.doneAt) === dayKey(hp.at) ? hhmm(x.doneAt) : `${DAY_UZ[wdOf(dayKey(x.doneAt))].slice(0, 4)} ${hhmm(x.doneAt)}`) : "";
+      return `${HP_ICON[it.type]} ${x.ok ? (x.late ? "⏰" : "🕒") + when : x.n ? `${x.n}/${x.need}` : "—"}${x.ok && x.info ? ` (${x.info})` : ""}`; };
+    t += `${i + 1}. ${H(s.name)} — <b>${done}/${items.length}</b>\n     ${items.map(cell).join(" · ")}\n`;
   }
-  return t + `\n✅ To'liq bajardi: <b>${full}/${studs.length}</b>   (✅ vaqtida · ⏰ kech, lekin bajardi · 🟡 chala · ❌ yo'q)`;
+  return t + `\n📌 To'liq bajardi: <b>${full}/${studs.length}</b>\n🕒 topshirgan vaqti · ⏰ kech topshirgan · 1/2 chala · — topshirmagan`;
 }
 
 /* ---------------- Shadowing tekshiruvi ---------------- */
@@ -448,12 +450,12 @@ async function resultsText(env, g){
   t += "\n"; let done = 0;
   for (const [i, s] of studs.entries()) {
     const p = await getProfile(env, s.id); let full = true;
-    const cells = act.map(k => { const e = subOf(p, k, hws[k]); if (!e) { full = false; return `${k === "writing" ? "✍️" : "🎤"} ❌`; }
-      return `${k === "writing" ? "✍️" : "🎤"} ${fmtN(e.tot)}/${e.max}${e.late ? " ⏰" : ""}`; });
+    const cells = act.map(k => { const e = subOf(p, k, hws[k]); if (!e) { full = false; return `${k === "writing" ? "✍️" : "🎤"} —`; }
+      return `${k === "writing" ? "✍️" : "🎤"} ${e.late ? "⏰" : "🕒"}${ddmm(e.at)} ${hhmm(e.at)} (${fmtN(e.tot)}/${e.max})`; });
     if (full) done++;
     t += `${i + 1}. ${H(s.name)} — ${cells.join(" · ")}\n`;
   }
-  return t + `\n✅ To'liq topshirdi: <b>${done}/${studs.length}</b>  ·  ⏰ = kech topshirilgan`;
+  return t + `\n📌 To'liq topshirdi: <b>${done}/${studs.length}</b>\n🕒 topshirgan vaqti · ⏰ kech · — topshirmagan`;
 }
 const fmtN = x => String(Math.round((+x || 0) * 2) / 2);
 async function davomatText(env, g){
@@ -469,7 +471,7 @@ async function holatText(env, g){
   const studs = (await getStudents(env)).filter(s => s.gid === g.id); const hws = await latestHw(env, g.id);
   const act = KINDS.filter(k => hws[k]); if (!act.length) return "Hozir faol vazifa yo'q.";
   let t = `🔎 <b>${H(g.title)} — vazifa holati</b>\n`;
-  for (const s of studs) { const p = await getProfile(env, s.id); t += `${act.map(k => subOf(p, k, hws[k]) ? "✅" : "▫️").join("")} ${H(s.name)}${s.thread ? "" : " ⚠️ topic ulanmagan"}\n`; }
+  for (const s of studs) { const p = await getProfile(env, s.id); t += `${H(s.name)} — ${act.map(k => { const e = subOf(p, k, hws[k]); return `${k === "writing" ? "✍️" : "🎤"} ${e ? "🕒" + hhmm(e.at) : "—"}`; }).join(" · ")}${s.thread ? "" : " ⚠️ topic ulanmagan"}\n`; }
   return t + `\n(${act.map(k => KIND_UZ[k]).join(" · ")})`;
 }
 async function pinText(env, g){
