@@ -1,0 +1,21 @@
+# AOK checker + Radar bot — GitHub Actions orqali avtomatik deploy
+name = "aok-checker"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+account_id = "7b382a7a765cf7a6a9916d58182d1f4d"
+workers_dev = true
+keep_vars = true
+
+[vars]
+ALLOWED_ORIGIN = "https://aok-ai97.github.io"
+OWNER_ID = "6710553098"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "aab1bb588e044ed18814994e05dc3a86"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[observability]
+enabled = true
