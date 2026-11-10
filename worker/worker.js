@@ -611,6 +611,15 @@ async function onPrivate(env, msg){
   if (/^\/holat/.test(text)) { const g = await pickG("hol"); return g && cbAction(env, r, "hol", g); }
   if (/^\/pinlar/.test(text)) { for (const g of one) await pm(env, me, await pinText(env, g)); return; }
   if (/^\/hisobot/.test(text)) { const g = await pickG("wk"); return g && cbAction(env, r, "wk", g); }
+  if (/^\/debug/.test(text) && r.admin) { // diagnostika: holat + cron'ni hozir ishga tushirish
+    let t = "🛠 <b>Diagnostika</b>\n";
+    for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null);
+      t += `\n<b>${H(g.title)}</b> (${g.id}) hwt=${g.hwt || "-"} dav=${g.dav || "-"} days=${(g.days || []).join(",") || "-"}\n hp: ${hp ? `st=${hp.st} items=${hp.items.length} retry=${hp.retry || 0} refs=${(hp.refs || []).length} at=${ddmm(hp.at)} ${hhmm(hp.at)}${hp.err ? "\n err: " + H(hp.err) : ""}` : "yo'q"}\n`; }
+    try { await hpParse(env, (await getGroups(env))[0] || {}, "#Homework\n- 2 ta audio shadowing (bugun 23:59 gacha)", Date.now()); t += "\n✅ AI (Homework o'qish) ishlayapti"; }
+    catch (e) { t += "\n❌ AI xatosi: " + H(String(e.message || e).slice(0, 400)); }
+    try { await cron(env); t += "\n✅ cron xatosiz ishladi"; } catch (e) { t += "\n❌ cron xatosi: " + H(String(e.stack || e.message).slice(0, 600)); }
+    return pm(env, me, t);
+  }
   if (/^\/(jim|yoq)/.test(text)) { const q = /^\/jim/.test(text); const gs = await getGroups(env); for (const g of gs) if (canG(r, g)) g.quiet = q; await PUT(env, "groups", gs); return pm(env, me, q ? "🔕 Eslatmalar o'chirildi. Qayta yoqish: /yoq" : "🔔 Eslatmalar yoqildi."); }
   if (/^\/(ochir|yangipin)\s+/.test(text)) {
     const studs = await getStudents(env); const gids = one.map(g => g.id); const mineS = studs.filter(x => gids.includes(x.gid));
