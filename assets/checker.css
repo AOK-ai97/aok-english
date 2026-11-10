@@ -169,3 +169,6 @@ body[data-ck] .ck-mail{color:#1a2436;background:#EEF2F7}
 body[data-ck] .hint{color:#33415c;opacity:1}
 body[data-ck] .ck-task{background:#EEF4FB}
 body[data-ck] .ck-task p,body[data-ck] .ck-task b{color:#102040}
+
+.bi .qt{flex:none;font-size:11px;font-weight:700;background:#EEF3FA;color:#1F3864;border-radius:6px;padding:2px 6px;white-space:nowrap}
+@media(max-width:600px){.bi .qt{display:none}}

@@ -11,6 +11,13 @@ const dt=t=>{const d=new Date(t);return isNaN(d)?"":`${p2(d.getDate())}.${p2(d.g
 const PAGE=document.body.dataset.ck;
 const MODES={hw:"📌 Vazifa",baza:"📚 Baza",exam:"📝 Exam"};
 const PNAME={"1.1":"Part 1.1","1.2":"Part 1.2","2":"Part 2","3":"Part 3",T1:"Task 1 (1.1 + 1.2)",T2:"Task 2 (Essay)"};
+const QTYPES={"1.1":{s1:"S1 · Describe/Favourite",s2:"S2 · Habit/Routine",s3:"S3 · Opinion/Preference"},
+ "1.2":{joy:"🏙 Joy",usul:"🔧 Usul",davr:"⏳ Davr (eski↔yangi)",kishi:"👥 Kishilar/o'lcham"},
+ "2":{voqea:"📅 Voqea/tajriba",inson:"🧑 Inson",joy:"📍 Joy",narsa:"🎁 Narsa",odat:"🔁 Odat/faoliyat"},
+ "3":{taqiq:"🚫 Taqiq/majburiyat",taqqos:"⚖️ Taqqoslash",tasir:"💥 Ta'sir",masuliyat:"🏛 Mas'uliyat"},
+ T1:{ozgarish:"📢 O'zgarish/qoida",tadbir:"🎉 Tadbir/reja",sorovnoma:"📝 So'rovnoma",imkoniyat:"🎓 Imkoniyat",muammo:"⚠️ Muammo"},
+ T2:{agree:"✅ Agree/Disagree",discuss:"⚖️ Discuss both views",advdis:"➕➖ Advantages/Disadvantages",problem:"🛠 Problem–Solution",causes:"🔍 Causes–Effects",twopart:"❓ Two-part question"}};
+const qtName=x=>((QTYPES[x.part||x.wtype]||{})[x.qtype])||"";
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function msg(t,err){const m=$("#ckMsg");if(!m)return;m.hidden=!t;m.className="ck-msg"+(err?" err":"");m.textContent=t||"";if(t)m.scrollIntoView({block:"nearest"})}
 function loading(on,btn,t){if(btn)btn.disabled=on;const L=$("#ckLoad");if(!L)return;L.hidden=!on;if(t)L.querySelector("span").textContent=t}
@@ -407,12 +414,17 @@ if(PAGE==="teacher"){
   const keyOf=it=>it.kind==="writing"?(it.wtype==="T1"?it.email:it.essay):(it.q||[]).join(" ");
   async function load(){const j=await post("/teacher/bank",{tcode:T(),kind:KIND});BANK=j.bank;HWS=j.homeworks||{};EXAMS=j.exams;GROUPS=j.groups||[];
     const v=$("#hwView");const cur=v.value;v.innerHTML=GROUPS.map(g=>`<option value="${esc(g.id)}">${esc(g.title)}</option>`).join("")||`<option value="">Barcha o'quvchilar</option>`;if(GROUPS.some(g=>g.id===cur))v.value=cur;
-    HW=GROUPS.length?(HWS[v.value]||null):(j.homework||null);if(j.me)$("#tWho").textContent=`👋 ${j.me.name}${j.me.admin?" (bosh admin)":""} · Baza umumiy · Guruhlar: ${GROUPS.map(g=>g.title).join(", ")||"—"}`;render()}
+    HW=GROUPS.length?(HWS[v.value]||null):(j.homework||null);if(j.me)$("#tWho").textContent=`👋 ${j.me.admin?"Bosh admin":j.me.name} · Baza umumiy · Guruhlar: ${GROUPS.map(g=>g.title).join(", ")||"—"}`;render()}
   $("#goLogin").onclick=async e=>{const btn=e.currentTarget;msg("");const c=tIn.value.trim();if(!c) return msg("O'qituvchi kodini kiriting.",true);
-    loading(true,btn,"Kirilmoqda…");try{const j=await post("/teacher/login",{tcode:c});ls.set("aok_tcode",c);$("#seedBox").hidden=j.seeded;await load();step(2)}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
+    loading(true,btn,"Kirilmoqda…");try{const j=await post("/teacher/login",{tcode:c});ls.set("aok_tcode",c);await seedCheck(j);await load();step(2)}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
+  let SEED=null;
+  async function seedCheck(j){try{SEED=await (await fetch("seed.json",{cache:"no-store"})).json()}catch(e){SEED=null}
+    const box=$("#seedBox");if(!SEED||(j.seedv||0)>=(SEED.version||1)){box.hidden=true;return}
+    box.hidden=false;box.innerHTML=j.seeded?`🆕 <b>Bazaning yangi versiyasi tayyor</b> (v${SEED.version}): yangi savollar mavzu va turlar bo'yicha. Bazada bor savollar takror qo'shilmaydi, faqat turi belgilanadi.<br><button type="button" class="ck-go" id="seedBtn" style="margin-top:10px">📥 Yangi savollarni yuklash</button>`
+      :`📦 Baza hali bo'sh. Barcha savollarni (${SEED.items.length} ta, mavzu va turlarga ajratilgan) yuklang:<br><button type="button" class="ck-go" id="seedBtn" style="margin-top:10px">📥 Bazani yuklash</button>`;
+    $("#seedBtn").onclick=async e=>{const btn=e.currentTarget;loading(true,btn,"Baza yuklanmoqda…");
+      try{const r=await post("/teacher/import",{tcode:T(),items:SEED.items,version:SEED.version});msg(`✅ Bazaga ${r.added} ta yangi savol qo'shildi${r.updated?`, ${r.updated} tasiga tur belgilandi`:""} (${r.skipped} tasi bor edi).`);box.hidden=true;await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)}}
   tIn.addEventListener("keydown",e=>{if(e.key==="Enter")$("#goLogin").click()});
-  $("#seedBtn").onclick=async e=>{const btn=e.currentTarget;loading(true,btn,"Boshlang'ich baza yuklanmoqda…");
-    try{const s=await (await fetch("seed.json",{cache:"no-store"})).json();const j=await post("/teacher/import",{tcode:T(),items:s.items});msg(`✅ Bazaga ${j.added} ta savol qo'shildi (${j.skipped} tasi bor edi).`);$("#seedBox").hidden=true;await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)};
   $$(".ktabs button").forEach(b=>b.onclick=async()=>{KIND=b.dataset.k;$$(".ktabs button").forEach(x=>x.classList.toggle("on",x===b));SEL.clear();EDIT=null;await load()});
   $$(".ttabs button").forEach(b=>b.onclick=()=>{$$(".ttabs button").forEach(x=>x.classList.toggle("on",x===b));$$(".ttp").forEach(p=>p.hidden=p.dataset.t!==b.dataset.t);if(b.dataset.t==="res")loadResults();if(b.dataset.t==="stu")loadStudents()});
   const allItems=()=>partsOf(KIND).flatMap(p=>BANK[p]||[]);
@@ -422,19 +434,21 @@ if(PAGE==="teacher"){
     fp.innerHTML=`<option value="">Barcha bo'limlar</option>`+partsOf(KIND).map(p=>`<option value="${p}">${PNAME[p]} (${(BANK[p]||[]).length})</option>`).join("");fp.value=partsOf(KIND).includes(pv)?pv:"";
     ft.innerHTML=`<option value="">Barcha mavzular</option>`+topics().map(t=>`<option>${esc(t)}</option>`).join("");ft.value=topics().includes(tv)?tv:"";
     $("#topicList").innerHTML=topics().map(t=>`<option value="${esc(t)}">`).join("");
-    list();form();hwView();examView();
+    typeOpts();list();form();hwView();examView();
   }
-  function list(){const p=$("#fPart").value,t=$("#fTopic").value,q=$("#fSearch").value.toLowerCase().trim();
-    let L=allItems().filter(x=>(!p||(x.part||x.wtype)===p)&&(!t||x.topic===t)&&(!q||keyOf(x).toLowerCase().includes(q)));
+  function typeOpts(){const p=$("#fPart").value,ft=$("#fType"),v=ft.value;const T=p?QTYPES[p]||{}:{};
+    ft.innerHTML=`<option value="">${p?"Barcha turlar":"Avval bo'lim tanlang"}</option>`+Object.entries(T).map(([k,n])=>`<option value="${k}">${esc(n)} (${allItems().filter(x=>(x.part||x.wtype)===p&&x.qtype===k).length})</option>`).join("");ft.disabled=!p;ft.value=T[v]?v:""}
+  function list(){const p=$("#fPart").value,t=$("#fTopic").value,ty=$("#fType").value,q=$("#fSearch").value.toLowerCase().trim();
+    let L=allItems().filter(x=>(!p||(x.part||x.wtype)===p)&&(!t||x.topic===t)&&(!ty||x.qtype===ty)&&(!q||keyOf(x).toLowerCase().includes(q)));
     const groups={};L.forEach(x=>(groups[x.topic]=groups[x.topic]||[]).push(x));
     $("#bankCount").textContent=`${L.length} ta savol · ${SEL.size} ta belgilangan`;
     $("#bankList").innerHTML=Object.keys(groups).sort().map(g=>`<details class="tg" open><summary>${esc(g)} <small>${groups[g].length}</small></summary>${groups[g].map(x=>`<div class="bi">
       <input type="checkbox" data-sel="${x.id}" ${SEL.has(x.id)?"checked":""}><span class="pp">${(x.part||x.wtype).replace("T","Task ")}</span>
-      <span class="bt">${esc(keyOf(x).slice(0,140))}${(x.part==="1.2"||x.part==="2")?((x.images||[]).length?" 🖼":" <em class='noimg'>rasm yo'q</em>"):""}</span>
+      ${qtName(x)?`<span class="qt">${esc(qtName(x))}</span>`:""}<span class="bt">${esc(keyOf(x).slice(0,140))}${(x.part==="1.2"||x.part==="2")?((x.images||[]).length?" 🖼":` <em class='noimg'>rasm yo'q${x.pics?": "+esc(x.pics.join(" ↔ ")):""}</em>`):""}</span>
       ${Object.values(HWS).some(h=>h&&h.ids.includes(x.id))||(HW&&HW.ids.includes(x.id))?'<span class="tag">📌</span>':""}${EXAMS.some(e=>e.ids.includes(x.id))?'<span class="tag">📝</span>':""}
       <button type="button" data-ed="${x.id}">✏️</button><button type="button" data-del="${x.id}">🗑</button></div>`).join("")}</details>`).join("")||`<div class="ck-msg">Savol topilmadi.</div>`;
   }
-  ["#fPart","#fTopic"].forEach(s=>$(s).onchange=list);$("#fSearch").oninput=list;
+  $("#fPart").onchange=()=>{typeOpts();list()};["#fTopic","#fType"].forEach(s=>$(s).onchange=list);$("#fSearch").oninput=list;
   $("#bankList").addEventListener("change",e=>{const c=e.target.closest("[data-sel]");if(!c)return;c.checked?SEL.add(c.dataset.sel):SEL.delete(c.dataset.sel);$("#bankCount").textContent=$("#bankCount").textContent.replace(/· \d+ ta/,`· ${SEL.size} ta`)});
   $("#bankList").addEventListener("click",async e=>{const b=e.target.closest("button");if(!b)return;
     if(b.dataset.ed){EDIT=allItems().find(x=>x.id===b.dataset.ed);$("#ttBank").click();form();$("#itemForm").scrollIntoView({behavior:"smooth"})}
@@ -445,6 +459,7 @@ if(PAGE==="teacher"){
   let FIMG=[];
   function form(){const it=EDIT||{};const part=it.part||it.wtype||$("#iPart").value||partsOf(KIND)[0];
     $("#iPart").innerHTML=partsOf(KIND).map(p=>`<option value="${p}">${PNAME[p]}</option>`).join("");$("#iPart").value=partsOf(KIND).includes(part)?part:partsOf(KIND)[0];$("#iPart").disabled=!!EDIT;
+    $("#iType").innerHTML=`<option value="">— tur —</option>`+Object.entries(QTYPES[$("#iPart").value]||{}).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join("");$("#iType").value=it.qtype||"";
     $("#iTopic").value=it.topic||"";FIMG=(it.images||[]).map(x=>typeof x==="string"?{url:x,thumb:x}:({...x,thumb:imgSrc(x)}));fields(it);$("#iSave").textContent=EDIT?"💾 O'zgarishni saqlash":"➕ Bazaga qo'shish";$("#iCancel").hidden=!EDIT}
   function fields(it){const p=$("#iPart").value;const q=it.q||[];let h="";
     const ta=(id,lab,v,ph,r=3)=>`<label>${lab}<textarea id="${id}" rows="${r}" placeholder="${esc(ph||"")}">${esc(v||"")}</textarea></label>`;
@@ -457,10 +472,10 @@ if(PAGE==="teacher"){
       h+=`<div class="ck-task"><b>🖼 Rasm${p==="1.2"?"lar (2 ta)":" (1 ta)"}</b><label class="ck-file" style="margin-top:8px">📷 Yuklash<input type="file" id="fImg" accept="image/*" ${p==="1.2"?"multiple":""}></label><div class="ck-thumbs" id="fThumbs"></div></div>`}
     $("#iFields").innerHTML=h;const fi=$("#fImg");if(fi){fi.onchange=async e=>{const max=p==="1.2"?2:1;for(const f of [...e.target.files]){if(FIMG.length>=max)FIMG.shift();FIMG.push(await compress(f,900,.8))}e.target.value="";thumbs()};thumbs()}}
   function thumbs(){const b=$("#fThumbs");if(!b)return;b.innerHTML="";FIMG.forEach((im,i)=>{const f=document.createElement("figure");f.innerHTML=`<img src="${esc(im.thumb)}" alt=""><button type="button">×</button>`;f.querySelector("button").onclick=()=>{FIMG.splice(i,1);thumbs()};b.appendChild(f)})}
-  $("#iPart").onchange=()=>{FIMG=[];fields({})};
+  $("#iPart").onchange=()=>{FIMG=[];fields({});$("#iType").innerHTML=`<option value="">— tur —</option>`+Object.entries(QTYPES[$("#iPart").value]||{}).map(([k,n])=>`<option value="${k}">${esc(n)}</option>`).join("")};
   $("#iCancel").onclick=()=>{EDIT=null;form()};
   function collect(){const p=$("#iPart").value,v=id=>($("#"+id)||{}).value?.trim()||"";
-    const it={id:EDIT?EDIT.id:undefined,created:EDIT?EDIT.created:undefined,kind:KIND,topic:$("#iTopic").value.trim()};
+    const it={id:EDIT?EDIT.id:undefined,created:EDIT?EDIT.created:undefined,kind:KIND,topic:$("#iTopic").value.trim(),qtype:$("#iType").value,struct:EDIT&&EDIT.struct,pics:EDIT&&EDIT.pics};
     if(KIND==="writing"){it.wtype=p;if(p==="T1")Object.assign(it,{sender:v("fSender"),email:v("fEmail"),t11:v("fT11"),t12:v("fT12")});else it.essay=v("fEssay")}
     else{it.part=p;it.q=[v("fQ1"),v("fQ2"),v("fQ3")].filter(Boolean);if(p==="3"){it.for=[0,1,2].map(i=>v("fF"+i)).filter(Boolean);it.against=[0,1,2].map(i=>v("fA"+i)).filter(Boolean)}
       if(p==="1.2"||p==="2") it.images=FIMG.map(x=>x.url?{url:x.url}:x.k?{k:x.k}:{data:x.data})}

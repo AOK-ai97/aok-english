@@ -1029,7 +1029,7 @@ export default {
         const myGid = myG.map(g => g.id);
         const writeHw = async (k, mk) => { const tgt = (b.groups || []).map(String).filter(x => myGid.includes(x)); const list = tgt.length ? tgt : (myGid.length ? myGid : ["*"]); let n = 0;
           for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
-        if (path === "/teacher/login") return out({ok: true, seeded: !!(await env.KV.get("seed:v1")), name: TT.name, admin: TT.admin});
+        if (path === "/teacher/login") { const sv = await env.KV.get("seed:v1"); return out({ok: true, seeded: !!sv, seedv: +(sv || 0), name: TT.name, admin: TT.admin}); }
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
         if (path === "/teacher/bank") {
           const bank = await allBank(env, kind);
@@ -1040,22 +1040,24 @@ export default {
           return out({bank, homeworks, homework: legacy, exams, groups: myG, me: {name: TT.name, admin: TT.admin}});
         }
         if (path === "/teacher/import") {
-          const items = b.items || []; let added = 0, skipped = 0;
+          const items = b.items || []; let added = 0, skipped = 0, updated = 0;
           for (const k of ["writing", "speaking"]) for (const p of (k === "writing" ? WPARTS : SPARTS)) {
-            const arr = await getBank(env, k, p); const have = new Set(arr.map(x => norm(keyText(x))));
+            const arr = await getBank(env, k, p); const have = new Map(arr.map(x => [norm(keyText(x)), x])); let ch = false;
             for (const it of items.filter(x => x.kind === k && (x.part || x.wtype) === p)) {
-              const key = norm(keyText(it)); if (have.has(key)) { skipped++; continue; }
-              have.add(key); arr.push(it); added++;
+              const key = norm(keyText(it)); const ex = have.get(key);
+              if (ex) { skipped++; if (it.qtype && !ex.qtype) { ex.qtype = it.qtype; ch = true; updated++; } if (it.pics && !ex.pics) { ex.pics = it.pics; ch = true; } continue; }
+              have.set(key, it); arr.push(it); added++; ch = true;
             }
-            await putBank(env, k, p, arr);
+            if (ch) await putBank(env, k, p, arr);
           }
-          await env.KV.put("seed:v1", "1");
-          return out({ok: true, added, skipped});
+          await env.KV.put("seed:v1", String(b.version || 1));
+          return out({ok: true, added, skipped, updated});
         }
         if (path === "/teacher/item/save") {
           const it = b.item || {}; const k = it.kind === "writing" ? "writing" : "speaking";
           const part = k === "writing" ? (it.wtype === "T2" ? "T2" : "T1") : (SPARTS.includes(it.part) ? it.part : "1.1");
           const clean_it = {id: it.id || uid(), kind: k, topic: clean(it.topic, 60) || "Boshqa", created: it.created || Date.now()};
+          if (it.qtype) clean_it.qtype = clean(it.qtype, 20); if (it.struct) clean_it.struct = +it.struct || undefined; if (Array.isArray(it.pics)) clean_it.pics = it.pics.map(x => clean(x, 120)).slice(0, 2);
           if (k === "writing") { clean_it.wtype = part;
             if (part === "T1") Object.assign(clean_it, {sender: clean(it.sender, 150) || "The manager sent you an email.", email: clean(it.email), t11: clean(it.t11, 600), t12: clean(it.t12, 600)});
             else clean_it.essay = clean(it.essay, 1200);
