@@ -442,12 +442,14 @@ if(PAGE==="teacher"){
     let L=allItems().filter(x=>(!p||(x.part||x.wtype)===p)&&(!t||x.topic===t)&&(!ty||x.qtype===ty)&&(!q||keyOf(x).toLowerCase().includes(q)));
     const groups={};L.forEach(x=>(groups[x.topic]=groups[x.topic]||[]).push(x));
     $("#bankCount").textContent=`${L.length} ta savol · ${SEL.size} ta belgilangan`;
-    $("#bankList").innerHTML=Object.keys(groups).sort().map(g=>`<details class="tg" open><summary>${esc(g)} <small>${groups[g].length}</small></summary>${groups[g].map(x=>`<div class="bi">
+    $("#bankList").innerHTML=Object.keys(groups).sort().map(g=>`<details class="tg" data-g="${esc(g)}" ${q||OPEN.has(g)?"open":""}><summary>${esc(g)} <small>${groups[g].length}</small></summary>${groups[g].map(x=>`<div class="bi">
       <input type="checkbox" data-sel="${x.id}" ${SEL.has(x.id)?"checked":""}><span class="pp">${(x.part||x.wtype).replace("T","Task ")}</span>
       ${qtName(x)?`<span class="qt">${esc(qtName(x))}</span>`:""}<span class="bt">${esc(keyOf(x).slice(0,140))}${(x.part==="1.2"||x.part==="2")?((x.images||[]).length?" 🖼":` <em class='noimg'>rasm yo'q${x.pics?": "+esc(x.pics.join(" ↔ ")):""}</em>`):""}</span>
       ${Object.values(HWS).some(h=>h&&h.ids.includes(x.id))||(HW&&HW.ids.includes(x.id))?'<span class="tag">📌</span>':""}${EXAMS.some(e=>e.ids.includes(x.id))?'<span class="tag">📝</span>':""}
       <button type="button" data-ed="${x.id}">✏️</button><button type="button" data-del="${x.id}">🗑</button></div>`).join("")}</details>`).join("")||`<div class="ck-msg">Savol topilmadi.</div>`;
   }
+  const OPEN=new Set(); // mavzular yopiq turadi — faqat siz ochganlari ochiq qoladi
+  $("#bankList").addEventListener("toggle",e=>{const d=e.target;if(!d.matches||!d.matches("details.tg")||$("#fSearch").value.trim())return;d.open?OPEN.add(d.dataset.g):OPEN.delete(d.dataset.g)},true);
   $("#fPart").onchange=()=>{typeOpts();list()};["#fTopic","#fType"].forEach(s=>$(s).onchange=list);$("#fSearch").oninput=list;
   $("#bankList").addEventListener("change",e=>{const c=e.target.closest("[data-sel]");if(!c)return;c.checked?SEL.add(c.dataset.sel):SEL.delete(c.dataset.sel);$("#bankCount").textContent=$("#bankCount").textContent.replace(/· \d+ ta/,`· ${SEL.size} ta`)});
   $("#bankList").addEventListener("click",async e=>{const b=e.target.closest("button");if(!b)return;
