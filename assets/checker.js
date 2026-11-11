@@ -177,14 +177,14 @@ async function a4Pages(box,d){
 }
 function tgCaption(d){
   const e=s=>esc(s).replace(/&quot;/g,'"');const L=[];
-  if(d.kind==="speaking"){L.push(`🎤 <b>Speaking</b> · ${e(MODES[d.mode]||"")}${d.title?" · "+e(d.title):""}`);L.push(`👤 ${e(d.student_name)}`);
+  if(d.kind==="speaking"){L.push(`🎤 <b>Speaking</b> · ${e(d.title||MODES[d.mode]||"")}`);L.push(`👤 ${e(d.student_name)}`);
     L.push(`⭐ Overall: <b>${fmt(d.overall)} / 5</b>${d.prev?` (oldingi: ${fmt(d.prev.tot)}${d.overall>d.prev.tot?" ↑":d.overall<d.prev.tot?" ↓":" →"})`:""}`);
-    L.push((d.parts||[]).map(p=>`Part ${p.part}: ${fmt(p.overall)}`).join(" · "));
+    (d.parts||[]).forEach(p=>L.push(`• Part ${e(String(p.part).replace(/part\s*/i,""))} — <b>${fmt(p.overall)}</b> / 5`));
     const pc=Object.entries(d._pct||{});if(pc.length)L.push(`🗣 Talaffuz mashqi: ${pc.map(([w,s])=>`${e(w)} ${s}%`).join(" · ")}`);else if((d.pron||[]).length)L.push(`🗣 Talaffuz xatolari: ${d.pron.length} ta so'z`);
     if(d.away&&d.away.n)L.push(`🚪 Imtihondan ${d.away.n} marta chiqib ketgan (${Math.round(d.away.s)} s)`)}
-  else{L.push(`✍️ <b>Writing</b> · ${e(MODES[d.mode]||"")}${d.title?" · "+e(d.title):""}`);L.push(`👤 ${e(d.student_name)}`);
+  else{L.push(`✍️ <b>Writing</b> · ${e(d.title||MODES[d.mode]||"")}`);L.push(`👤 ${e(d.student_name)}`);
     L.push(`⭐ Jami: <b>${fmt(d.total)} / ${d.max}</b>${d.prev?` (oldingi: ${fmt(d.prev.tot)}/${d.prev.max}${d.total/d.max>d.prev.tot/d.prev.max?" ↑":d.total/d.max<d.prev.tot/d.prev.max?" ↓":" →"})`:""}`);
-    L.push((d.tasks||[]).map(t=>`Task ${t.task}: ${fmt(t.overall)}`).join(" · "))}
+    (d.tasks||[]).forEach(t=>L.push(`• Task ${e(String(t.task).replace(/task\s*/i,""))} — ${t.missing?"❌ yozilmagan (0)":`<b>${fmt(t.overall)}</b> / 5`}`))}
   if(d.repeats)L.push(`🔁 Takroriy xatolar: ${d.repeats} ta`);if(d.late)L.push("⏰ Muddatdan kech topshirildi");
   return L.join("\n");
 }

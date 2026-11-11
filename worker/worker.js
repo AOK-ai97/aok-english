@@ -91,6 +91,7 @@ const keyText = it => it.kind==="writing" ? (it.wtype==="T1" ? it.email : it.ess
 const shuffle = a => { a = a.slice(); for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
 
 function fixTask(t){
+  { const m = String(t.task || "").match(/1\s*[.,]\s*([12])|\b2\b/); t.task = m ? (m[1] ? "1." + m[1] : "2") : String(t.task || "").replace(/task/ig, "").trim(); } // "Task 1.1" → "1.1"
   t.criteria = (t.criteria||[]).map(c => ({...c, score: half(c.score)}));
   t.overall = half(t.criteria.reduce((a,c)=>a+c.score,0) / (t.criteria.length||1));
   if (t.on_topic === false) {
@@ -1449,6 +1450,7 @@ export default {
         const r = await gemini(env, WRITING_SYS + tagLine(), parts, W_SCHEMA);
         if (!r.tasks || !r.tasks.length) return out({error: "Rasmda javob topilmadi. Yorug' joyda, tekis qilib qayta rasmga oling."}, 422);
         r.tasks.forEach(fixTask);
+        { const seen = {}; r.tasks = r.tasks.filter(t => { if (seen[t.task]) { if (t.overall > seen[t.task].overall) Object.assign(seen[t.task], t); return false; } seen[t.task] = t; return true; }); } // bir Task ikki marta kelsa — bittasi
         const expected = items.flatMap(it => it.wtype === "T1" ? ["1.1", "1.2"] : ["2"]);
         for (const t of [...new Set(expected)]) if (!r.tasks.some(x => x.task === t))
           r.tasks.push({task: t, missing: true, on_topic: true, topic_check: "", transcript: "", word_count: 0, errors: [], overall: 0, ideal: "", max_tips: ["Bu Task'ni ham yozing — yozilmagan Task 0 ball oladi."],
