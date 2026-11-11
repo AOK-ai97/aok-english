@@ -15,7 +15,7 @@ binding = "KV"
 id = "aab1bb588e044ed18814994e05dc3a86"
 
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/5 * * * *", "* * * * *"]
 
 [observability]
 enabled = true

@@ -251,6 +251,34 @@ async function radarText(env, type, name, facts){
 
 
 
+
+/* ---------------- Shadowing navbati: har bir audio albatta tekshiriladi ---------------- */
+async function shadowJob(env, g, hp, s, msg){
+  const jk = `shj:${g.id}:${msg.message_id}`; const ex = await J(env, jk, null);
+  if (ex && (ex.st === "done" || (ex.st === "run" && Date.now() - ex.t < 150e3))) return; // takror (Telegram qayta yuborgan)
+  const job = {st: "run", t: Date.now(), gid: g.id, sid: s.id, n: ((ex && ex.n) || 0) + 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat}};
+  await PUT(env, jk, job, {expirationTtl: 3 * 86400});
+  const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-60)); }
+  await runShadow(env, jk, job, g, hp, s);
+}
+async function runShadow(env, jk, job, g, hp, s){
+  const lk = "shl:" + job.sid; const lock = await J(env, lk, null);
+  if (lock && lock.k !== jk && Date.now() - lock.t < 90e3) return; // shu o'quvchining boshqa audiosi tekshirilmoqda — navbat (cron 1 daqiqada oladi)
+  await PUT(env, lk, {k: jk, t: Date.now()}, {expirationTtl: 300});
+  try { await checkShadowing(env, g, hp, s, job.msg); job.st = "done"; await PUT(env, jk, job, {expirationTtl: 3 * 86400});
+    await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
+  finally { await env.KV.delete(lk); }
+}
+async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
+  const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env);
+  for (const jk of q) { const job = await J(env, jk, null);
+    if (!job || job.st === "done" || job.n > 3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
+    if (Date.now() - job.t < 45e3) continue;
+    const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid), hp = g && await J(env, "hp:" + g.id, null);
+    if (!g || !s || !hp) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
+    job.n++; job.t = Date.now(); await PUT(env, jk, job, {expirationTtl: 3 * 86400});
+    try { await runShadow(env, jk, job, g, hp, s); } catch (e) { console.log("shq", e.message); } }
+}
 /* ---------------- Dars oxirida bitta umumiy feedback (tugma) ---------------- */
 async function fbText(env, type, name, facts){
   try { const r = await gemini(env, FB_SYS, [{text: `Type: ${type}\nStudent: ${first(name)}\nFacts: ${facts}`}], {type:"OBJECT",properties:{text:STR},required:["text"]}, 1.0, true);
@@ -493,14 +521,15 @@ Return:
 "coverage": 0–100 — how much of that original's text the student really said;
 "pron": 0–100 pronunciation accuracy (sounds, word stress) of the student;
 "fluency": 0–100 (rhythm, speed, intonation compared with the original);
-"wrong": up to 8 mispronounced words: {"word", "tip" (very short UZBEK tip)};
+"wrong": up to 8 mispronounced words: {"word", "tip" (very short UZBEK tip on HOW TO PRONOUNCE it — sound/stress, e.g. "th — tilni tishlar orasiga qo'ying"; NEVER a translation of the word)};
+"student_voice": true if a non-native learner's own voice (the student) is clearly heard repeating the text; false if the recording is only the original/native audio;
 "voices": how many different human voices are clearly audible in the STUDENT recording;
-"playback": true if the STUDENT recording seems to contain the original audio itself (studio-quality native voice, the original playing from a speaker/phone, identical to the original) instead of the student's own voice;
+"playback": true if the original audio is audible in the STUDENT recording (playing in the background, or the whole file is the original itself) (studio-quality native voice, the original playing from a speaker/phone, identical to the original) instead of the student's own voice;
 "other_person": true if the student's voice clearly differs from the EARLIER recording (only when an earlier recording is given; else false);
 "suspect_uz": one short UZBEK sentence explaining any suspicion (empty if none);
 "note_uz": 1–2 short UZBEK sentences of feedback for the student (what was good, what to fix).
 Be fair: background noise, accent and quiet voice are NOT cheating. Answer ONLY with JSON.`;
-const SH_SCHEMA = {type:"OBJECT",properties:{ref:{type:"INTEGER"},coverage:NUM,pron:NUM,fluency:NUM,wrong:{type:"ARRAY",items:{type:"OBJECT",properties:{word:STR,tip:STR},required:["word","tip"]}},voices:{type:"INTEGER"},playback:{type:"BOOLEAN"},other_person:{type:"BOOLEAN"},suspect_uz:STR,note_uz:STR},required:["ref","coverage","pron","fluency","wrong","voices","playback","other_person","suspect_uz","note_uz"]};
+const SH_SCHEMA = {type:"OBJECT",properties:{student_voice:{type:"BOOLEAN"},ref:{type:"INTEGER"},coverage:NUM,pron:NUM,fluency:NUM,wrong:{type:"ARRAY",items:{type:"OBJECT",properties:{word:STR,tip:STR},required:["word","tip"]}},voices:{type:"INTEGER"},playback:{type:"BOOLEAN"},other_person:{type:"BOOLEAN"},suspect_uz:STR,note_uz:STR},required:["ref","coverage","pron","fluency","wrong","voices","playback","other_person","suspect_uz","note_uz"]};
 async function tgFileB64(env, file_id, max = 15e6){
   const f = await tg(env, "getFile", {file_id}); if (!f.ok || !f.result.file_path || (f.result.file_size || 0) > max) return null;
   const r = await fetch(`https://api.telegram.org/file/bot${env.TG_TOKEN}/${f.result.file_path}`); if (!r.ok) return null;
@@ -522,8 +551,10 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   let r; try { r = await gemini(env, SH_SYS, parts, SH_SCHEMA, 0.1); } catch (e) { return reply("⏳ AI hozir band — shadowing'ingiz saqlandi, o'qituvchi tekshiradi."); }
   const cov = Math.round(Math.max(0, Math.min(100, +r.coverage || 0))), pron = Math.round(Math.max(0, Math.min(100, +r.pron || 0))), flu = Math.round(Math.max(0, Math.min(100, +r.fluency || 0)));
   const refName = r.ref > 0 && refs[r.ref - 1] ? refs[r.ref - 1].name : (msg.caption || "");
-  const sus = !!(r.playback || (r.voices || 1) > 1 || r.other_person || fromChannel || (msg.audio && !msg.voice));
-  const counted = cov >= 40 && !r.playback;
+  const sus = !!(r.other_person || fromChannel);
+  const onlyOrig = r.student_voice === false || (r.playback && (r.voices || 1) <= 1 && r.student_voice !== true);
+  if (onlyOrig) return reply("🎧 Bu asl audio ekan — o'quvchi ovozi eshitilmadi. Endi uni tinglab, <b>o'zingiz takrorlab</b> ovozli xabar yuboring 🎙");
+  const counted = cov >= 40;
   const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0, refs: [], best: null, list: []};
   const key = refName || ("#" + (x.list.length + 1));
   if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); }
@@ -742,9 +773,7 @@ async function onPrivate(env, msg){
       for (const g of await getGroups(env)) { const ss = studs.filter(x => x.gid === g.id); const un = ss.filter(x => !x.thread);
         let adm = "?"; try { const cm = await tg(env, "getChatMember", {chat_id: g.id, user_id: me2.result.id}); adm = cm.ok ? cm.result.status : "❌ " + (cm.description || ""); } catch (e) {}
         const al = await allowedRx(env, g.id); t += `\n\n👥 <b>${H(g.title)}</b>: reaksiyalar=${al ? al.join("") : "hammasi"}, bot=${H(adm)}, o'quvchi ${ss.length}, topic ulangan ${ss.length - un.length}${un.length ? "\n ulanmagan: " + un.map(x => H(x.name)).join(", ") : ""}`;
-        { const m = await J(env, "rxm:" + g.id, null), rr = await J(env, "rxr:" + g.id, null);
-          t += `\n 🔎 oxirgi reaksiya: ${m ? `${hhmm(m.t)} msg=${m.mid} ${m.emoji}` : "chaqirilmagan"}${rr ? ` → ${rr.e} ${rr.ok ? "ok" : "❌ " + H(rr.d)}` : " → javob yozilmagan"}`;
-          if (m) { const x = await tg(env, "setMessageReaction", {chat_id: g.id, message_id: m.mid, reaction: [{type: "emoji", emoji: "👌"}]}); t += `\n 🧪 hozirgi sinov (👌 msg=${m.mid}): ${x.ok ? "ok" : "❌ " + H(x.description || "")}`; } }
+        { const q = await J(env, "shq", []); if (q.length) t += `\n ⏳ Shadowing navbatida: ${q.filter(k => k.includes(g.id)).length} ta`; }
         for (const e of (await J(env, "tr:" + g.id, [])).slice(0, 5)) t += `\n • ${hhmm(e.t)} th=${e.th}${e.tn ? " (" + H(e.tn) + ")" : ""}${e.s ? " " + H(e.s) : ""}: ${H(e.why)}${e.txt ? " — «" + H(e.txt) + "»" : ""}${e.from ? " — " + H(e.from) : ""}`; }
       const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
     try { await hpParse(env, (await getGroups(env))[0] || {}, "#Homework\n- 2 ta audio shadowing (bugun 23:59 gacha)", Date.now()); t += "\n✅ AI (Homework o'qish) ishlayapti"; }
@@ -882,11 +911,9 @@ async function allowedRx(env, chat){ // guruhda ruxsat etilgan reaksiyalar (null
   await PUT(env, k, {list}, {expirationTtl: 6 * 3600}); return list;
 }
 async function react(env, chat, mid, emoji){ let last = null; const al = await allowedRx(env, chat);
-  await PUT(env, "rxm:" + chat, {mid, emoji, t: Date.now()}, {expirationTtl: 3 * 86400});
   const strip = x => x.replace(/\uFE0F/g, "");
   for (const e of [emoji, "👌", "👍", "🔥", "❤"].filter((x, i, a) => a.indexOf(x) === i).filter(x => !al || al.some(y => strip(y) === strip(x)))) {
     const r = await tg(env, "setMessageReaction", {chat_id: chat, message_id: mid, reaction: [{type: "emoji", emoji: e}]});
-    await PUT(env, "rxr:" + chat, {mid, e, ok: !!(r && r.ok), d: (r && r.description) || "", t: Date.now()}, {expirationTtl: 3 * 86400});
     if (r && r.ok) return r;
     last = r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) break;
   }
@@ -943,7 +970,7 @@ async function onGroupMessage(env, msg){
     const au = msg.audio || msg.voice || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
     if (au && th && (th === g.hwt)) {
       const hp = await J(env, "hp:" + gid, null);
-      if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || ""}].slice(0, 6);
+      if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || "", fu: au.file_unique_id || "", dur: au.duration || 0}].slice(0, 6);
         await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); await react(env, gid, msg.message_id, "👌"); }
       return;
     }
@@ -952,7 +979,6 @@ async function onGroupMessage(env, msg){
     if (!s) { const tn = (await J(env, "topics:" + gid, {}))[th]; await trace(env, gid, {th, tn: tn || "", why: "bu topic hech bir o'quvchiga ulanmagan", txt: text.slice(0, 40)}); return; }
     if (!text) return;
     const pg = parseGrades(text); if (!pg.st && !Object.keys(pg.it).length) { await trace(env, gid, {th, why: "baho so'zi topilmadi", txt: text.slice(0, 40), s: s.name}); return; }
-    await trace(env, gid, {th, why: "✅ baho o'qildi", txt: text.slice(0, 40), s: s.name});
     const k = `gr:${gid}:${dayKey()}`; const day = await J(env, k, {});
     const rec = day[s.id] || {it: {}}; rec.prev = rec.prev || {};
     for (const [name, v] of Object.entries(pg.it)) { const old = rec.it[name]; if (old && old.l != null && v.l != null && v.l > old.l) rec.prev[name] = old.l; rec.it[name] = v; }
@@ -972,7 +998,14 @@ async function onGroupMessage(env, msg){
   if (!s) return;
   const hp = await J(env, "hp:" + gid, null); if (!hp || hp.st === "done" || !hp.items.length) return;
   const media = msg.voice || msg.audio || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
-  if (media && hp.items.some(i => i.type === "shadowing")) return checkShadowing(env, g, hp, s, msg, studs);
+  if (media && hp.items.some(i => i.type === "shadowing")) {
+    const fo = msg.forward_origin; const fwdUid = fo && fo.type === "user" && fo.sender_user ? fo.sender_user.id : msg.forward_from ? msg.forward_from.id : null;
+    const staffSet = await staffIds(env, g);
+    const isRef = (hp.refs || []).some(r => (r.fu && r.fu === media.file_unique_id) || (msg.audio && !msg.voice && ((r.dur && media.duration && Math.abs(r.dur - media.duration) <= 1) || (r.name && nn(media.title || media.file_name || "").includes(nn(r.name)) && nn(r.name).length > 3))))
+      || (fwdUid && staffSet.map(String).includes(String(fwdUid)));
+    if (isRef) return trace(env, gid, {th, s: s.name, why: "o'quvchi asl audioni o'z topic'iga tashladi — tekshirilmadi"});
+    return shadowJob(env, g, hp, s, msg);
+  }
   const kindOf = msg.voice || msg.audio ? "voice" : (msg.photo || (msg.document && /^image\//.test(msg.document.mime_type || ""))) ? "photo" : msg.video || msg.video_note ? "video" : (msg.text && msg.text.length >= 40) ? "text" : null;
   if (!kindOf) return;
   const it = hp.items.find(i => i.type === kindOf) || (kindOf === "photo" ? hp.items.find(i => i.type === "text") : kindOf === "text" ? hp.items.find(i => i.type === "photo") : null);
@@ -1169,7 +1202,7 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
    ASOSIY
    ===================================================================== */
 export default {
-  async scheduled(ev, env, ctx){ ctx.waitUntil(cron(env).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? shadowQueue(env) : Promise.all([cron(env), shadowQueue(env)])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
