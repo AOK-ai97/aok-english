@@ -228,6 +228,10 @@ Tone by type: "praise" = warm, specific (mention what exactly was good); "encour
 "scold" = respectful, never rude or humiliating, firm, gives one concrete next step; "remind" = urgent but kind, says what is still missing and how much time is left;
 "late" = respectful disappointment that the deadline passed + it can still be submitted before the next lesson; "late_remind" = the deadline has already passed, but the student can still submit before the lesson starts — say what is missing and how many hours are left, kind and motivating, not angry; "late_ok" = thanks for submitting even though late, next time on time.
 Use ONLY the facts given. No markdown. Answer ONLY with JSON {"text": "..."}.`;
+const FB_SYS = `You are "AOK Radar 📡", assistant of an English teacher (CEFR Multilevel prep, Uzbekistan). After the lesson, write ONE end-of-lesson feedback message in UZBEK (Latin script) to the student, addressed by first name.
+It must cover ALL graded parts from Facts, but stay short and lively: 2–4 sentences, max 420 characters, 2–3 fitting emoji. No bullet lists, no headings, no "Hurmatli".
+Structure: 1) quick overall verdict for today; 2) name the strongest part(s) specifically; 3) name the weakest part(s) with ONE concrete, doable tip for next lesson (e.g. how many words to repeat, what to re-record). If a part was improved after a redo, praise the effort.
+Tone by Type: praise = warm and proud; encourage = friendly, motivating; scold = honest and firm but caring, never insulting. Every message must be worded differently — avoid clichés and templates; vary openings. Use the grade names as given (A'lo, yaxshi, chala…). Output JSON {"text": "..."}.`;
 const FALLBACK = {
   praise: ["🔥 {n}, zo'r natija! Shu tempda davom eting 💪", "🏆 {n}, bugun a'lo ishladingiz! Radar faxrlanadi 📡", "👏 {n}, juda yaxshi! Keyingi darsda ham shunday 🚀"],
   encourage: ["🙂 {n}, yomon emas! Biroz ko'proq mashq qilsangiz, natija ancha o'sadi 💪", "📈 {n}, yaxshi harakat. Kamchiliklarni takrorlab oling, keyingi safar a'lo bo'ladi!"],
@@ -246,6 +250,30 @@ async function radarText(env, type, name, facts){
 }
 
 
+
+/* ---------------- Dars oxirida bitta umumiy feedback (tugma) ---------------- */
+async function fbText(env, type, name, facts){
+  try { const r = await gemini(env, FB_SYS, [{text: `Type: ${type}\nStudent: ${first(name)}\nFacts: ${facts}`}], {type:"OBJECT",properties:{text:STR},required:["text"]}, 1.0, true);
+    if (r.text && r.text.length > 20) return r.text.slice(0, 700); } catch (e) {}
+  return radarText(env, type, name, facts);
+}
+async function dayFeedback(env, g, d){
+  d = d || dayKey(); const day = await J(env, `gr:${g.id}:${d}`, {}); const studs = await getStudents(env);
+  const sk = `gs:${g.id}:${d}`; const sent = await J(env, sk, {}); const done = [], skip = [], again = [];
+  for (const [sid, rec] of Object.entries(day)) {
+    const s = studs.find(x => x.id === sid); if (!s) continue;
+    if (rec.st || !Object.keys(rec.it || {}).length) continue;
+    if (sent[sid] === rec.v) { again.push(s.name); continue; }
+    if (!s.thread) { skip.push(s.name); continue; }
+    const items = Object.entries(rec.it); const ls = items.filter(([, v]) => v.l != null).map(([, v]) => Math.min(v.l, 5));
+    const facts = items.map(([k, v]) => `${ITEM_UZ[k] || k}: ${v.l != null ? LV_NAME(v.l) : "topshirildi"}${v.n ? ` (izoh: ${v.n})` : ""}${rec.prev && rec.prev[k] != null ? ` (avval ${LV_NAME(rec.prev[k])} edi — qayta ishlab yaxshiladi)` : ""}`).join("; ");
+    const a = avg(ls); const type = a === null ? "praise" : a >= 4 ? "praise" : a <= 2 ? "scold" : "encourage";
+    await toTopic(env, g.id, s.thread, await fbText(env, type, s.name, facts)); sent[sid] = rec.v; done.push(s.name);
+    await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
+  }
+  return {done, skip, again};
+}
+const fbKb = g => kb([[{text: "📝 Hammaga feedback yuborish", callback_data: "fb:" + g.id}]]);
 /* ---------------- Results: darsdagi test natijalari ---------------- */
 function parseResults(text){
   const lines = String(text || "").split(/\n/).map(x => x.trim()).filter(Boolean);
@@ -327,8 +355,8 @@ async function rpSend(env, g, rp){
 const LEVELS = [["super",6],["sal a'lo",4],["sal alo",4],["sal yaxshi",2.5],["sal chala",2],["a'lo",5],["alo",5],["zo'r",5],["zor",5],["yaxshi",3],["chala",1],["yodlamagan",0],["yomon",0],["qilmagan",0],["bajarmagan",0],["yo'q",0],["yoq",0]];
 const LV_COLOR = l => l >= 4.5 ? "🔵" : l >= 3.5 ? "🟢" : l >= 2.5 ? "🟡" : l >= 1.5 ? "🟠" : l >= 0.5 ? "🔴" : "⚫️";
 const LV_NAME = l => l >= 6 ? "Super" : l >= 5 ? "A'lo" : l >= 4 ? "sal A'lo" : l >= 3 ? "yaxshi" : l >= 2.5 ? "sal yaxshi" : l >= 2 ? "sal chala" : l >= 1 ? "chala" : "yomon";
-const ITEMS = [["lugat",/lug'?at|vocab|so'zlar|words?\b/],["structure",/struct|strukt/],["speaking",/speak|gapir/],["translate",/transl|tarjim/],["writing",/writ|yozuv|insho/],["reading",/read|o'qish/],["listening",/listen|tinglash/],["grammar",/gramm/],["vazifa",/homework|vazifa/]];
-const ITEM_UZ = {lugat:"Lug'at",structure:"Structure",speaking:"Speaking",translate:"Translate",writing:"Writing",reading:"Reading",listening:"Listening",grammar:"Grammar",vazifa:"Vazifa",umumiy:"Umumiy"};
+const ITEMS = [["lugat",/lug'?at|vocab|so'zlar|words?\b/],["structure",/struct|strukt/],["speaking",/speak|gapir/],["translate",/transl|tarjim/],["writing",/writ|yozuv|yozma|insho/],["dialog",/dialog|suhbat/],["reading",/read|o'qish/],["listening",/listen|tinglash/],["grammar",/gramm/],["vazifa",/homework|vazifa/]];
+const ITEM_UZ = {lugat:"Lug'at",structure:"Structure",speaking:"Speaking",translate:"Translate",writing:"Writing",reading:"Reading",listening:"Listening",grammar:"Grammar",dialog:"Dialog",vazifa:"Vazifa",umumiy:"Umumiy"};
 function parseGrades(text){
   const out = {it: {}, st: null};
   for (let raw of String(text || "").split(/\n/)) {
@@ -618,7 +646,8 @@ async function mainMenu(env, r, edit){
   return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, text, kb(rows));
 }
 function groupKb(g, r){
-  const rows = [[{text:"📊 Natijalar", callback_data:"res:" + g.id}, {text:"📋 Davomat", callback_data:"dav:" + g.id}],
+  const rows = [[{text:"📝 Darsdan keyin feedback", callback_data:"fb:" + g.id}],
+    [{text:"📊 Natijalar", callback_data:"res:" + g.id}, {text:"📋 Davomat", callback_data:"dav:" + g.id}],
     [{text:"🔎 Holat", callback_data:"hol:" + g.id}, {text:"🔑 PIN kodlar", callback_data:"pin:" + g.id}],
     [{text:"📈 Haftalik hisobot", callback_data:"wk:" + g.id}, {text:"⚙️ Sozlamalar", callback_data:"set:" + g.id}]];
   if (r.admin) rows.push([{text:"🗑 Guruhni yopish", callback_data:"del1:" + g.id}]);
@@ -814,6 +843,14 @@ async function onCallback(env, cq){
     if (b === "links") return askNextLink(env, w); return pm(env, r.uid, ASK[b]); }
   if (a === "hpok" && g) { const hp = await J(env, "hp:" + g.id, null); if (!hp) return; hp.st = "active"; await PUT(env, "hp:" + g.id, hp);
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(g.title)}</b> — Homework nazoratga olindi.\n\n${hpTable(hp)}`}); }
+  if (a === "fb") { const g = gs.find(x => x.id === b); if (!g || !canG(r, g)) return;
+    await tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `⏳ <b>${H(g.title)}</b> — feedbacklar yozilmoqda…`});
+    const x = await dayFeedback(env, g);
+    let t = x.done.length ? `✅ <b>${H(g.title)}</b> — ${x.done.length} ta o'quvchiga dars bo'yicha bitta umumiy feedback yuborildi:\n${x.done.map(n => "• " + H(n)).join("\n")}` : `ℹ️ <b>${H(g.title)}</b> — yangi feedback yo'q.`;
+    if (x.again.length) t += `\n\n↩️ Avval yuborilgan, yangi baho yo'q: ${x.again.map(H).join(", ")}`;
+    if (x.skip.length) t += `\n\n⚠️ Topic ulanmagan: ${x.skip.map(H).join(", ")}`;
+    t += "\n\n<i>Baho qo'shsangiz yoki o'zgartirsangiz, tugmani yana bosing — faqat o'zgarganlarga yuboriladi.</i>";
+    return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: t, ...fbKb(g)}); }
   if (a === "rpok" || a === "rpno") { const g = gs.find(x => x.id === b); if (!g || !canG(r, g)) return; const rp = await J(env, rpKey(g.id, c), null);
     if (!rp || rp.st !== "pending") return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "ℹ️ Bu natijalar allaqachon ko'rib chiqilgan."});
     if (a === "rpno") { rp.st = "cancel"; await PUT(env, rpKey(g.id, c), rp, {expirationTtl: 30 * 86400}); await PUT(env, "rpl", (await J(env, "rpl", [])).filter(k => k !== rpKey(g.id, c)));
@@ -922,6 +959,8 @@ async function onGroupMessage(env, msg){
     if (pg.st) rec.st = pg.st; else if (Object.keys(pg.it).length) rec.st = null;
     rec.due = Date.now() + 10 * 60e3; rec.v = (rec.v || 0) + 1; day[s.id] = rec; await PUT(env, k, day, {expirationTtl: 120 * 86400});
     await react(env, gid, msg.message_id, "👀");
+    if (!g.fbAuto) { const pk = `fbp:${gid}:${dayKey()}`; if (!(await env.KV.get(pk))) { await PUT(env, pk, "1", {expirationTtl: 2 * 86400});
+      await pm(env, pid, `📝 <b>${H(g.title)}</b> — baholash boshlandi.\nHammani so'rab bo'lgach, shu tugmani bosing: har o'quvchiga barcha qismlar bo'yicha <b>bitta qisqa feedback</b> boradi.`, fbKb(g)); } }
     return;
   }
   // ---- o'quvchi xabari: uy vazifasini topshirish ----
@@ -991,6 +1030,7 @@ async function cron(env){
     const day = await J(env, `gr:${g.id}:${d}`, null); if (!day) continue;
     const sk = `gs:${g.id}:${d}`; const sent = await J(env, sk, {}); let ch = false;
     for (const [sid, rec] of Object.entries(day)) {
+      if (!g.fbAuto) continue; // feedback endi tugma orqali (📝 Darsdan keyin feedback)
       if (rec.st || !rec.due || rec.due > now || sent[sid] === rec.v) continue;
       const s = studs.find(x => x.id === sid); sent[sid] = rec.v; ch = true; if (!s || !s.thread || g.quiet) continue;
       const items = Object.entries(rec.it || {}); const ls = items.filter(([, v]) => v.l != null).map(([, v]) => Math.min(v.l, 5));
