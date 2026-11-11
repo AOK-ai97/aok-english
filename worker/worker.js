@@ -282,7 +282,7 @@ async function radarText(env, type, name, facts, ai){
 async function shadowJob(env, g, hp, s, msg){
   const jk = `shj:${g.id}:${msg.message_id}`; const ex = await J(env, jk, null);
   if (ex && (ex.st === "done" || (ex.st === "run" && Date.now() - ex.t < 150e3))) return; // takror (Telegram qayta yuborgan)
-  const job = {st: "run", t: Date.now(), gid: g.id, sid: s.id, n: ((ex && ex.n) || 0) + 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat}};
+  const job = {st: "run", t: Date.now(), c: Date.now(), gid: g.id, sid: s.id, n: ((ex && ex.n) || 0) + 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat}};
   await PUT(env, jk, job, {expirationTtl: 3 * 86400});
   const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-60)); }
   await runShadow(env, jk, job, g, hp, s);
@@ -317,7 +317,8 @@ async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolg
   const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env); let done = 0;
   for (const jk of q) { const job = await J(env, jk, null);
     if (!job || job.st === "done" || job.n > 60) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
-    if (Date.now() - job.t < (job.n <= 3 ? 45e3 : job.n <= 10 ? 5 * 60e3 : 20 * 60e3)) continue; // AI band bo'lsa — tobora siyrakroq qayta urinish
+    if (Date.now() - job.t < (job.n <= 3 ? 45e3 : job.n <= 10 ? 5 * 60e3 : 20 * 60e3)) continue;
+    if (isQuiet(Date.now()) && (job.t === 0 || Date.now() - (job.c || job.t) > 30 * 60e3)) continue; // tungi 00–06: eski audiolar ertalab tekshiriladi (o'quvchini uyg'otmaslik) // AI band bo'lsa — tobora siyrakroq qayta urinish
     const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid), hp = g && await J(env, "hp:" + g.id, null);
     if (!g || !s || !hp) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
     job.n++; job.t = Date.now(); await PUT(env, jk, job, {expirationTtl: 3 * 86400});
