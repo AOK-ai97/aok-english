@@ -270,6 +270,13 @@ async function runShadow(env, jk, job, g, hp, s){
   finally { await env.KV.delete(lk); }
 }
 async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
+  if (!(await env.KV.get("mig:sh1"))) { await env.KV.put("mig:sh1", "1", {expirationTtl: 30 * 86400}); // eski qoida (fondagi asl audio) bilan rad etilganlarni qayta hisoblash
+    const st0 = await getStudents(env);
+    for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue; const it = hp.items.find(i => i.type === "shadowing"); if (!it) continue;
+      for (const s of st0.filter(x => x.gid === g.id)) { const k = hsubKey(hp, s.id); const sub = await J(env, k, null); const x = sub && sub.it[it.id]; if (!x) continue; let ch = false;
+        for (const e of x.list || []) if (e.cov >= 40 && !x.refs.includes(e.ref)) { x.refs.push(e.ref); ch = true; }
+        if (ch) { x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); await PUT(env, k, sub, {expirationTtl: 30 * 86400});
+          if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
   const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env);
   for (const jk of q) { const job = await J(env, jk, null);
     if (!job || job.st === "done" || job.n > 3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
