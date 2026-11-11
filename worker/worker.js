@@ -750,6 +750,13 @@ async function onCallback(env, cq){
     return mainMenu(env, r);
   }
 }
+// Reaksiya: guruhda ruxsat etilgan reaksiyalar cheklangan bo'lishi mumkin — ishlamasa zaxira emojilar
+async function react(env, chat, mid, emoji){
+  for (const e of [emoji, "👌", "👍", "🔥", "❤"].filter((x, i, a) => a.indexOf(x) === i)) {
+    const r = await tg(env, "setMessageReaction", {chat_id: chat, message_id: mid, reaction: [{type: "emoji", emoji: e}]});
+    if (r && r.ok) return r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) return r;
+  }
+}
 async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 864e5}); } catch (e) {} }
 async function onGroupMessage(env, msg){
   const gid = String(msg.chat.id); const gs = await getGroups(env); let g = gs.find(x => x.id === gid);
@@ -781,7 +788,7 @@ async function onGroupMessage(env, msg){
     if (th === g.dav || /#attendance/i.test(text)) {
       const te = text.match(/teacher\s*:\s*(.+)/i), ti = text.match(/time\s*:\s*([0-9:.\s–—-]+)/i), dy = parseDays(text);
       if (te || ti || dy) { if (te) g.teacher = te[1].trim().slice(0, 60); if (ti) g.time = ti[1].trim().slice(0, 40); if (dy) g.days = dy; await PUT(env, "groups", gs);
-        await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👌"}]}); }
+        await react(env, gid, msg.message_id, "👌"); }
       if (th === g.dav) return;
     }
     // #Homework posti
@@ -792,7 +799,7 @@ async function onGroupMessage(env, msg){
       try { hp.items = await hpParse(env, g, text, hp.at); } catch (e) { hp.items = []; hp.retry = 1; hp.err = String(e.message || e).slice(0, 200);
         await pm(env, pid, `⏳ Homework hali o'qilmadi — 5 daqiqada qayta urinaman.\n<i>Sabab: ${H(hp.err)}</i>`); }
       await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); if (hp.items.length) await hpConfirm(env, g, hp);
-      await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "✍"}]});
+      await react(env, gid, msg.message_id, "✍");
       return;
     }
     // Homework ostidan tashlangan shadowing audiolari
@@ -800,7 +807,7 @@ async function onGroupMessage(env, msg){
     if (au && th && (th === g.hwt)) {
       const hp = await J(env, "hp:" + gid, null);
       if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || ""}].slice(0, 6);
-        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👌"}]}); }
+        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); await react(env, gid, msg.message_id, "👌"); }
       return;
     }
     if (!th) { await trace(env, gid, {th: 0, why: "topic'siz xabar"}); return; }
@@ -814,7 +821,7 @@ async function onGroupMessage(env, msg){
     for (const [name, v] of Object.entries(pg.it)) { const old = rec.it[name]; if (old && old.l != null && v.l != null && v.l > old.l) rec.prev[name] = old.l; rec.it[name] = v; }
     if (pg.st) rec.st = pg.st; else if (Object.keys(pg.it).length) rec.st = null;
     rec.due = Date.now() + 10 * 60e3; rec.v = (rec.v || 0) + 1; day[s.id] = rec; await PUT(env, k, day, {expirationTtl: 120 * 864e5});
-    await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👀"}]});
+    await react(env, gid, msg.message_id, "👀");
     return;
   }
   // ---- o'quvchi xabari: uy vazifasini topshirish ----
@@ -834,7 +841,7 @@ async function onGroupMessage(env, msg){
   const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0};
   if (msg.media_group_id && x.mg === msg.media_group_id) return; // bitta albom — bitta topshirish
   x.mg = msg.media_group_id || null; x.n++; x.at = Date.now(); if (x.n >= it.count && !x.doneAt) x.doneAt = x.at; await PUT(env, k, sub, {expirationTtl: 30 * 864e5});
-  await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👍"}]});
+  await react(env, gid, msg.message_id, "👍");
 }
 async function onMember(env, up){
   const chat = up.chat; if (!["group", "supergroup"].includes(chat.type)) return;
