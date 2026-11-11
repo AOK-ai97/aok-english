@@ -761,7 +761,8 @@ async function react(env, chat, mid, emoji){ let last = null; const al = await a
   const strip = x => x.replace(/\uFE0F/g, "");
   for (const e of [emoji, "👌", "👍", "🔥", "❤"].filter((x, i, a) => a.indexOf(x) === i).filter(x => !al || al.some(y => strip(y) === strip(x)))) {
     const r = await tg(env, "setMessageReaction", {chat_id: chat, message_id: mid, reaction: [{type: "emoji", emoji: e}]});
-    if (r && r.ok) { if (e !== emoji) await trace(env, String(chat), {th: 0, why: `reaksiya ${emoji} o'rniga ${e} qo'yildi`}); return r; }
+    await trace(env, String(chat), {th: 0, why: `reaksiya ${e} msg=${mid} → ${r && r.ok ? "ok " + JSON.stringify(r.result) : "❌ " + ((r && r.description) || "?")} | ruxsat: ${al ? al.join("") : "hammasi"}`});
+    if (r && r.ok) return r;
     last = r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) break;
   }
   await trace(env, String(chat), {th: 0, why: "❌ reaksiya qo'yilmadi: " + ((last && last.description) || "?")}); return last;
