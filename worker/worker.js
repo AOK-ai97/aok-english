@@ -422,7 +422,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   const key = refName || ("#" + (x.list.length + 1));
   if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); }
   x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: Date.now(), ref: key, cov, pron, flu, sus}); x.list = x.list.slice(-10);
-  await PUT(env, k, sub, {expirationTtl: 30 * 864e5});
+  await PUT(env, k, sub, {expirationTtl: 30 * 86400});
   if (msg.voice) { const studsAll = studs || await getStudents(env); const ss = studsAll.find(y => y.id === s.id); if (ss && !ss.vf) { ss.vf = msg.voice.file_id; await PUT(env, "students", studsAll); } }
   const bar = v => v >= 85 ? "🟢" : v >= 65 ? "🟡" : v >= 40 ? "🟠" : "🔴";
   let t = `📡 <b>Shadowing${refName ? " — " + H(refName) : ""}</b> ${counted ? "✅" : "🔁"}\n${bar(cov)} To'liqlik: <b>${cov}%</b>\n${bar(pron)} Talaffuz: <b>${pron}%</b>\n${bar(flu)} Ravonlik: <b>${flu}%</b>`;
@@ -629,6 +629,7 @@ async function onPrivate(env, msg){
     let t = "🛠 <b>Diagnostika</b>\n";
     for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null);
       t += `\n<b>${H(g.title)}</b> (${g.id}) hwt=${g.hwt || "-"} dav=${g.dav || "-"} days=${(g.days || []).join(",") || "-"}\n hp: ${hp ? `st=${hp.st} items=${hp.items.length} retry=${hp.retry || 0} refs=${(hp.refs || []).length} at=${ddmm(hp.at)} ${hhmm(hp.at)}${hp.err ? "\n err: " + H(hp.err) : ""}` : "yo'q"}\n`; }
+    { const le = await J(env, "lasterr", null); t += le ? `\n\n🧯 Oxirgi ichki xato (${ddmm(le.t)} ${hhmm(le.t)}):\n<code>${H(le.m.slice(0, 300))}</code>` : "\n\n🧯 Ichki xato yo'q"; }
     { const wi = await tg(env, "getWebhookInfo", {}); if (wi.ok) { const w0 = wi.result; t += `\n\n📡 Webhook: navbatda ${w0.pending_update_count || 0} ta xabar${w0.last_error_message ? `\n ⚠️ oxirgi xato (${hhmm(w0.last_error_date * 1000)}): ${H(w0.last_error_message)}` : " · xato yo'q"}`; } }
     { const studs = await getStudents(env); const me2 = await tg(env, "getMe", {});
       for (const g of await getGroups(env)) { const ss = studs.filter(x => x.gid === g.id); const un = ss.filter(x => !x.thread);
@@ -761,17 +762,17 @@ async function allowedRx(env, chat){ // guruhda ruxsat etilgan reaksiyalar (null
   await PUT(env, k, {list}, {expirationTtl: 6 * 3600}); return list;
 }
 async function react(env, chat, mid, emoji){ let last = null; const al = await allowedRx(env, chat);
-  await PUT(env, "rxm:" + chat, {mid, emoji, t: Date.now()}, {expirationTtl: 3 * 864e5});
+  await PUT(env, "rxm:" + chat, {mid, emoji, t: Date.now()}, {expirationTtl: 3 * 86400});
   const strip = x => x.replace(/\uFE0F/g, "");
   for (const e of [emoji, "👌", "👍", "🔥", "❤"].filter((x, i, a) => a.indexOf(x) === i).filter(x => !al || al.some(y => strip(y) === strip(x)))) {
     const r = await tg(env, "setMessageReaction", {chat_id: chat, message_id: mid, reaction: [{type: "emoji", emoji: e}]});
-    await PUT(env, "rxr:" + chat, {mid, e, ok: !!(r && r.ok), d: (r && r.description) || "", t: Date.now()}, {expirationTtl: 3 * 864e5});
+    await PUT(env, "rxr:" + chat, {mid, e, ok: !!(r && r.ok), d: (r && r.description) || "", t: Date.now()}, {expirationTtl: 3 * 86400});
     if (r && r.ok) return r;
     last = r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) break;
   }
   return last;
 }
-async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 864e5}); } catch (e) {} }
+async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 86400}); } catch (e) {} }
 async function onGroupMessage(env, msg){
   const gid = String(msg.chat.id); const gs = await getGroups(env); let g = gs.find(x => x.id === gid);
   if (msg.migrate_to_chat_id) { if (g) { g.id = String(msg.migrate_to_chat_id); await PUT(env, "groups", gs); } return; }
@@ -812,7 +813,7 @@ async function onGroupMessage(env, msg){
       const hp = {id: uid(), at: Date.now(), by: pid, text: clean(text, 3000), items: [], refs: [], st: "draft", mid: msg.message_id};
       try { hp.items = await hpParse(env, g, text, hp.at); } catch (e) { hp.items = []; hp.retry = 1; hp.err = String(e.message || e).slice(0, 200);
         await pm(env, pid, `⏳ Homework hali o'qilmadi — 5 daqiqada qayta urinaman.\n<i>Sabab: ${H(hp.err)}</i>`); }
-      await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); if (hp.items.length) await hpConfirm(env, g, hp);
+      await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); if (hp.items.length) await hpConfirm(env, g, hp);
       await react(env, gid, msg.message_id, "✍");
       return;
     }
@@ -821,7 +822,7 @@ async function onGroupMessage(env, msg){
     if (au && th && (th === g.hwt)) {
       const hp = await J(env, "hp:" + gid, null);
       if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || ""}].slice(0, 6);
-        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); await react(env, gid, msg.message_id, "👌"); }
+        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); await react(env, gid, msg.message_id, "👌"); }
       return;
     }
     if (!th) { await trace(env, gid, {th: 0, why: "topic'siz xabar"}); return; }
@@ -834,7 +835,7 @@ async function onGroupMessage(env, msg){
     const rec = day[s.id] || {it: {}}; rec.prev = rec.prev || {};
     for (const [name, v] of Object.entries(pg.it)) { const old = rec.it[name]; if (old && old.l != null && v.l != null && v.l > old.l) rec.prev[name] = old.l; rec.it[name] = v; }
     if (pg.st) rec.st = pg.st; else if (Object.keys(pg.it).length) rec.st = null;
-    rec.due = Date.now() + 10 * 60e3; rec.v = (rec.v || 0) + 1; day[s.id] = rec; await PUT(env, k, day, {expirationTtl: 120 * 864e5});
+    rec.due = Date.now() + 10 * 60e3; rec.v = (rec.v || 0) + 1; day[s.id] = rec; await PUT(env, k, day, {expirationTtl: 120 * 86400});
     await react(env, gid, msg.message_id, "👀");
     return;
   }
@@ -854,7 +855,7 @@ async function onGroupMessage(env, msg){
   if (!it) return;
   const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0};
   if (msg.media_group_id && x.mg === msg.media_group_id) return; // bitta albom — bitta topshirish
-  x.mg = msg.media_group_id || null; x.n++; x.at = Date.now(); if (x.n >= it.count && !x.doneAt) x.doneAt = x.at; await PUT(env, k, sub, {expirationTtl: 30 * 864e5});
+  x.mg = msg.media_group_id || null; x.n++; x.at = Date.now(); if (x.n >= it.count && !x.doneAt) x.doneAt = x.at; await PUT(env, k, sub, {expirationTtl: 30 * 86400});
   await react(env, gid, msg.message_id, "👍");
 }
 async function onMember(env, up){
@@ -893,7 +894,7 @@ async function hpFinalize(env, g, hp){
     for (const s of studs) { const pr = await hpProgress(env, g, hp, s); const p = await getProfile(env, s.id);
       p.hwc = [...(p.hwc || []).filter(e => e.id !== hp.id), {id: hp.id, at: hp.at, done: items.filter(it => pr[it.id].ok).length, total: items.length}].slice(-60); await PUT(env, "p:" + s.id, p); }
   }
-  hp.st = "done"; await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 864e5});
+  hp.st = "done"; await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 86400});
 }
 
 /* ---------------- CRON: har 5 daqiqada ---------------- */
@@ -912,7 +913,7 @@ async function cron(env){
       const a = avg(ls); const type = a === null ? "praise" : a >= 4 ? "praise" : a <= 2 ? "scold" : "encourage";
       await toTopic(env, g.id, s.thread, await radarText(env, type, s.name, facts));
     }
-    if (ch) await PUT(env, sk, sent, {expirationTtl: 7 * 864e5});
+    if (ch) await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
   }
   // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
   const hpGroups = new Set();
@@ -959,7 +960,7 @@ async function cron(env){
     if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.late.map(it => `${HP_ICON[it.type]} ${H(it.title)}`).join(", ")}`).join("\n"));
     if (lateK.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\n⏰ Kech, ammo topshirdi:\n\n` +
       lateK.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${HP_ICON[it.type]} ${H(it.title)} (${x.pr[it.id].doneAt ? DAY_UZ[wdOf(dayKey(x.pr[it.id].doneAt))] + " " + hhmm(x.pr[it.id].doneAt) : "kech"})`).join(", ")}`).join("\n"));
-    if (ch) await PUT(env, sk, st, {expirationTtl: 30 * 864e5});
+    if (ch) await PUT(env, sk, st, {expirationTtl: 30 * 86400});
   }
   // 3) saytdagi vazifa muddati (panelda qo'yilgan) — Homework posti bo'lmagan guruhlar uchun
   if (!quiet) {
@@ -1007,7 +1008,7 @@ async function cron(env){
 async function addLog(env, sid, evs){
   if (!sid || !evs || !evs.length) return; const k = `log:${sid}:${dayKey()}`;
   const L0 = await J(env, k, []); const L1 = [...L0, ...evs.map(e => ({...e, at: +e.at || Date.now()}))].slice(-400);
-  await PUT(env, k, L1, {expirationTtl: 120 * 864e5});
+  await PUT(env, k, L1, {expirationTtl: 120 * 86400});
 }
 const cleanEv = e => { const o = {t: clean(e.t, 24), at: +e.at || Date.now()};
   for (const [k, v] of Object.entries(e || {})) if (!["t", "at"].includes(k) && Object.keys(o).length < 10) o[k] = typeof v === "number" ? v : clean(String(v), 160);
@@ -1045,7 +1046,10 @@ export default {
     /* ---------- Telegram webhook ---------- */
     if (path === "/tg" && req.method === "POST") {
       if (!env.TG_TOKEN || req.headers.get("x-telegram-bot-api-secret-token") !== await secretOf(env)) return new Response("no", {status: 403});
-      try { await onUpdate(env, await req.json()); } catch (e) { console.log("upd", e.stack || e.message); }
+      const upd = await req.json();
+      const job = onUpdate(env, upd).catch(async e => { console.log("upd", e.stack || e.message);
+        try { await env.KV.put("lasterr", JSON.stringify({t: Date.now(), m: String(e.stack || e.message).slice(0, 500)}), {expirationTtl: 3 * 86400}); } catch (x) {} });
+      if (ctx && ctx.waitUntil) ctx.waitUntil(job); else await job; // Telegram'ga darhol javob — uzoq AI tekshiruvi timeout bermasin
       return new Response("ok");
     }
     if (path === "/bot/setup" && req.method === "GET") {
@@ -1333,7 +1337,7 @@ export default {
         if (stu) await saveProfile(env, stu, {at: r.at, k: "speaking", m: r.mode, t: r.title, tot: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), cr: critAvg(r.parts), rules: [...new Set(r.parts.flatMap(p => (p.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
         if (stu) { await addLog(env, stu.id, [{t: "graded", kind: "speaking", mode: r.mode, title: r.title, score: r.overall, max: 5, pron: (r.pron || []).length}]);
-          if (stu.thread && ["hw", "exam"].includes(r.mode) && (r.pron || []).length) await PUT(env, "pq:" + r.at, {sid: stu.id, gid: stu.gid, words: r.pron.map(p => p.word)}, {expirationTtl: 2 * 864e5}); }
+          if (stu.thread && ["hw", "exam"].includes(r.mode) && (r.pron || []).length) await PUT(env, "pq:" + r.at, {sid: stu.id, gid: stu.gid, words: r.pron.map(p => p.word)}, {expirationTtl: 2 * 86400}); }
         return out(r);
       }
 
