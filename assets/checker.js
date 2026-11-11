@@ -156,24 +156,63 @@ function wirePron(box,d,clips){
         rec.start();rb.classList.add("on");setTimeout(()=>{if(rec.state==="recording")rec.stop()},3000)}catch(e){alert("Mikrofonga ruxsat bering")}};
   });
 }
-/* ---- A4 sahifalar (feedback + talaffuz % natijalari) ---- */
-async function a4Pages(box,d){
-  const W=794,H=1123,S=1.6;const holder=document.createElement("div");holder.className="a4";
-  holder.innerHTML=`<div class="a4-top"><b>AOK English</b> · AI Checker · ${esc(d.kind==="speaking"?"Speaking":"Writing")} · ${dt(d.at||Date.now())}</div>`+[...box.querySelectorAll(".pron,#rep")].map(x=>x.outerHTML).join("");
-  document.body.appendChild(holder);
-  try{
-    const cv=await html2canvas(holder,{scale:S,backgroundColor:"#ffffff",width:W,windowWidth:W});
+/* ---- A4 sahifalar: ixcham feedback — 2 sahifa (+ Speaking'da talaffuz uchun 1 sahifa) ---- */
+const A4CSS=`<style>.a4c{font:14px/1.42 system-ui,Segoe UI,Arial,sans-serif;color:#13213c}.a4c h1{font-size:21px;margin:0 0 2px;color:#1F3864}.a4c .sub{color:#5b6b86;font-size:12.5px;margin-bottom:10px}
+.a4c .big{float:right;text-align:center;background:#1F3864;color:#fff;border-radius:12px;padding:8px 14px;font-weight:700;font-size:22px;line-height:1.1}.a4c .big small{display:block;font-size:11px;font-weight:500;opacity:.85}
+.a4c table{border-collapse:collapse;width:100%;margin:6px 0 10px;font-size:12.5px}.a4c th{background:#1F3864;color:#fff;padding:5px 6px;text-align:center}.a4c td{border:1px solid #d5ddeb;padding:4px 6px;text-align:center}.a4c td:first-child{text-align:left;font-weight:600}
+.a4c .blk{border:1px solid #d5ddeb;border-left:5px solid #215E3C;border-radius:8px;padding:8px 11px;margin:0 0 9px;break-inside:avoid}.a4c .bh{font-weight:700;color:#215E3C;margin-bottom:3px}.a4c .bh b{float:right;color:#1F3864}
+.a4c .q{color:#5b6b86;font-size:12px;margin-bottom:4px}.a4c .er{margin:2px 0}.a4c .w{color:#b3261e;text-decoration:line-through}.a4c .c{color:#1b7a3a;font-weight:600}.a4c .r{color:#5b6b86;font-size:12px}
+.a4c .tip{background:#eef6f0;border-radius:6px;padding:4px 8px;margin-top:4px}.a4c .ide{background:#f4f6fb;border-radius:6px;padding:5px 8px;margin-top:4px;font-size:12.5px;white-space:pre-wrap}
+.a4c .sum{background:#fff7e0;border-radius:8px;padding:7px 10px;margin-bottom:9px}.a4c .pt td{text-align:left}.a4c .pt td:last-child{text-align:center;font-weight:700}</style>`;
+const cl=(t,n)=>{t=String(t||"").replace(/\s+/g," ").trim();return t.length>n?t.slice(0,n-1).replace(/\s\S*$/,"")+"…":t};
+const sc5=v=>`<b style="color:${v>=4.5?"#1b7a3a":v>=3.5?"#2f6f9f":v>=2.5?"#b07a00":"#b3261e"}">${fmt(v)}</b>`;
+function a4Head(d){const tot=d.kind==="speaking"?`${fmt(d.overall)}<small>/ 5</small>`:`${fmt(d.total)}<small>/ ${d.max}</small>`;
+  return `<div class="big">${tot}</div><h1>${esc(d.student_name||"")}</h1><div class="sub">${d.kind==="speaking"?"🎤 Speaking":"✍️ Writing"} · ${esc(d.title||MODES[d.mode]||"")} · ${dt(d.at||Date.now())}</div><div style="clear:both"></div>`}
+function a4Feedback(d,L){ // L: 0 = eng to'liq … 3 = eng qisqa
+  const items=d.kind==="speaking"?(d.parts||[]):(d.tasks||[]);const lab=x=>d.kind==="speaking"?"Part "+String(x.part).replace(/part\s*/i,""):"Task "+String(x.task).replace(/task\s*/i,"");
+  const names=[...new Set(items.flatMap(x=>(x.criteria||[]).map(c=>c.name)))];const ab=n=>({"Task Response":"Task","Coherence & Cohesion":"Coherence","Lexical Resource":"Lug'at","Grammatical Range & Accuracy":"Grammatika","Imlo xato":"Imlo","Fluency & Coherence":"Ravonlik","Pronunciation":"Talaffuz"})[n]||n;
+  let h=A4CSS+`<div class="a4c">`+a4Head(d);
+  if(d.summary_uz&&L<3)h+=`<div class="sum">💬 ${esc(cl(d.summary_uz,L?220:360))}</div>`;
+  h+=`<table><tr><th style="text-align:left"></th>${names.map(n=>`<th>${esc(ab(n))}</th>`).join("")}<th>Ball</th></tr>`+items.map(x=>`<tr><td>${esc(lab(x))}</td>${names.map(n=>{const c=(x.criteria||[]).find(c=>c.name===n);return `<td>${c?sc5(c.score):"—"}</td>`}).join("")}<td>${x.missing?"❌ 0":sc5(x.overall)}</td></tr>`).join("")+`</table>`;
+  const nE=[5,3,3,2][L],nT=[2,2,1,1][L],ideal=L<2;
+  for(const x of items){
+    if(x.missing){h+=`<div class="blk"><div class="bh">${esc(lab(x))} <b>0 / 5</b></div>❌ Yozilmagan — bu Task ham yozilishi shart.</div>`;continue}
+    const low=(x.criteria||[]).slice().sort((a,b)=>a.score-b.score)[0];
+    h+=`<div class="blk"><div class="bh">${esc(lab(x))} <b>${fmt(x.overall)} / 5</b></div>`;
+    if(x.question&&L<3)h+=`<div class="q">❓ ${esc(cl(x.question,L?110:170))}</div>`;
+    if(x.on_topic===false&&x.topic_check)h+=`<div class="er">⚠️ ${esc(cl(x.topic_check,160))}</div>`;
+    if((x.unanswered||[]).length)h+=`<div class="er">⚠️ Javob berilmagan: ${esc(cl(x.unanswered.join("; "),150))}</div>`;
+    if(low&&low.score<5&&low.comment)h+=`<div class="er">📉 <b>${esc(ab(low.name))}:</b> ${esc(cl(low.comment,L?130:200))}</div>`;
+    (x.errors||[]).slice(0,nE).forEach(e=>h+=`<div class="er">• <span class="w">${esc(cl(e.wrong,70))}</span> → <span class="c">${esc(cl(e.correct,80))}</span>${L<2&&e.rule?` <span class="r">(${esc(cl(e.rule,60))})</span>`:""}</div>`);
+    if((x.errors||[]).length>nE)h+=`<div class="r">… yana ${x.errors.length-nE} ta xato — saytdagi to'liq tahlilda</div>`;
+    const tips=(x.max_tips||[]).slice(0,nT);if(tips.length)h+=`<div class="tip">🎯 ${tips.map(t=>esc(cl(t,L?120:170))).join("<br>🎯 ")}</div>`;
+    if(ideal&&x.ideal)h+=`<div class="ide"><b>✅ 5 ballik namuna:</b> ${esc(cl(x.ideal,d.kind==="speaking"?(L?260:420):(L?520:900)))}</div>`;
+    h+=`</div>`}
+  if(d.repeats)h+=`<div class="er">🔁 Takroriy xatolar: <b>${d.repeats}</b> ta — oldingi ishlardagi xatolar yana uchradi.</div>`;
+  return h+`</div>`}
+function a4Pron(d){const P=d.pron||[];if(!P.length)return "";const pc=d._pct||{};
+  return A4CSS+`<div class="a4c">`+a4Head(d)+`<h1 style="font-size:18px;margin:4px 0">🗣 Talaffuz — ${P.length} ta so'z</h1><table class="pt"><tr><th>So'z</th><th>To'g'ri talaffuz</th><th>Siz aytdingiz</th><th>Maslahat</th><th>Mashq</th></tr>`+
+    P.slice(0,22).map(p=>`<tr><td><b>${esc(p.word)}</b></td><td>${esc(p.ipa||"")}</td><td>${esc(cl(p.heard||"",28))}</td><td>${esc(cl(p.tip||"",90))}</td><td>${pc[p.word]!=null?pc[p.word]+"%":"—"}</td></tr>`).join("")+`</table>${P.length>22?`<div class="r">… yana ${P.length-22} ta so'z saytda</div>`:""}</div>`}
+async function a4Render(html,maxP,d,start,total){
+  const W=794,H=1123,S=1.6,PAD=28;const holder=document.createElement("div");holder.className="a4";holder.innerHTML=html;document.body.appendChild(holder);
+  try{const cv=await html2canvas(holder,{scale:S,backgroundColor:"#ffffff",width:W,windowWidth:W});
     const pw=cv.width,ph=Math.round(H*S),foot=Math.round(34*S),usable=ph-foot;const ctx=cv.getContext("2d");
     const white=y=>{const row=ctx.getImageData(0,y,pw,1).data;for(let i=0;i<row.length;i+=16){if(row[i]<245||row[i+1]<245||row[i+2]<245)return false}return true};
-    const cuts=[0];let y=0;
-    while(y+usable<cv.height&&cuts.length<20){let c=y+usable;for(let k=0;k<Math.round(260*S);k+=2){if(white(y+usable-k)){c=y+usable-k;break}}cuts.push(c);y=c}
-    cuts.push(cv.height);const pages=[];const n=cuts.length-1;
-    for(let i=0;i<n;i++){const pg=document.createElement("canvas");pg.width=pw;pg.height=ph;const g=pg.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,pw,ph);
+    const cuts=[0];let y=0;while(y+usable<cv.height&&cuts.length<maxP){let c=y+usable;for(let k=0;k<Math.round(200*S);k+=2){if(white(y+usable-k)){c=y+usable-k;break}}cuts.push(c);y=c}
+    cuts.push(Math.min(cv.height,y+usable));const out=[];
+    for(let i=0;i<cuts.length-1;i++){const pg=document.createElement("canvas");pg.width=pw;pg.height=ph;const g=pg.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,pw,ph);
       g.drawImage(cv,0,cuts[i],pw,cuts[i+1]-cuts[i],0,0,pw,cuts[i+1]-cuts[i]);
-      g.fillStyle="#5b6b86";g.font=`${Math.round(12*S)}px sans-serif`;g.textAlign="center";g.fillText(`AOK English · ${d.student_name||""} · ${i+1}/${n}`,pw/2,ph-Math.round(14*S));
-      pages.push(await new Promise(r=>pg.toBlob(r,"image/png")))}
-    return pages;
-  }finally{holder.remove()}
+      g.fillStyle="#5b6b86";g.font=`${Math.round(12*S)}px sans-serif`;g.textAlign="center";g.fillText(`AOK English · ${d.student_name||""} · ${start+i}/${total}`,pw/2,ph-Math.round(14*S));
+      out.push(await new Promise(r=>pg.toBlob(r,"image/png")))}
+    return out}finally{holder.remove()}}
+function a4Fits(html,maxP){const holder=document.createElement("div");holder.className="a4";holder.innerHTML=html;document.body.appendChild(holder);
+  const h=holder.scrollHeight;holder.remove();return h<=maxP*(1123-34)-40}
+async function a4Pages(box,d){
+  let L=0,html=a4Feedback(d,0);while(L<3&&!a4Fits(html,2)){L++;html=a4Feedback(d,L)}
+  const two=!a4Fits(html,1)?2:1;const pron=d.kind==="speaking"?a4Pron(d):"";const total=two+(pron?1:0);
+  const pages=await a4Render(html,2,d,1,total);
+  if(pron)pages.push(...await a4Render(pron,1,d,pages.length+1,pages.length+1));
+  return pages;
 }
 function tgCaption(d){
   const e=s=>esc(s).replace(/&quot;/g,'"');const L=[];
