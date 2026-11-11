@@ -287,6 +287,222 @@ async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolg
     job.n++; job.t = Date.now(); await PUT(env, jk, job, {expirationTtl: 3 * 86400});
     try { await runShadow(env, jk, job, g, hp, s); } catch (e) { console.log("shq", e.message); } }
 }
+
+/* ================= VAZIFANI BOT ORQALI KIRITISH: worksheet → baza → vazifa ================= */
+const IMP_SYS = `You extract CEFR Multilevel exam homework questions from an English teacher's worksheet. Input may be plain text, photos, a PDF, or the text of a Word file followed by its embedded pictures labelled "IMAGE 1", "IMAGE 2"…
+Return JSON {"title": short homework title (the topic, e.g. "Celebrations & Holidays"), "items": [...]}. Item kinds:
+- Speaking Part 1.1: {"kind":"speaking","part":"1.1","topic":"…","q":["ONE question"]} — make ONE item PER Part 1.1 question.
+- Speaking Part 1.2: {"kind":"speaking","part":"1.2","topic":"…","q":[its 3 questions],"img":[indexes of its 2 pictures]}.
+- Speaking Part 2: {"kind":"speaking","part":"2","topic":"…","q":[its questions],"img":[index of its picture]}.
+- Speaking Part 3: {"kind":"speaking","part":"3","topic":"…","q":["the statement/topic"],"for":[up to 3 points],"against":[up to 3 points]}.
+- Writing Task 1: {"kind":"writing","part":"T1","topic":"…","sender":"e.g. The City Council sent you an email.","email":"full email text","t11":"Task 1.1 instruction","t12":"Task 1.2 instruction"} (t11 / t12 may be "" if missing).
+- Writing Task 2: {"kind":"writing","part":"T2","topic":"…","essay":"full essay question"}.
+Copy question texts exactly (fix only obvious OCR typos, remove numbering like "1."). Ignore articles, vocabulary tables, answer keys, structures/frames, grammar exercises and reading texts.
+"img" uses the IMAGE numbers (1-based) or photo numbers; [] if unknown. topic = short English topic. Answer ONLY with JSON.`;
+const IMP_SCHEMA = {type:"OBJECT",properties:{title:STR,items:{type:"ARRAY",items:{type:"OBJECT",properties:{kind:STR,part:STR,topic:STR,q:{type:"ARRAY",items:STR},img:{type:"ARRAY",items:{type:"INTEGER"}},for:{type:"ARRAY",items:STR},against:{type:"ARRAY",items:STR},sender:STR,email:STR,t11:STR,t12:STR,essay:STR},required:["kind","part"]}}},required:["title","items"]};
+const impK = uid => "imp:" + uid;
+async function tgFileBytes(env, file_id, max = 18e6){
+  const f = await tg(env, "getFile", {file_id}); if (!f.ok || !f.result.file_path || (f.result.file_size || 0) > max) return null;
+  const r = await fetch(`https://api.telegram.org/file/bot${env.TG_TOKEN}/${f.result.file_path}`); return r.ok ? {u8: new Uint8Array(await r.arrayBuffer()), path: f.result.file_path} : null;
+}
+const b64of = u8 => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); };
+async function unzip(u8){ // .docx (zip) — kerakli fayllarni ochish
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); let e = u8.length - 22; while (e > 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e <= 0) return {}; const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = {};
+  for (let i = 0; i < n; i++) { if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+    if (!/^word\/(document\.xml|media\/)/.test(name)) continue;
+    const ln = dv.getUint16(off + 26, true), lx = dv.getUint16(off + 28, true); const data = u8.subarray(off + 30 + ln + lx, off + 30 + ln + lx + csize);
+    if (method === 0) out[name] = data; else if (method === 8) out[name] = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+  }
+  return out;
+}
+function docxText(xml){
+  return xml.replace(/<w:tab\/>/g, "\t").replace(/<\/w:p>/g, "\n").replace(/<w:br[^>]*\/>/g, "\n").replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, " [PICTURE] ").replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/\n{3,}/g, "\n\n").trim();
+}
+async function impAdd(env, r, msg){
+  const me = r.uid; const d = await J(env, impK(me), null) || {parts: [], at: Date.now()};
+  if (msg.document) d.parts.push({t: "doc", id: msg.document.file_id, name: msg.document.file_name || "fayl", mime: msg.document.mime_type || ""});
+  else if (msg.photo) d.parts.push({t: "photo", id: msg.photo[msg.photo.length - 1].file_id});
+  else d.parts.push({t: "text", text: clean(msg.text, 8000)});
+  if (msg.caption) d.parts.push({t: "text", text: clean(msg.caption, 2000)});
+  d.parts = d.parts.slice(0, 20);
+  const t = `📥 <b>Vazifa uchun qabul qilindi:</b> ${d.parts.filter(p => p.t !== "text").length} ta fayl/rasm${d.parts.some(p => p.t === "text") ? " + matn" : ""}.\nHammasini tashlab bo'lgach bosing 👇`;
+  const k = kb([[{text: "▶️ Savollarni ajratish", callback_data: "imp:go"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]]);
+  if (d.mid && Date.now() - (d.mt || 0) < 60e3) await tg(env, "editMessageText", {chat_id: me, message_id: d.mid, text: t, parse_mode: "HTML", ...k});
+  else { const x = await pm(env, me, t, k); if (x.ok) d.mid = x.result.message_id; }
+  d.mt = Date.now(); await PUT(env, impK(me), d, {expirationTtl: 2 * 86400});
+}
+async function impParse(env, d){
+  const parts = [], imgs = []; let ph = 0;
+  const addImg = (mime, b64, label) => { imgs.push("data:" + mime + ";base64," + b64); parts.push({text: label + " " + imgs.length + ":"}); parts.push({inline_data: {mime_type: mime, data: b64}}); };
+  for (const p of d.parts) {
+    if (p.t === "text") { parts.push({text: "TEXT:\n" + p.text}); continue; }
+    const f = await tgFileBytes(env, p.id); if (!f) continue;
+    if (p.t === "photo") { ph++; addImg("image/jpeg", b64of(f.u8), "IMAGE"); continue; }
+    const nm = (p.name || f.path).toLowerCase();
+    if (/\.docx$/.test(nm) || /wordprocessingml/.test(p.mime)) { const z = await unzip(f.u8); const xml = z["word/document.xml"] ? new TextDecoder().decode(z["word/document.xml"]) : "";
+      parts.push({text: "WORD FILE TEXT (" + p.name + "):\n" + docxText(xml).slice(0, 30000)});
+      const media = Object.keys(z).filter(x => /\.(png|jpe?g)$/i.test(x)).sort((a, b) => (+(a.match(/(\d+)\.\w+$/) || [0, 0])[1]) - (+(b.match(/(\d+)\.\w+$/) || [0, 0])[1]));
+      for (const m of media.slice(0, 8)) if (z[m].length > 15000) addImg(/png$/i.test(m) ? "image/png" : "image/jpeg", b64of(z[m]), "IMAGE"); continue; }
+    if (/\.pdf$/.test(nm) || p.mime === "application/pdf") { parts.push({text: "PDF FILE (" + p.name + "):"}); parts.push({inline_data: {mime_type: "application/pdf", data: b64of(f.u8)}}); continue; }
+    if (/^image\//.test(p.mime)) { addImg(p.mime, b64of(f.u8), "IMAGE"); continue; }
+    if (/\.txt$/.test(nm)) parts.push({text: new TextDecoder().decode(f.u8).slice(0, 20000)});
+  }
+  if (!parts.length) throw new Error("Fayl o'qilmadi (docx, pdf, rasm yoki matn yuboring).");
+  const r = await gemini(env, IMP_SYS, parts, IMP_SCHEMA, 0.1);
+  const items = [];
+  for (const x of r.items || []) {
+    const k = x.kind === "writing" ? "writing" : "speaking"; const part = k === "writing" ? (x.part === "T2" || /2/.test(x.part) && !/1/.test(x.part) ? "T2" : "T1") : (SPARTS.includes(x.part) ? x.part : "1.1");
+    const it = {id: uid(), kind: k, topic: clean(x.topic, 60) || clean(r.title, 60) || "Boshqa", created: Date.now()};
+    if (k === "writing") { it.wtype = part; if (part === "T1") Object.assign(it, {sender: clean(x.sender, 150) || "The manager sent you an email.", email: clean(x.email, 3000), t11: clean(x.t11, 600), t12: clean(x.t12, 600)}); else it.essay = clean(x.essay, 1200); }
+    else { it.part = part; it.q = (x.q || []).map(q => clean(q, 600)).filter(Boolean).slice(0, 3);
+      if (part === "3") { it.for = (x.for || []).map(q => clean(q, 150)).filter(Boolean).slice(0, 3); it.against = (x.against || []).map(q => clean(q, 150)).filter(Boolean).slice(0, 3); }
+      if (part === "1.2" || part === "2") it._img = (x.img || []).map(i => imgs[i - 1]).filter(Boolean).slice(0, part === "1.2" ? 2 : 1); }
+    if (norm(keyText(it))) items.push(it);
+  }
+  return {title: clean(r.title, 100) || "Uyga vazifa", items};
+}
+const PART_UZ = {"1.1": "🎤 Part 1.1", "1.2": "🎤 Part 1.2", "2": "🎤 Part 2", "3": "🎤 Part 3", T1: "✍️ Task 1", T2: "✍️ Task 2"};
+async function impPreview(env, r, d, edit){
+  const gs = await myGroups(env, r); const sel = d.sel || [];
+  let t = `📝 <b>${H(d.title)}</b> — ${d.items.length} ta savol topildi:\n\n`;
+  t += d.items.map((it, i) => `${i + 1}. ${PART_UZ[it.part || it.wtype]}${(it._img || []).length ? " 🖼" + it._img.length : (it.part === "1.2" || it.part === "2") ? " ⚠️ rasmsiz" : ""} — ${H(clean(it.kind === "writing" ? (it.wtype === "T1" ? it.sender + " " + (it.t11 ? "(1.1 + 1.2)" : "") : it.essay) : it.q.join(" / "), 110))}`).join("\n");
+  t += `\n\n👥 Qaysi guruhga vazifa qilinsin? (belgilang)\n<i>Muddat: keyingi dars oxirigacha. Saytda o'quvchilarga darhol chiqadi.</i>`;
+  const rows = gs.map(g => [{text: (sel.includes(g.id) ? "✅ " : "⬜️ ") + g.title, callback_data: "impg:" + g.id}]);
+  rows.push([{text: "📌 Vazifa qilish", callback_data: "imp:ok"}, {text: "📚 Faqat bazaga", callback_data: "imp:bank"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]);
+  return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text: t, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, t, kb(rows));
+}
+async function impSave(env, r, d, assign){
+  const ids = {writing: [], speaking: []}; let added = 0, dup = 0;
+  for (const it of d.items) {
+    const part = it.kind === "writing" ? it.wtype : it.part; const arr = await getBank(env, it.kind, part); const key = norm(keyText(it));
+    const ex = arr.find(x => norm(keyText(x)) === key); if (ex) { ids[it.kind].push(ex.id); dup++; continue; }
+    const clean_it = {...it}; delete clean_it._img;
+    if (it._img && it._img.length) { clean_it.images = []; for (const im of it._img) { const ik = "img:" + uid(); await env.KV.put(ik, im); clean_it.images.push({k: ik}); } }
+    arr.push(clean_it); await putBank(env, it.kind, part, arr); ids[it.kind].push(clean_it.id); added++;
+  }
+  const done = [];
+  if (assign) for (const g of (await myGroups(env, r)).filter(g => (d.sel || []).includes(g.id))) for (const k of ["writing", "speaking"]) if (ids[k].length) {
+    await PUT(env, `hw:${k}:${g.id}`, {title: d.title, ids: [...new Set(ids[k])].slice(0, 20), at: Date.now(), due: nextLesson(g, dayKey()), groups: [g.id]}); done.push(`${g.title} — ${k === "writing" ? "✍️ Writing" : "🎤 Speaking"} (${ids[k].length})`); }
+  return {added, dup, done};
+}
+
+/* ================= SPEAKING KUNI: bot bilan ovozli suhbat (A0 → C1) ================= */
+const LVL = ["A0", "A1", "A2", "B1", "B2", "C1"]; const SPK_TURNS = 10;
+const SPK_SYS = `You are a friendly CEFR/IELTS speaking examiner chatting by voice messages with an Uzbek learner of English on Telegram.
+You get: the student's current target level, the conversation so far (questions + what the student said), the LAST question, and the student's voice answer to it.
+Return JSON:
+"transcript": what the student said (English, as heard);
+"answered": true if the student really tried to answer the last question in English;
+"quality": 0–100 — how well this answer meets the TARGET level (relevance, length, grammar, vocabulary, fluency, pronunciation);
+"level_shown": CEFR level this answer actually shows (A0, A1, A2, B1, B2 or C1);
+"struggle": true if the student clearly struggled (very long pauses, Uzbek words, couldn't build sentences, "I don't know");
+"mistakes": up to 3 {"wrong","correct"} from the answer;
+"reaction": ONE short natural English reaction to what the student said (max 12 words, warm, no grading words);
+"q_up": the NEXT question one CEFR level HIGHER than the target (follow naturally from what the student said, or switch to a new everyday topic);
+"q_hold": the NEXT question at level HOLD_LEVEL (given in input), simpler, also natural.
+Question style by level: A0 = yes/no, name, colours, numbers, very short; A1 = simple present about self/family/likes; A2 = daily routine, past weekend, simple plans; B1 = experiences, reasons, opinions with "why"; B2 = comparisons, advantages/disadvantages, hypothetical ("what would you do if…"); C1 = abstract, evaluate, speculate about society/future.
+Questions max 25 words, one question at a time, never repeat a question already asked. Answer ONLY with JSON.`;
+const SPK_SCHEMA = {type:"OBJECT",properties:{transcript:STR,answered:{type:"BOOLEAN"},quality:NUM,level_shown:STR,struggle:{type:"BOOLEAN"},mistakes:{type:"ARRAY",items:{type:"OBJECT",properties:{wrong:STR,correct:STR},required:["wrong","correct"]}},reaction:STR,q_up:STR,q_hold:STR},required:["transcript","answered","quality","level_shown","struggle","mistakes","reaction","q_up","q_hold"]};
+const SPK_END_SYS = `You write the FINAL result of a speaking conversation between an AI examiner and an Uzbek learner of English. Input: every question with its level, the student's transcript, quality and the level each answer showed.
+Return JSON: "level": the student's realistic CEFR speaking level (A0, A1, A2, B1, B2 or C1 — the highest level the student handled CONSISTENTLY, not a single lucky answer);
+"strong_uz": ONE short UZBEK sentence — the main strength; "weak_uz": up to 3 very short UZBEK points — the main weaknesses (concrete: tense, word order, vocabulary range, pronunciation of …, answers too short …);
+"tips_uz": up to 3 very short, concrete UZBEK tips for the next week. Be honest, clear and brief. Answer ONLY with JSON.`;
+const SPK_END_SCHEMA = {type:"OBJECT",properties:{level:STR,strong_uz:STR,weak_uz:{type:"ARRAY",items:STR},tips_uz:{type:"ARRAY",items:STR}},required:["level","strong_uz","weak_uz","tips_uz"]};
+const SPK_OPEN = ["Hello {n}! Nice to meet you. What do you like doing in your free time?", "Hi {n}! Let's talk a little. Can you tell me about your family?", "Hello {n}! Tell me, what is your favourite food?", "Hi {n}! Where do you live? Do you like it there?", "Hello {n}! What do you usually do after school?"];
+const SPK_NUDGE = ["🎤 {n}, mikrofon sizni kutyapti… Javobingizni ovozli xabar qilib yuboring!", "📡 Radar jimlikni sezdi 🙂 {n}, qisqa bo'lsa ham javob bering — 2–3 gap kifoya!", "⏳ {n}, bemalol o'ylab oling, lekin javobsiz qoldirmang. Ovozli xabarni bosing 🎙", "🙂 {n}, qiyin bo'lsa ham urinib ko'ring — bitta gap ham hisobga olinadi!", "🎧 Savolni qayta tinglang va javob yozib yuboring, {n}. Siz uddalaysiz! 💪"];
+const spsK = sid => "sps:" + sid;
+async function ttsMp3(text){ // Google Translate TTS (en-GB) → MP3
+  const chunks = []; let cur = "";
+  for (const s of String(text).replace(/\s+/g, " ").match(/[^.!?]+[.!?]*\s*/g) || [text]) { if ((cur + s).length > 180) { if (cur) chunks.push(cur); cur = s.slice(0, 180); } else cur += s; }
+  if (cur.trim()) chunks.push(cur);
+  const bufs = [];
+  for (const c of chunks.slice(0, 4)) { const r = await fetch("https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en-GB&q=" + encodeURIComponent(c.trim()), {headers: {"User-Agent": "Mozilla/5.0"}});
+    if (!r.ok) return null; bufs.push(new Uint8Array(await r.arrayBuffer())); }
+  const n = bufs.reduce((a, b) => a + b.length, 0); if (n < 500) return null; const out = new Uint8Array(n); let o = 0; for (const b of bufs) { out.set(b, o); o += b.length; } return out;
+}
+async function spkSay(env, gid, th, speak, caption){
+  try { const mp3 = await ttsMp3(speak); if (mp3) { const fd = new FormData(); fd.append("chat_id", String(gid)); if (th > 1) fd.append("message_thread_id", String(th));
+      fd.append("voice", new Blob([mp3], {type: "audio/mpeg"}), "question.mp3"); fd.append("caption", caption); fd.append("parse_mode", "HTML");
+      const r = await tgForm(env, "sendVoice", fd); if (r && r.ok) return r; } } catch (e) {}
+  return toTopic(env, gid, th, caption);
+}
+async function spkAsk(env, ses, s, pre){
+  const cap = `🎙 <b>${ses.turn + 1}/${SPK_TURNS}</b> · ${LVL[ses.lvl]}\n${pre ? "<i>" + H(pre) + "</i>\n" : ""}<b>${H(ses.q)}</b>\n\n<i>Ovozli xabar bilan javob bering.</i>`;
+  await spkSay(env, ses.gid, ses.th, (pre ? pre + " " : "") + ses.q, cap);
+  ses.st = "wait"; ses.askedAt = Date.now(); ses.nudge = 0; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400});
+}
+async function spkStart(env, g, s, th){
+  const ses = {gid: g.id, sid: s.id, th: th || s.thread, lvl: 1, best: 0, fails: 0, turn: 0, hist: [], day: dayKey(), at: Date.now()};
+  ses.q = SPK_OPEN[Math.floor(Math.random() * SPK_OPEN.length)].replace("{n}", first(s.name));
+  const l = await J(env, "spl", []); if (!l.includes(s.id)) { l.push(s.id); await PUT(env, "spl", l.slice(-80)); }
+  await spkAsk(env, ses, s);
+}
+async function spkTurn(env, g, s, ses, msg){
+  if (ses.st === "busy" && Date.now() - (ses.bt || 0) < 90e3) return; // oldingi javob tekshirilmoqda
+  const media = msg.voice || msg.audio || msg.document; ses.st = "busy"; ses.bt = Date.now(); ses.pend = {voice: msg.voice, audio: msg.audio, document: msg.document, message_id: msg.message_id};
+  await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400});
+  const a = await tgFileB64(env, media.file_id, 8e6); if (!a) { ses.st = "wait"; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400}); return toTopic(env, g.id, ses.th, "⚠️ Audio juda uzun — 2 daqiqagacha javob yuboring."); }
+  const hold = ses.lvl > ses.best ? ses.best : Math.max(0, ses.lvl - (ses.fails >= 1 ? 1 : 0));
+  const hist = ses.hist.map((h, i) => `Q${i + 1} [${LVL[h.l]}]: ${h.q}\nStudent: ${h.tr}`).join("\n");
+  let r; try { r = await gemini(env, SPK_SYS, [{text: `TARGET level: ${LVL[ses.lvl]}\nHOLD_LEVEL: ${LVL[hold]}\nConversation so far:\n${hist || "(none)"}\nLAST question [${LVL[ses.lvl]}]: ${ses.q}\nStudent's voice answer:`}, {inline_data: {mime_type: audioMime(media, a.path), data: a.data}}], SPK_SCHEMA, 0.7); }
+  catch (e) { ses.st = "wait"; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400}); return toTopic(env, g.id, ses.th, "⏳ AI hozir band — 1 daqiqadan keyin javobingizni qayta yuboring."); }
+  const q = Math.round(+r.quality || 0), pass = r.answered && q >= 65 && !r.struggle;
+  ses.hist.push({q: ses.q, l: ses.lvl, tr: clean(r.transcript, 600), qu: q, ls: r.level_shown, ok: pass, m: (r.mistakes || []).slice(0, 3)});
+  if (pass) { ses.best = Math.max(ses.best, ses.lvl); ses.fails = 0; } else ses.fails++;
+  const nextLvl = pass ? Math.min(5, ses.lvl + 1) : hold; const nq = pass ? (r.q_up || r.q_hold) : (r.q_hold || r.q_up);
+  ses.turn++; delete ses.pend;
+  if (ses.turn >= SPK_TURNS || !nq) return spkEnd(env, g, s, ses);
+  ses.lvl = nextLvl; ses.q = clean(nq, 300); await spkAsk(env, ses, s, clean(r.reaction, 120));
+}
+async function spkEnd(env, g, s, ses, why){
+  ses.st = "done"; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400});
+  await PUT(env, "spl", (await J(env, "spl", [])).filter(x => x !== s.id));
+  if (ses.hist.length < 2) return toTopic(env, g.id, ses.th, `⏹ Suhbat to'xtatildi${why ? " (" + why + ")" : ""}. Qayta boshlash uchun o'qituvchingizdan so'rang 🙂`);
+  let e; try { e = await gemini(env, SPK_END_SYS, [{text: ses.hist.map((h, i) => `Q${i + 1} [target ${LVL[h.l]}]: ${h.q}\nStudent: ${h.tr}\nquality ${h.qu}, showed ${h.ls}${h.m.length ? ", mistakes: " + h.m.map(m => m.wrong + " → " + m.correct).join("; ") : ""}`).join("\n\n")}], SPK_END_SCHEMA, 0.3); }
+  catch (x) { e = {level: LVL[ses.best], strong_uz: "", weak_uz: [], tips_uz: []}; }
+  const lv = LVL.includes(e.level) ? e.level : LVL[ses.best];
+  const mis = ses.hist.flatMap(h => h.m).filter((m, i, a) => m.wrong && a.findIndex(y => nn(y.wrong) === nn(m.wrong)) === i).slice(0, 3);
+  let t = `🏁 <b>Speaking suhbati yakunlandi</b> — ${H(first(s.name))}\n📶 Daraja: <b>${lv}</b> · ${ses.hist.length} ta savol\n`;
+  if (e.strong_uz) t += `\n✅ ${H(e.strong_uz)}`;
+  if ((e.weak_uz || []).length) t += `\n⚠️ ${e.weak_uz.slice(0, 3).map(H).join("\n⚠️ ")}`;
+  if (mis.length) t += `\n\n✏️ ${mis.map(m => `<s>${H(m.wrong)}</s> → <b>${H(m.correct)}</b>`).join("\n✏️ ")}`;
+  if ((e.tips_uz || []).length) t += `\n\n🎯 ${e.tips_uz.slice(0, 3).map(H).join("\n🎯 ")}`;
+  await toTopic(env, g.id, ses.th, t);
+  const rk = `spr:${g.id}:${ses.day}`; const res = await J(env, rk, {}); res[s.id] = {lv, n: ses.hist.length, at: Date.now()}; await PUT(env, rk, res, {expirationTtl: 60 * 86400});
+  await spkTable(env, g, ses.day);
+}
+async function spkTable(env, g, day){
+  if (!g.res) return; const res = await J(env, `spr:${g.id}:${day}`, {}); const studs = (await getStudents(env)).filter(x => x.gid === g.id);
+  const started = await J(env, `spd:${g.id}:${day}`, {});
+  const rows = studs.map(x => res[x.id] ? `✅ ${H(x.name)} — <b>${res[x.id].lv}</b>` : started[x.id] ? `⏳ ${H(x.name)} — suhbatda` : `▫️ ${H(x.name)} — boshlamagan`);
+  const t = `🎙 <b>SPEAKING KUNI — ${H(g.title)}</b> · ${ddmm(Date.parse(day + "T12:00:00Z"))}\n\n${rows.join("\n")}\n\n📶 Tugatdi: <b>${Object.keys(res).length}/${studs.length}</b>`;
+  const mk = `spt:${g.id}:${day}`; const m = await J(env, mk, null);
+  if (m && m.mid) { const x = await tg(env, "editMessageText", {chat_id: g.id, message_id: m.mid, text: t, parse_mode: "HTML"}); if (x.ok || /not modified/.test(x.description || "")) return; }
+  const x = await toTopic(env, g.id, g.res, t); if (x.ok) await PUT(env, mk, {mid: x.result.message_id}, {expirationTtl: 60 * 86400});
+}
+async function spkLaunch(env, g){
+  const studs = (await getStudents(env)).filter(x => x.gid === g.id && x.thread); const day = dayKey(); let n = 0;
+  for (const s of studs) { const x = await toTopic(env, g.id, s.thread, `🎙 <b>Bugun Speaking kuni!</b>\n${H(first(s.name))}, bot siz bilan <b>${SPK_TURNS} ta savollik</b> ovozli suhbat qiladi: oson savoldan boshlab, darajangizga qarab qiyinlashadi (A0 → C1). Savollarni tinglab, <b>ovozli xabar</b> bilan javob bering.\n\nTayyor bo'lsangiz bosing 👇`, kb([[{text: "▶️ Boshlaymiz", callback_data: `spk:${s.id}`}]])); if (x.ok) n++; }
+  await PUT(env, `spd:${g.id}:${day}`, {}, {expirationTtl: 60 * 86400});
+  return n;
+}
+async function spkSweep(env){ // har daqiqa: javob kutayotganlarga eslatma, osilib qolganlarni yakunlash
+  const l = await J(env, "spl", []); if (!l.length) return; const gs = await getGroups(env); const studs = await getStudents(env);
+  for (const sid of l) { const ses = await J(env, spsK(sid), null); const s = studs.find(x => x.id === sid); const g = ses && gs.find(x => x.id === ses.gid);
+    if (!ses || ses.st === "done" || !s || !g) { await PUT(env, "spl", (await J(env, "spl", [])).filter(x => x !== sid)); continue; }
+    const idle = Date.now() - (ses.askedAt || ses.at);
+    if (ses.st === "busy" && Date.now() - (ses.bt || 0) > 120e3 && ses.pend) { ses.st = "wait"; await PUT(env, spsK(sid), ses, {expirationTtl: 2 * 86400}); await spkTurn(env, g, s, ses, ses.pend); continue; }
+    if (ses.st !== "wait") continue;
+    if (idle > 8 * 60e3) { await spkEnd(env, g, s, ses, "javob kelmadi"); continue; }
+    if ((idle > 60e3 && ses.nudge < 1) || (idle > 3 * 60e3 && ses.nudge < 2)) { ses.nudge++; await PUT(env, spsK(sid), ses, {expirationTtl: 2 * 86400});
+      await toTopic(env, g.id, ses.th, SPK_NUDGE[Math.floor(Math.random() * SPK_NUDGE.length)].replace("{n}", H(first(s.name)))); }
+  }
+}
+
 /* ---------------- Dars oxirida bitta umumiy feedback (tugma) ---------------- */
 async function fbText(env, type, name, facts){
   try { const r = await gemini(env, FB_SYS, [{text: `Type: ${type}\nStudent: ${first(name)}\nFacts: ${facts}`}], {type:"OBJECT",properties:{text:STR},required:["text"]}, 1.0, true);
@@ -685,7 +901,7 @@ async function mainMenu(env, r, edit){
   return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, text, kb(rows));
 }
 function groupKb(g, r){
-  const rows = [[{text:"📝 Darsdan keyin feedback", callback_data:"fb:" + g.id}],
+  const rows = [[{text:"📝 Darsdan keyin feedback", callback_data:"fb:" + g.id}], [{text:"🎙 Speaking kuni", callback_data:"spd:" + g.id}],
     [{text:"📊 Natijalar", callback_data:"res:" + g.id}, {text:"📋 Davomat", callback_data:"dav:" + g.id}],
     [{text:"🔎 Holat", callback_data:"hol:" + g.id}, {text:"🔑 PIN kodlar", callback_data:"pin:" + g.id}],
     [{text:"📈 Haftalik hisobot", callback_data:"wk:" + g.id}, {text:"⚙️ Sozlamalar", callback_data:"set:" + g.id}]];
@@ -797,6 +1013,7 @@ async function onPrivate(env, msg){
     if (/^\/ochir/.test(text)) { await PUT(env, "students", studs.filter(x => x.id !== s.id)); return pm(env, me, `🗑 ${H(s.name)} ro'yxatdan o'chirildi.`); }
     s.pin = newPin(studs); await PUT(env, "students", studs); return pm(env, me, `🔑 ${H(s.name)} — yangi PIN: <code>${s.pin}</code>`);
   }
+  if (!w && (msg.document || msg.photo || (text.length >= 60 && !text.startsWith("/")))) return impAdd(env, r, msg); // worksheet → vazifa
   if (!w) return pm(env, me, "📡 Menyu uchun /start bosing.");
   if (w.step === "tname" && r.admin) {
     const ts = await getTeachers(env); const t = {id: uid(), name: text.slice(0, 60), code: newCode(ts, env), tg: null, groups: [], at: Date.now()};
@@ -852,6 +1069,19 @@ async function cbAction(env, r, a, g){
 }
 async function onCallback(env, cq){
   const r = await roleOf(env, cq.from.id);
+  if ((cq.data || "").startsWith("spk:")) { // o'quvchi "Boshlaymiz" tugmasini bosdi
+    const studs = await getStudents(env); const s = studs.find(x => x.id === cq.data.slice(4)); const fid = String(cq.from.id);
+    if (!s) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "O'quvchi topilmadi.", show_alert: true});
+    const ids = s.tgs || (s.tg ? [s.tg] : []); if (ids.length && !ids.includes(fid) && !r) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: `Bu tugma ${first(s.name)} uchun 🙂`, show_alert: true});
+    if (!ids.length && !r) { s.tgs = [fid]; s.tg = fid; await PUT(env, "students", studs); }
+    const ses = await J(env, spsK(s.id), null); if (ses && ses.st !== "done" && ses.day === dayKey()) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Suhbat allaqachon boshlangan — savolga ovozli javob bering 🎙", show_alert: true});
+    if (ses && ses.st === "done" && ses.day === dayKey() && !r) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Bugungi suhbatni tugatdingiz ✅", show_alert: true});
+    await tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Boshladik! 🎙"});
+    const g = (await getGroups(env)).find(x => x.id === s.gid); if (!g) return;
+    await tg(env, "editMessageReplyMarkup", {chat_id: cq.message.chat.id, message_id: cq.message.message_id, reply_markup: {inline_keyboard: []}});
+    const sk = `spd:${g.id}:${dayKey()}`; const st = await J(env, sk, {}); st[s.id] = 1; await PUT(env, sk, st, {expirationTtl: 60 * 86400});
+    await spkStart(env, g, s, cq.message.message_thread_id || s.thread); await spkTable(env, g, dayKey()); return;
+  }
   if (!r) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Bu bot AOK English o'qituvchilari uchun.", show_alert: true});
   await tg(env, "answerCallbackQuery", {callback_query_id: cq.id});
   const d = cq.data || "", chat = cq.message.chat.id, mid = cq.message.message_id;
@@ -888,6 +1118,30 @@ async function onCallback(env, cq){
     if (x.skip.length) t += `\n\n⚠️ Topic ulanmagan: ${x.skip.map(H).join(", ")}`;
     t += "\n\n<i>Baho qo'shsangiz yoki o'zgartirsangiz, tugmani yana bosing — faqat o'zgarganlarga yuboriladi.</i>";
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: t, ...fbKb(g)}); }
+  if (a === "imp" || a === "impg") { const d = await J(env, impK(r.uid), null);
+    if (!d) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "ℹ️ Bu vazifa qoralamasi eskirgan — faylni qayta yuboring."});
+    if (a === "imp" && b === "del") { await env.KV.delete(impK(r.uid)); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "🗑 Bekor qilindi."}); }
+    if (a === "imp" && b === "go") { await tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "⏳ Savollar ajratilmoqda (10–40 soniya)…"});
+      try { const x = await impParse(env, d); d.title = x.title; d.items = x.items; } catch (e) { return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "❌ O'qib bo'lmadi: " + H(String(e.message || e).slice(0, 200)), ...kb([[{text: "🔁 Qayta urinish", callback_data: "imp:go"}]])}); }
+      if (!d.items.length) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "❓ Speaking/Writing savoli topilmadi. Savollar bor sahifani yuboring.", ...kb([[{text: "🗑 Bekor qilish", callback_data: "imp:del"}]])});
+      const gs0 = await myGroups(env, r); d.sel = gs0.length === 1 ? [gs0[0].id] : []; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid); }
+    if (a === "impg") { d.sel = d.sel || []; d.sel = d.sel.includes(b) ? d.sel.filter(x => x !== b) : [...d.sel, b]; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid); }
+    if (a === "imp" && (b === "ok" || b === "bank")) { if (!d.items) return;
+      if (b === "ok" && !(d.sel || []).length) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Avval guruhni belgilang ✅", show_alert: true});
+      const x = await impSave(env, r, d, b === "ok"); await env.KV.delete(impK(r.uid));
+      return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(d.title)}</b>
+📚 Bazaga qo'shildi: ${x.added} ta${x.dup ? ` (${x.dup} tasi bazada bor edi)` : ""}${x.done.length ? `
+📌 Vazifa qilindi:
+${x.done.map(z => "• " + H(z)).join("\n")}
+
+O'quvchilar saytda «📌 Vazifa» bo'limida ko'radi.` : ""}`}); }
+    return; }
+  if (a === "spd") { const g = gs.find(x => x.id === b); if (!g || !canG(r, g)) return;
+    if (c !== "go") return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🎙 <b>${H(g.title)}</b> — Speaking kunini boshlaymizmi?
+Har o'quvchining topic'iga «▶️ Boshlaymiz» tugmasi boradi. O'quvchi bosgach, bot u bilan ${SPK_TURNS} ta savollik ovozli suhbat qiladi (A0 → C1), oxirida darajasi va tavsiyalarini yozadi. Results'da umumiy jadval yuritiladi.`, ...kb([[{text: "✅ Ha, boshlash", callback_data: `spd:${g.id}:go`}], [{text: "⬅️ Orqaga", callback_data: "g:" + g.id}]])});
+    const n = await spkLaunch(env, g); await spkTable(env, g, dayKey());
+    return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(g.title)}</b> — ${n} ta o'quvchi topic'iga «▶️ Boshlaymiz» tugmasi yuborildi.
+Natijalar Results topic'idagi jadvalda yangilanib boradi.`}); }
   if (a === "rpok" || a === "rpno") { const g = gs.find(x => x.id === b); if (!g || !canG(r, g)) return; const rp = await J(env, rpKey(g.id, c), null);
     if (!rp || rp.st !== "pending") return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "ℹ️ Bu natijalar allaqachon ko'rib chiqilgan."});
     if (a === "rpno") { rp.st = "cancel"; await PUT(env, rpKey(g.id, c), rp, {expirationTtl: 30 * 86400}); await PUT(env, "rpl", (await J(env, "rpl", [])).filter(k => k !== rpKey(g.id, c)));
@@ -1004,6 +1258,10 @@ async function onGroupMessage(env, msg){
   if (s) { s.tgs = s.tgs || (s.tg ? [s.tg] : []); if (!s.tgs.includes(fid)) { s.tgs = [...s.tgs, fid].slice(-3); s.tg = s.tg || fid; await PUT(env, "students", studs); } } // o'z topic'i: ikkinchi telefon ham shu o'quvchi
   else s = studs.find(x => x.gid === gid && (x.tg === fid || (x.tgs || []).includes(fid))); // Results yoki boshqa topic'da — Telegram ID orqali
   if (!s) return;
+  { const ses = await J(env, spsK(s.id), null); // Speaking kuni suhbati davom etmoqda
+    if (ses && ses.st !== "done" && ses.gid === gid && (!th || th === ses.th)) { const md = msg.voice || msg.audio || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document) || msg.video_note;
+      if (md) { if (msg.video_note) msg = {...msg, document: {...msg.video_note, mime_type: "video/mp4"}}; return spkTurn(env, g, s, ses, msg); }
+      if (msg.text) return toTopic(env, gid, ses.th, `🎤 ${H(first(s.name))}, suhbatda <b>ovozli xabar</b> bilan javob bering 🙂`); } }
   const hp = await J(env, "hp:" + gid, null); if (!hp || hp.st === "done" || !hp.items.length) return;
   const media = msg.voice || msg.audio || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
   if (media && hp.items.some(i => i.type === "shadowing")) {
@@ -1210,7 +1468,7 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
    ASOSIY
    ===================================================================== */
 export default {
-  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? shadowQueue(env) : Promise.all([cron(env), shadowQueue(env)])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env)]) : Promise.all([cron(env), shadowQueue(env), spkSweep(env)])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
