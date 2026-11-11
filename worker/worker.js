@@ -634,6 +634,9 @@ async function onPrivate(env, msg){
       for (const g of await getGroups(env)) { const ss = studs.filter(x => x.gid === g.id); const un = ss.filter(x => !x.thread);
         let adm = "?"; try { const cm = await tg(env, "getChatMember", {chat_id: g.id, user_id: me2.result.id}); adm = cm.ok ? cm.result.status : "❌ " + (cm.description || ""); } catch (e) {}
         const al = await allowedRx(env, g.id); t += `\n\n👥 <b>${H(g.title)}</b>: reaksiyalar=${al ? al.join("") : "hammasi"}, bot=${H(adm)}, o'quvchi ${ss.length}, topic ulangan ${ss.length - un.length}${un.length ? "\n ulanmagan: " + un.map(x => H(x.name)).join(", ") : ""}`;
+        { const m = await J(env, "rxm:" + g.id, null), rr = await J(env, "rxr:" + g.id, null);
+          t += `\n 🔎 oxirgi reaksiya: ${m ? `${hhmm(m.t)} msg=${m.mid} ${m.emoji}` : "chaqirilmagan"}${rr ? ` → ${rr.e} ${rr.ok ? "ok" : "❌ " + H(rr.d)}` : " → javob yozilmagan"}`;
+          if (m) { const x = await tg(env, "setMessageReaction", {chat_id: g.id, message_id: m.mid, reaction: [{type: "emoji", emoji: "👌"}]}); t += `\n 🧪 hozirgi sinov (👌 msg=${m.mid}): ${x.ok ? "ok" : "❌ " + H(x.description || "")}`; } }
         for (const e of (await J(env, "tr:" + g.id, [])).slice(0, 5)) t += `\n • ${hhmm(e.t)} th=${e.th}${e.tn ? " (" + H(e.tn) + ")" : ""}${e.s ? " " + H(e.s) : ""}: ${H(e.why)}${e.txt ? " — «" + H(e.txt) + "»" : ""}${e.from ? " — " + H(e.from) : ""}`; }
       const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
     try { await hpParse(env, (await getGroups(env))[0] || {}, "#Homework\n- 2 ta audio shadowing (bugun 23:59 gacha)", Date.now()); t += "\n✅ AI (Homework o'qish) ishlayapti"; }
@@ -758,14 +761,15 @@ async function allowedRx(env, chat){ // guruhda ruxsat etilgan reaksiyalar (null
   await PUT(env, k, {list}, {expirationTtl: 6 * 3600}); return list;
 }
 async function react(env, chat, mid, emoji){ let last = null; const al = await allowedRx(env, chat);
+  await PUT(env, "rxm:" + chat, {mid, emoji, t: Date.now()}, {expirationTtl: 3 * 864e5});
   const strip = x => x.replace(/\uFE0F/g, "");
   for (const e of [emoji, "👌", "👍", "🔥", "❤"].filter((x, i, a) => a.indexOf(x) === i).filter(x => !al || al.some(y => strip(y) === strip(x)))) {
     const r = await tg(env, "setMessageReaction", {chat_id: chat, message_id: mid, reaction: [{type: "emoji", emoji: e}]});
-    await trace(env, String(chat), {th: 0, why: `reaksiya ${e} msg=${mid} → ${r && r.ok ? "ok " + JSON.stringify(r.result) : "❌ " + ((r && r.description) || "?")} | ruxsat: ${al ? al.join("") : "hammasi"}`});
+    await PUT(env, "rxr:" + chat, {mid, e, ok: !!(r && r.ok), d: (r && r.description) || "", t: Date.now()}, {expirationTtl: 3 * 864e5});
     if (r && r.ok) return r;
     last = r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) break;
   }
-  await trace(env, String(chat), {th: 0, why: "❌ reaksiya qo'yilmadi: " + ((last && last.description) || "?")}); return last;
+  return last;
 }
 async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 864e5}); } catch (e) {} }
 async function onGroupMessage(env, msg){
