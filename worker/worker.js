@@ -106,7 +106,17 @@ function fixTask(t){
 const GOOD = {};
 const EXH = {}; // key|model → qachongacha band (limit tugagan)
 const gKeys = env => [...new Set([env.GEMINI_KEY, env.GEMINI_KEY2, env.GEMINI_KEY3, env.GEMINI_KEY4, env.GEMINI_KEY5].filter(Boolean).flatMap(k => String(k).split(/[,\s]+/)).filter(Boolean))];
+const USE = {c: {}, n: 0, t: Date.now()};
+function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqtov"],["end-of-lesson feedback","dars feedback"],["SHADOWING","shadowing"],["speaking examiner chatting","speaking suhbat"],["FINAL result of a speaking","speaking suhbat xulosa"],["extract CEFR","vazifa kiritish"],["homework post","homework o'qish"],["Target word","talaffuz"],["model answers","namuna tekshiruvi"],["pronunciation coach","talaffuz mashqi"]];
+  const low = sys.toLowerCase(); for (const [k, v] of m) if (low.includes(k.toLowerCase())) return v; return /writing/i.test(sys.slice(0, 400)) ? "writing tekshiruv" : /speaking/i.test(sys.slice(0, 400)) ? "speaking tekshiruv" : /pronunc/i.test(sys.slice(0, 400)) ? "talaffuz" : "boshqa"; }
+async function aiCount(env, tag, model, force){
+  if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); USE.c[k] = (USE.c[k] || 0) + 1; USE.n++; }
+  if (!USE.n || (!force && USE.n < 12 && Date.now() - USE.t < 10 * 60e3)) return;
+  const dk = "aiu:" + dayKey(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
+  USE.c = {}; USE.n = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
+}
 async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
+  const TAG = aiTag(sys);
   const main = [env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite"], light = [env.LITE_MODEL, "gemini-3.5-flash-lite", "gemini-2.5-flash-lite", env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash"];
   const models = [...new Set([GOOD[lite ? "l" : "m"], ...(lite ? light : main)].filter(Boolean))]; const keys = gKeys(env);
   let last = "", busy = false; const t0 = Date.now();
@@ -118,7 +128,7 @@ async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
         method:"POST", headers:{"content-type":"application/json","x-goog-api-key":key},
         body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
           generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) });
-      const j = await r.json().catch(()=>({}));
+      const j = await r.json().catch(()=>({})); await aiCount(env, TAG, model);
       if (r.ok) { GOOD[lite ? "l" : "m"] = model; return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}"); }
       last = `${model}: ` + ((j.error && j.error.message) || ("Gemini " + r.status));
       if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
@@ -135,7 +145,7 @@ async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
 async function aiErr(env, m){ try { const o = await J(env, "aierr", null); if (!o || Date.now() - o.t > 120e3) await PUT(env, "aierr", {t: Date.now(), m: String(m).slice(0, 300), n: ((o && Date.now() - o.t < 864e5) ? o.n : 0) + 1}, {expirationTtl: 3 * 86400}); } catch (e) {} }
 
 // Ideal javobni tekshirish: 5/5 bo'lmasa tuzatiladi (2 martagacha)
-async function verifyIdeals(env, list, crit){
+async function verifyIdeals(env, list, crit){ if (!env.VERIFY_IDEALS) return list; // limitni tejash: alohida tekshiruv o'chirilgan
   for (let round=0; round<2; round++){
     const todo = list.filter(x => !x.verified && x.text);
     if (!todo.length) break;
@@ -248,7 +258,16 @@ const FALLBACK = {
   late_remind: ["⌛ {n}, muddat o'tdi, lekin hali kech emas: {x}. Darsgacha topshirsangiz hisobga olinadi 💪"],
   late_ok: ["✅ {n}, kech bo'lsa ham topshirdingiz — rahmat! Keyingi safar muddatida kutamiz 🙂"]
 };
-async function radarText(env, type, name, facts){
+const TPL = {
+  remind: ["⏰ {n}, eslatma!", "📡 {n}, radar vazifangizni qidiryapti 🔎", "⏳ {n}, vaqt ketyapti!", "🔔 {n}, bir eslatib qo'yay 🙂", "📋 {n}, vazifa sizni kutyapti!", "💪 {n}, oz qoldi — tugatib qo'ying!", "🎯 {n}, maqsadga yaqin qoldik!", "📡 {n}, signal hali kelmadi!"],
+  late: ["⌛ {n}, muddat o'tib ketdi.", "📡 {n}, radar vazifani muddatida ko'rmadi.", "😕 {n}, vazifa vaqtida kelmadi.", "⚠️ {n}, muddat tugadi."],
+  late_remind: ["⌛ {n}, muddat o'tdi, lekin hali kech emas — darsgacha topshiring!", "📡 {n}, hali imkoniyat bor — darsgacha yuboring!", "⏳ {n}, kechikkan bo'lsa ham topshiring, hisobga olinadi!"],
+  late_ok: ["✅ {n}, kech bo'lsa ham topshirdingiz — rahmat! Keyingi safar muddatida kutamiz 🙂", "👍 {n}, yetib keldi! Keyingi safar biroz erta yuboring 🙂", "📡 {n}, signal qabul qilindi ✅ Keyingisini muddatida kutamiz!"],
+  praise: ["🔥 {n}, zo'r!", "🏆 {n}, a'lo!", "👏 {n}, barakalla!", "🚀 {n}, ajoyib ish!", "📡 {n}, radar kuchli signal ko'rdi! 💪", "🌟 {n}, juda yaxshi!", "✅ {n}, hammasi joyida!"]
+};
+const cap1 = t => String(t || "").replace(/^\s*\S/, c => c.toUpperCase());
+async function radarText(env, type, name, facts, ai){
+  if (!ai && TPL[type]) { const a = TPL[type]; return a[Math.floor(Math.random() * a.length)].replace("{n}", first(name)) + (facts ? "\n📋 " + cap1(facts) : ""); } // AI ishlatilmaydi — limitni tejash
   try {
     const r = await gemini(env, RADAR_SYS, [{text: `Type: ${type}\nStudent: ${first(name)}\nFacts: ${facts}`}], {type:"OBJECT",properties:{text:STR},required:["text"]}, 1.0, true);
     if (r.text && r.text.length > 10) return r.text.slice(0, 600);
@@ -456,7 +475,7 @@ async function spkTurn(env, g, s, ses, msg){
   const a = await tgFileB64(env, media.file_id, 8e6); if (!a) { ses.st = "wait"; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400}); return toTopic(env, g.id, ses.th, "⚠️ Audio juda uzun — 2 daqiqagacha javob yuboring."); }
   const hold = ses.lvl > ses.best ? ses.best : Math.max(0, ses.lvl - (ses.fails >= 1 ? 1 : 0));
   const hist = ses.hist.map((h, i) => `Q${i + 1} [${LVL[h.l]}]: ${h.q}\nStudent: ${h.tr}`).join("\n");
-  let r; try { r = await gemini(env, SPK_SYS, [{text: `TARGET level: ${LVL[ses.lvl]}\nHOLD_LEVEL: ${LVL[hold]}\nConversation so far:\n${hist || "(none)"}\nLAST question [${LVL[ses.lvl]}]: ${ses.q}\nStudent's voice answer:`}, {inline_data: {mime_type: audioMime(media, a.path), data: a.data}}], SPK_SCHEMA, 0.7); }
+  let r; try { r = await gemini(env, SPK_SYS, [{text: `TARGET level: ${LVL[ses.lvl]}\nHOLD_LEVEL: ${LVL[hold]}\nConversation so far:\n${hist || "(none)"}\nLAST question [${LVL[ses.lvl]}]: ${ses.q}\nStudent's voice answer:`}, {inline_data: {mime_type: audioMime(media, a.path), data: a.data}}], SPK_SCHEMA, 0.7, true); }
   catch (e) { ses.st = "wait"; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400}); return toTopic(env, g.id, ses.th, "⏳ AI hozir band — 1 daqiqadan keyin javobingizni qayta yuboring."); }
   const q = Math.round(+r.quality || 0), pass = r.answered && q >= 65 && !r.struggle;
   ses.hist.push({q: ses.q, l: ses.lvl, tr: clean(r.transcript, 600), qu: q, ls: r.level_shown, ok: pass, m: (r.mistakes || []).slice(0, 3)});
@@ -470,7 +489,7 @@ async function spkEnd(env, g, s, ses, why){
   ses.st = "done"; await PUT(env, spsK(s.id), ses, {expirationTtl: 2 * 86400});
   await PUT(env, "spl", (await J(env, "spl", [])).filter(x => x !== s.id));
   if (ses.hist.length < 2) return toTopic(env, g.id, ses.th, `⏹ Suhbat to'xtatildi${why ? " (" + why + ")" : ""}. Qayta boshlash uchun o'qituvchingizdan so'rang 🙂`);
-  let e; try { e = await gemini(env, SPK_END_SYS, [{text: ses.hist.map((h, i) => `Q${i + 1} [target ${LVL[h.l]}]: ${h.q}\nStudent: ${h.tr}\nquality ${h.qu}, showed ${h.ls}${h.m.length ? ", mistakes: " + h.m.map(m => m.wrong + " → " + m.correct).join("; ") : ""}`).join("\n\n")}], SPK_END_SCHEMA, 0.3); }
+  let e; try { e = await gemini(env, SPK_END_SYS, [{text: ses.hist.map((h, i) => `Q${i + 1} [target ${LVL[h.l]}]: ${h.q}\nStudent: ${h.tr}\nquality ${h.qu}, showed ${h.ls}${h.m.length ? ", mistakes: " + h.m.map(m => m.wrong + " → " + m.correct).join("; ") : ""}`).join("\n\n")}], SPK_END_SCHEMA, 0.3, true); }
   catch (x) { e = {level: LVL[ses.best], strong_uz: "", weak_uz: [], tips_uz: []}; }
   const lv = LVL.includes(e.level) ? e.level : LVL[ses.best];
   const mis = ses.hist.flatMap(h => h.m).filter((m, i, a) => m.wrong && a.findIndex(y => nn(y.wrong) === nn(m.wrong)) === i).slice(0, 3);
@@ -515,7 +534,7 @@ async function spkSweep(env){ // har daqiqa: javob kutayotganlarga eslatma, osil
 async function fbText(env, type, name, facts){
   try { const r = await gemini(env, FB_SYS, [{text: `Type: ${type}\nStudent: ${first(name)}\nFacts: ${facts}`}], {type:"OBJECT",properties:{text:STR},required:["text"]}, 1.0, true);
     if (r.text && r.text.length > 20) return r.text.slice(0, 700); } catch (e) {}
-  return radarText(env, type, name, facts);
+  return radarText(env, type, name, facts, true);
 }
 async function dayFeedback(env, g, d){
   d = d || dayKey(); const day = await J(env, `gr:${g.id}:${d}`, {}); const studs = await getStudents(env);
@@ -604,7 +623,7 @@ async function rpSend(env, g, rp){
   if (rp.st !== "pending") return 0; rp.st = "sent"; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400});
   const studs = await getStudents(env); let n = 0;
   for (const x of await rpFacts(env, g, rp)) { if (!x.type) continue; const s = studs.find(y => y.id === x.sid); if (!s || !s.thread) continue;
-    await toTopic(env, g.id, s.thread, await radarText(env, x.type, s.name, x.facts)); n++; }
+    await toTopic(env, g.id, s.thread, await radarText(env, x.type, s.name, x.facts, true)); n++; }
   const hist = await J(env, "rh:" + g.id, []); const sc = {}; rp.rows.forEach(x => sc[x.sid] = x.v.reduce((a, b) => a + b, 0));
   hist.push({mid: rp.mid, at: rp.at, kind: rp.kind, title: rp.title, max: rp.max, parts: rp.parts, sc, v: Object.fromEntries(rp.rows.map(x => [x.sid, x.v]))});
   await PUT(env, "rh:" + g.id, hist.slice(-80));
@@ -1009,8 +1028,10 @@ async function onPrivate(env, msg){
         { const q = await J(env, "shq", []); if (q.length) t += `\n ⏳ Shadowing navbatida: ${q.filter(k => k.includes(g.id)).length} ta`; }
         for (const e of (await J(env, "tr:" + g.id, [])).slice(0, 5)) t += `\n • ${hhmm(e.t)} th=${e.th}${e.tn ? " (" + H(e.tn) + ")" : ""}${e.s ? " " + H(e.s) : ""}: ${H(e.why)}${e.txt ? " — «" + H(e.txt) + "»" : ""}${e.from ? " — " + H(e.from) : ""}`; }
       const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
-    try { await hpParse(env, (await getGroups(env))[0] || {}, "#Homework\n- 2 ta audio shadowing (bugun 23:59 gacha)", Date.now()); t += "\n✅ AI (Homework o'qish) ishlayapti"; }
-    catch (e) { t += "\n❌ AI xatosi: " + H(String(e.message || e).slice(0, 400)); }
+    { let i = 0; for (const key of gKeys(env)) { i++; const x = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", {headers: {"x-goog-api-key": key}}); t += `\n${x.ok ? "✅" : "❌"} AI kaliti ${i}${x.ok ? "" : " — " + x.status}`; } } // limit sarflamaydi
+    await aiCount(env, null, null, true);
+    { const u = await J(env, "aiu:" + dayKey(), {}); const tot = Object.values(u).reduce((a, b) => a + b, 0);
+      t += `\n\n📊 <b>Bugun AI so'rovlari: ${tot}</b>\n` + (Object.entries(u).sort((a, b) => b[1] - a[1]).map(([k, v]) => ` • ${H(k)}: ${v}`).join("\n") || " • hali yo'q"); }
     try { await cron(env); t += "\n✅ cron xatosiz ishladi"; } catch (e) { t += "\n❌ cron xatosi: " + H(String(e.stack || e.message).slice(0, 600)); }
     return pm(env, me, t);
   }
@@ -1344,7 +1365,7 @@ async function cron(env){
       const items = Object.entries(rec.it || {}); const ls = items.filter(([, v]) => v.l != null).map(([, v]) => Math.min(v.l, 5));
       const facts = items.map(([k, v]) => `${ITEM_UZ[k] || k}: ${v.l != null ? LV_NAME(v.l) : "topshirildi"}${rec.prev && rec.prev[k] != null ? ` (avval ${LV_NAME(rec.prev[k])} edi — qayta ishlab yaxshiladi)` : ""}${v.n ? ` [izoh: ${v.n}]` : ""}`).join("; ");
       const a = avg(ls); const type = a === null ? "praise" : a >= 4 ? "praise" : a <= 2 ? "scold" : "encourage";
-      await toTopic(env, g.id, s.thread, await radarText(env, type, s.name, facts));
+      await toTopic(env, g.id, s.thread, await radarText(env, type, s.name, facts, true));
     }
     if (ch) await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
   }
@@ -1477,7 +1498,7 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
    ASOSIY
    ===================================================================== */
 export default {
-  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env)]) : Promise.all([cron(env), shadowQueue(env), spkSweep(env)])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env)]) : Promise.all([cron(env), shadowQueue(env), spkSweep(env), aiCount(env, null, null, true)])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
