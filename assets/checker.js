@@ -32,8 +32,8 @@ async function post(path,body){
 async function postRetry(path,body,label){
   for(let i=1;;i++){
     try{return await post(path,body)}
-    catch(e){if(!(e.busy||e.net)||i>=10) throw e;
-      for(let s=20;s>0;s--){loading(true,null,`⏳ Navbatda turibsiz — AI hozir boshqa o'quvchilarni tekshiryapti. ${s} soniyadan keyin avtomatik qayta yuboriladi (urinish ${i+1}/10). Sahifani yopmang — javoblaringiz saqlangan.`);await sleep(1000)}
+    catch(e){if(!(e.busy||e.net)||i>=30) throw e;
+      for(let s=i<5?20:i<12?45:90;s>0;s--){loading(true,null,`⏳ Navbatda turibsiz — AI hozir boshqa o'quvchilarni tekshiryapti. ${s} soniyadan keyin avtomatik qayta yuboriladi (urinish ${i+1}/30). Sahifani yopmang — javoblaringiz saqlangan.`);await sleep(1000)}
       loading(true,null,label)}
   }
 }

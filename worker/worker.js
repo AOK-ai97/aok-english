@@ -104,29 +104,35 @@ function fixTask(t){
 
 // Model eskirsa ("no longer available" / 404) — keyingi modelga o'tadi; ishlagan model eslab qolinadi
 const GOOD = {};
+const EXH = {}; // key|model → qachongacha band (limit tugagan)
+const gKeys = env => [...new Set([env.GEMINI_KEY, env.GEMINI_KEY2, env.GEMINI_KEY3, env.GEMINI_KEY4, env.GEMINI_KEY5].filter(Boolean).flatMap(k => String(k).split(/[,\s]+/)).filter(Boolean))];
 async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
-  const main = [env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash"], light = [env.LITE_MODEL, "gemini-3.5-flash-lite", ...main];
-  const list = [...new Set([GOOD[lite ? "l" : "m"], ...(lite ? light : main)].filter(Boolean))];
-  let last = "";
-  for (const model of list) {
-    let gone = false;
-    for (let i=0; i<4; i++){
+  const main = [env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite"], light = [env.LITE_MODEL, "gemini-3.5-flash-lite", "gemini-2.5-flash-lite", env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash"];
+  const models = [...new Set([GOOD[lite ? "l" : "m"], ...(lite ? light : main)].filter(Boolean))]; const keys = gKeys(env);
+  let last = "", busy = false; const t0 = Date.now();
+  for (const model of models) for (const key of keys) {
+    const ek = key.slice(-6) + "|" + model; if ((EXH[ek] || 0) > Date.now()) { busy = true; continue; }
+    for (let i = 0; i < 2; i++) {
+      if (Date.now() - t0 > 22e3) { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; await aiErr(env, last); throw e; }
       const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method:"POST", headers:{"content-type":"application/json","x-goog-api-key":env.GEMINI_KEY},
+        method:"POST", headers:{"content-type":"application/json","x-goog-api-key":key},
         body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
           generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) });
       const j = await r.json().catch(()=>({}));
       if (r.ok) { GOOD[lite ? "l" : "m"] = model; return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}"); }
-      last = (j.error && j.error.message) || ("Gemini " + r.status);
-      if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { gone = true; break; }
-      if (![429,500,503].includes(r.status)) throw new Error(last);
-      if (i < 3) await new Promise(res => setTimeout(res, [3000,8000,15000][i]));
-      else { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; throw e; }
+      last = `${model}: ` + ((j.error && j.error.message) || ("Gemini " + r.status));
+      if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
+      if (r.status === 429) { busy = true; const daily = /per.?day|PerDay|daily/i.test(last); EXH[ek] = Date.now() + (daily ? 3 * 3600e3 : 60e3); break; } // limit — darhol keyingi kalit/model
+      if (r.status === 500 || r.status === 503) { busy = true; if (i === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } break; }
+      if (r.status === 400 && /API key/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
+      throw new Error(last);
     }
-    if (!gone) break;
   }
+  await aiErr(env, last);
+  if (busy) { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; throw e; }
   throw new Error(last);
 }
+async function aiErr(env, m){ try { const o = await J(env, "aierr", null); if (!o || Date.now() - o.t > 120e3) await PUT(env, "aierr", {t: Date.now(), m: String(m).slice(0, 300), n: ((o && Date.now() - o.t < 864e5) ? o.n : 0) + 1}, {expirationTtl: 3 * 86400}); } catch (e) {} }
 
 // Ideal javobni tekshirish: 5/5 bo'lmasa tuzatiladi (2 martagacha)
 async function verifyIdeals(env, list, crit){
@@ -268,6 +274,7 @@ async function runShadow(env, jk, job, g, hp, s){
   await PUT(env, lk, {k: jk, t: Date.now()}, {expirationTtl: 300});
   try { await checkShadowing(env, g, hp, s, job.msg); job.st = "done"; await PUT(env, jk, job, {expirationTtl: 3 * 86400});
     await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
+  catch (e) { if (!e.busy) throw e; job.st = "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
   finally { await env.KV.delete(lk); }
 }
 async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
@@ -278,14 +285,15 @@ async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolg
         for (const e of x.list || []) if (e.cov >= 40 && !x.refs.includes(e.ref)) { x.refs.push(e.ref); ch = true; }
         if (ch) { x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); await PUT(env, k, sub, {expirationTtl: 30 * 86400});
           if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
-  const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env);
+  const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env); let done = 0;
   for (const jk of q) { const job = await J(env, jk, null);
-    if (!job || job.st === "done" || job.n > 3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
-    if (Date.now() - job.t < 45e3) continue;
+    if (!job || job.st === "done" || job.n > 60) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
+    if (Date.now() - job.t < (job.n <= 3 ? 45e3 : job.n <= 10 ? 5 * 60e3 : 20 * 60e3)) continue; // AI band bo'lsa — tobora siyrakroq qayta urinish
     const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid), hp = g && await J(env, "hp:" + g.id, null);
     if (!g || !s || !hp) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
     job.n++; job.t = Date.now(); await PUT(env, jk, job, {expirationTtl: 3 * 86400});
-    try { await runShadow(env, jk, job, g, hp, s); } catch (e) { console.log("shq", e.message); } }
+    try { await runShadow(env, jk, job, g, hp, s); } catch (e) { console.log("shq", e.message); }
+    if (++done >= 3) break; }
 }
 
 /* ================= VAZIFANI BOT ORQALI KIRITISH: worksheet → baza → vazifa ================= */
@@ -772,7 +780,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   if (!parts.length) parts.push({text: "(No original audio is available — judge only pronunciation and fluency; ref=0, coverage = estimate of how complete and natural the passage sounds.)"});
   if (s.vf && s.vf !== media.file_id) { const old = await tgFileB64(env, s.vf, 4e6); if (old) { parts.push({text: "EARLIER recording of the same student (voice comparison only):"}); parts.push({inline_data: {mime_type: "audio/ogg", data: old.data}}); } }
   parts.push({text: `STUDENT recording${msg.caption ? ` (caption: "${clean(msg.caption, 80)}")` : ""}:`}); parts.push({inline_data: {mime_type: audioMime(media, mine.path), data: mine.data}});
-  let r; try { r = await gemini(env, SH_SYS, parts, SH_SCHEMA, 0.1); } catch (e) { return reply("⏳ AI hozir band — shadowing'ingiz saqlandi, o'qituvchi tekshiradi."); }
+  let r; try { r = await gemini(env, SH_SYS, parts, SH_SCHEMA, 0.1); } catch (e) { if (!msg._notified) await reply("⏳ AI hozir band — shadowing'ingiz navbatga qo'yildi. AI bo'shashi bilan o'zim tekshirib, javobini shu yerga yozaman 📡"); const x = new Error("busy"); x.busy = true; throw x; }
   const cov = Math.round(Math.max(0, Math.min(100, +r.coverage || 0))), pron = Math.round(Math.max(0, Math.min(100, +r.pron || 0))), flu = Math.round(Math.max(0, Math.min(100, +r.fluency || 0)));
   const refName = r.ref > 0 && refs[r.ref - 1] ? refs[r.ref - 1].name : (msg.caption || "");
   const sus = !!(r.other_person || fromChannel);
@@ -991,6 +999,7 @@ async function onPrivate(env, msg){
     let t = "🛠 <b>Diagnostika</b>\n";
     for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null);
       t += `\n<b>${H(g.title)}</b> (${g.id}) hwt=${g.hwt || "-"} dav=${g.dav || "-"} days=${(g.days || []).join(",") || "-"}\n hp: ${hp ? `st=${hp.st} items=${hp.items.length} retry=${hp.retry || 0} refs=${(hp.refs || []).length} at=${ddmm(hp.at)} ${hhmm(hp.at)}${hp.err ? "\n err: " + H(hp.err) : ""}` : "yo'q"}\n`; }
+    { const ae = await J(env, "aierr", null); t += `\n\n🤖 AI kalitlari: ${gKeys(env).length} ta${ae ? `\n ⚠️ oxirgi AI muammo (${hhmm(ae.t)}, bugun ${ae.n} marta): ${H(ae.m.slice(0, 200))}` : " · muammo yo'q"}`; }
     { const le = await J(env, "lasterr", null); t += le ? `\n\n🧯 Oxirgi ichki xato (${ddmm(le.t)} ${hhmm(le.t)}):\n<code>${H(le.m.slice(0, 300))}</code>` : "\n\n🧯 Ichki xato yo'q"; }
     { const wi = await tg(env, "getWebhookInfo", {}); if (wi.ok) { const w0 = wi.result; t += `\n\n📡 Webhook: navbatda ${w0.pending_update_count || 0} ta xabar${w0.last_error_message ? `\n ⚠️ oxirgi xato (${hhmm(w0.last_error_date * 1000)}): ${H(w0.last_error_message)}` : " · xato yo'q"}`; } }
     { const studs = await getStudents(env); const me2 = await tg(env, "getMe", {});
