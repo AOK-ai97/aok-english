@@ -245,6 +245,84 @@ async function radarText(env, type, name, facts){
   const a = FALLBACK[type] || FALLBACK.encourage; return a[Math.floor(Math.random() * a.length)].replace("{n}", first(name)).replace("{x}", facts).replace("{t}", "");
 }
 
+
+/* ---------------- Results: darsdagi test natijalari ---------------- */
+function parseResults(text){
+  const lines = String(text || "").split(/\n/).map(x => x.trim()).filter(Boolean);
+  const rowRe = /^\d+\s*[.)]\s*(.+?)\s+(\d+(?:[.,]\d+)?(?:\s*\/\s*\d+(?:[.,]\d+)?)?)\s*$/;
+  const rows = [], head = [];
+  for (const l of lines) { const m = l.match(rowRe); if (m) rows.push({name: m[1].replace(/[–—-]\s*$/, "").trim(), v: m[2].split("/").map(x => +x.replace(",", "."))}); else if (!rows.length) head.push(l); }
+  let title = head.join(" ").trim(), max = null;
+  const mm = title.match(/\s\/\s*(\d+)(?:\s*\/\s*(\d+))?\s*$/) || title.match(/max(?:imal)?\s*:?\s*(\d+)(?:\s*\/\s*(\d+))?/i);
+  if (mm) { max = [+mm[1]].concat(mm[2] ? [+mm[2]] : []); title = title.replace(mm[0], "").trim(); }
+  const pm2 = title.match(/([A-Za-z']+)\s*\/\s*([A-Za-z']+)/);
+  const parts = pm2 ? [pm2[1], pm2[2]] : [(title.match(/[A-Za-z']+/) || ["Test"])[0]];
+  const n = Math.max(1, ...rows.map(r => r.v.length));
+  if (max && max.length < n) max = Array(n).fill(max[0]);
+  const kind = nn(title.replace(/\d+(\s*\/\s*\d+)?/g, " "));
+  return {title, parts: parts.slice(0, n), max, rows, kind, n};
+}
+function matchStudent(studs, name){
+  const t = nn(name).split(" ").filter(Boolean); if (!t.length) return null;
+  const full = studs.filter(s => { const a = nn(s.name).split(" "); return t.every(x => a.includes(x)) && a.every(x => t.includes(x)); });
+  if (full.length === 1) return full[0];
+  const part = studs.filter(s => { const a = nn(s.name).split(" "); return t.every(x => a.includes(x)); });
+  if (part.length === 1) return part[0];
+  const f1 = studs.filter(s => nn(s.name).split(" ").includes(t[0])); return f1.length === 1 ? f1[0] : null;
+}
+const rpKey = (gid, mid) => `rp:${gid}:${mid}`;
+async function onResultsPost(env, g, msg, pid, text){
+  const r = parseResults(text); if (r.rows.length < 2) return trace(env, g.id, {th: g.res, why: "Results: ro'yxat topilmadi", txt: text.slice(0, 40)});
+  const studs = (await getStudents(env)).filter(x => x.gid === g.id);
+  const rows = [], un = [];
+  for (const x of r.rows) { const s = matchStudent(studs, x.name); if (s) rows.push({sid: s.id, name: s.name, v: x.v}); else un.push(x.name); }
+  const k = rpKey(g.id, msg.message_id); const old = await J(env, k, null);
+  if (old && old.st === "sent") return pm(env, pid, `ℹ️ <b>${H(r.title)}</b> natijalari o'quvchilarga allaqachon yuborilgan — tahrir qayta yuborilmaydi.`);
+  const rp = {gid: g.id, mid: msg.message_id, by: pid, title: r.title, parts: r.parts, max: r.max, kind: r.kind, rows, un, at: (old && old.at) || (msg.date ? msg.date * 1000 : Date.now()), day: dayKey(msg.date ? msg.date * 1000 : Date.now()), st: "pending", due: Date.now() + 15 * 60e3, v: ((old && old.v) || 0) + 1};
+  await PUT(env, k, rp, {expirationTtl: 30 * 86400});
+  const pend = await J(env, "rpl", []); if (!pend.includes(k)) { pend.push(k); await PUT(env, "rpl", pend.slice(-30)); }
+  await react(env, g.id, msg.message_id, "👀");
+  await rpPreview(env, g, rp);
+}
+async function rpFacts(env, g, rp){ // har o'quvchi uchun: tur + faktlar
+  const day = await J(env, `gr:${g.id}:${rp.day}`, {}); const hist = await J(env, "rh:" + g.id, []);
+  const prev = hist.filter(h => h.kind === rp.kind && h.mid !== rp.mid).sort((a, b) => b.at - a.at)[0];
+  const tot = row => row.v.reduce((a, b) => a + b, 0); const mx = rp.max ? rp.max.reduce((a, b) => a + b, 0) : null;
+  const ranked = rp.rows.filter(x => tot(x) > 0).sort((a, b) => tot(b) - tot(a));
+  return rp.rows.map(x => {
+    const st = day[x.sid] && day[x.sid].st; const sum = tot(x);
+    const sc = x.v.map((v, i) => `${rp.parts[i] || rp.parts[0]} ${fmtN(v)}${rp.max ? "/" + rp.max[i] : ""}`).join(", ");
+    if (sum === 0) {
+      if (st === "sick" || st === "pause") return {...x, type: null, line: `${st === "sick" ? "🟣 betob" : "⚪️ pauza"} — xabar yuborilmaydi`};
+      if (st === "absent") return {...x, type: "scold", line: "❌ darsda yo'q — tanbeh", facts: `${rp.title}: darsga kelmadi, shuning uchun testni ishlamadi. Testni uyda ishlab, natijasini o'qituvchiga yuborishi kerak.`};
+      return {...x, type: "scold", line: "❌ 0 ball (darsda bor edi) — tanbeh", facts: `${rp.title}: darsda bo'la turib testni topshirmadi / 0 ball.`};
+    }
+    const pct = mx ? sum / mx * 100 : null; const rank = ranked.findIndex(y => y.sid === x.sid) + 1;
+    const pv = prev && prev.sc[x.sid]; const diff = pv != null ? sum - pv : null;
+    const type = pct == null ? (rank <= 2 ? "praise" : rank > ranked.length - 2 ? "encourage" : "encourage") : pct >= 80 ? "praise" : pct >= 55 ? "encourage" : "scold";
+    const facts = `${rp.title}: ${sc}${pct != null ? ` (${Math.round(pct)}%)` : ""}; guruhda ${rank}-o'rin (${ranked.length} kishidan)${diff != null ? `; oldingi shu turdagi testda ${fmtN(pv)} edi → ${diff > 0 ? "+" + fmtN(diff) + " o'sdi" : diff < 0 ? fmtN(diff) + " tushdi" : "o'zgarmadi"}` : ""}.`;
+    return {...x, type, line: `${type === "praise" ? "🔥 maqtov" : type === "scold" ? "⚠️ tanbeh" : "💪 rag'bat"} — ${sc}${pct != null ? ` (${Math.round(pct)}%)` : ""} · ${rank}-o'rin${diff != null ? ` · ${diff > 0 ? "+" : ""}${fmtN(diff)}` : ""}`, facts};
+  });
+}
+async function rpPreview(env, g, rp){
+  const fs = await rpFacts(env, g, rp);
+  let t = `📊 <b>${H(g.title)} — ${H(rp.title)}</b>\n` + (rp.max ? `Maks: ${rp.max.map((m, i) => `${H(rp.parts[i] || rp.parts[0])} ${m}`).join(", ")}\n\n` : `⚠️ <b>Maks ball yozilmagan</b> — sarlavha oxiriga masalan <code>/35</code> (ikki qism bo'lsa <code>/30/35</code>) qo'shib postni tahrirlang. Hozircha faqat guruhdagi o'rin bo'yicha baholanadi.\n\n`);
+  t += "Topic'larga yoziladi:\n" + fs.map((x, i) => `${i + 1}. ${H(x.name)} — ${x.line}`).join("\n");
+  if (rp.un.length) t += `\n\n❓ Topilmadi (ismini tekshiring): ${rp.un.map(H).join(", ")}`;
+  t += "\n\n<i>15 daqiqada bosmasangiz, o'zi yuboriladi. Postni tahrirlasangiz, ro'yxat yangilanadi.</i>";
+  return pm(env, rp.by, t, kb([[{text: "✅ Yuborish", callback_data: `rpok:${g.id}:${rp.mid}`}, {text: "🗑 Yubormaslik", callback_data: `rpno:${g.id}:${rp.mid}`}]]));
+}
+async function rpSend(env, g, rp){
+  if (rp.st !== "pending") return 0; rp.st = "sent"; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400});
+  const studs = await getStudents(env); let n = 0;
+  for (const x of await rpFacts(env, g, rp)) { if (!x.type) continue; const s = studs.find(y => y.id === x.sid); if (!s || !s.thread) continue;
+    await toTopic(env, g.id, s.thread, await radarText(env, x.type, s.name, x.facts)); n++; }
+  const hist = await J(env, "rh:" + g.id, []); const sc = {}; rp.rows.forEach(x => sc[x.sid] = x.v.reduce((a, b) => a + b, 0));
+  hist.push({mid: rp.mid, at: rp.at, kind: rp.kind, title: rp.title, max: rp.max, parts: rp.parts, sc, v: Object.fromEntries(rp.rows.map(x => [x.sid, x.v]))});
+  await PUT(env, "rh:" + g.id, hist.slice(-80));
+  await PUT(env, "rpl", (await J(env, "rpl", [])).filter(k => k !== rpKey(g.id, rp.mid)));
+  return n;
+}
 /* ---------------- Baholarni o'qish ---------------- */
 const LEVELS = [["super",6],["sal a'lo",4],["sal alo",4],["sal yaxshi",2.5],["sal chala",2],["a'lo",5],["alo",5],["zo'r",5],["zor",5],["yaxshi",3],["chala",1],["yodlamagan",0],["yomon",0],["qilmagan",0],["bajarmagan",0],["yo'q",0],["yoq",0]];
 const LV_COLOR = l => l >= 4.5 ? "🔵" : l >= 3.5 ? "🟢" : l >= 2.5 ? "🟡" : l >= 1.5 ? "🟠" : l >= 0.5 ? "🔴" : "⚫️";
@@ -736,6 +814,11 @@ async function onCallback(env, cq){
     if (b === "links") return askNextLink(env, w); return pm(env, r.uid, ASK[b]); }
   if (a === "hpok" && g) { const hp = await J(env, "hp:" + g.id, null); if (!hp) return; hp.st = "active"; await PUT(env, "hp:" + g.id, hp);
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(g.title)}</b> — Homework nazoratga olindi.\n\n${hpTable(hp)}`}); }
+  if (a === "rpok" || a === "rpno") { const g = gs.find(x => x.id === b); if (!g || !canG(r, g)) return; const rp = await J(env, rpKey(g.id, c), null);
+    if (!rp || rp.st !== "pending") return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "ℹ️ Bu natijalar allaqachon ko'rib chiqilgan."});
+    if (a === "rpno") { rp.st = "cancel"; await PUT(env, rpKey(g.id, c), rp, {expirationTtl: 30 * 86400}); await PUT(env, "rpl", (await J(env, "rpl", [])).filter(k => k !== rpKey(g.id, c)));
+      return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🗑 <b>${H(rp.title)}</b> — o'quvchilarga yuborilmaydi.`}); }
+    const n = await rpSend(env, g, rp); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(rp.title)}</b> — ${n} ta o'quvchi topic'iga maqtov/tanbeh yuborildi.`}); }
   if (a === "hpdel" && g) { await env.KV.delete("hp:" + g.id); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🗑 <b>${H(g.title)}</b> — bu Homework nazorat qilinmaydi. Keyingi #Homework postini bot yana o'qiydi.`}); }
   if (a === "hped" && g) { await PUT(env, wizK(r.uid), {uid: r.uid, gid: g.id, step: "hpfix"}); return pm(env, r.uid, ASK.hpfix); }
   if (a === "skip") { const w = await J(env, wizK(r.uid), null); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
@@ -817,6 +900,8 @@ async function onGroupMessage(env, msg){
       await react(env, gid, msg.message_id, "✍");
       return;
     }
+    // Results topic: darsdagi test natijalari → har o'quvchiga maqtov / tanbeh
+    if (th && th === g.res && text) { await onResultsPost(env, g, msg, pid, text); return; }
     // Homework ostidan tashlangan shadowing audiolari
     const au = msg.audio || msg.voice || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
     if (au && th && (th === g.hwt)) {
@@ -915,6 +1000,10 @@ async function cron(env){
     }
     if (ch) await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
   }
+  // 1b) Results natijalari: 15 daqiqada tasdiqlanmasa — avtomatik yuborish
+  if (!quiet) for (const k of await J(env, "rpl", [])) { const rp = await J(env, k, null); if (!rp || rp.st !== "pending") { await PUT(env, "rpl", (await J(env, "rpl", [])).filter(x => x !== k)); continue; }
+    if (rp.due > now) continue; const g = gs.find(x => x.id === rp.gid); if (!g) continue;
+    const n = await rpSend(env, g, rp); await pm(env, rp.by, `✅ <b>${H(rp.title)}</b> — avtomatik yuborildi (${n} ta o'quvchi).`); }
   // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
   const hpGroups = new Set();
   for (const g of gs) {
