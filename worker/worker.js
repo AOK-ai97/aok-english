@@ -751,11 +751,13 @@ async function onCallback(env, cq){
   }
 }
 // Reaksiya: guruhda ruxsat etilgan reaksiyalar cheklangan bo'lishi mumkin — ishlamasa zaxira emojilar
-async function react(env, chat, mid, emoji){
+async function react(env, chat, mid, emoji){ let last = null;
   for (const e of [emoji, "👌", "👍", "🔥", "❤"].filter((x, i, a) => a.indexOf(x) === i)) {
     const r = await tg(env, "setMessageReaction", {chat_id: chat, message_id: mid, reaction: [{type: "emoji", emoji: e}]});
-    if (r && r.ok) return r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) return r;
+    if (r && r.ok) { if (e !== emoji) await trace(env, String(chat), {th: 0, why: `reaksiya ${emoji} o'rniga ${e} qo'yildi`}); return r; }
+    last = r; if (r && !/REACTION_INVALID|REACTION_EMPTY|reaction/i.test(r.description || "")) break;
   }
+  await trace(env, String(chat), {th: 0, why: "❌ reaksiya qo'yilmadi: " + ((last && last.description) || "?")}); return last;
 }
 async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 864e5}); } catch (e) {} }
 async function onGroupMessage(env, msg){
