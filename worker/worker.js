@@ -629,6 +629,13 @@ async function onPrivate(env, msg){
     let t = "🛠 <b>Diagnostika</b>\n";
     for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null);
       t += `\n<b>${H(g.title)}</b> (${g.id}) hwt=${g.hwt || "-"} dav=${g.dav || "-"} days=${(g.days || []).join(",") || "-"}\n hp: ${hp ? `st=${hp.st} items=${hp.items.length} retry=${hp.retry || 0} refs=${(hp.refs || []).length} at=${ddmm(hp.at)} ${hhmm(hp.at)}${hp.err ? "\n err: " + H(hp.err) : ""}` : "yo'q"}\n`; }
+    { const wi = await tg(env, "getWebhookInfo", {}); if (wi.ok) { const w0 = wi.result; t += `\n\n📡 Webhook: navbatda ${w0.pending_update_count || 0} ta xabar${w0.last_error_message ? `\n ⚠️ oxirgi xato (${hhmm(w0.last_error_date * 1000)}): ${H(w0.last_error_message)}` : " · xato yo'q"}`; } }
+    { const studs = await getStudents(env); const me2 = await tg(env, "getMe", {});
+      for (const g of await getGroups(env)) { const ss = studs.filter(x => x.gid === g.id); const un = ss.filter(x => !x.thread);
+        let adm = "?"; try { const cm = await tg(env, "getChatMember", {chat_id: g.id, user_id: me2.result.id}); adm = cm.ok ? cm.result.status : "❌ " + (cm.description || ""); } catch (e) {}
+        t += `\n\n👥 <b>${H(g.title)}</b>: bot=${H(adm)}, o'quvchi ${ss.length}, topic ulangan ${ss.length - un.length}${un.length ? "\n ulanmagan: " + un.map(x => H(x.name)).join(", ") : ""}`;
+        for (const e of (await J(env, "tr:" + g.id, [])).slice(0, 5)) t += `\n • ${hhmm(e.t)} th=${e.th}${e.tn ? " (" + H(e.tn) + ")" : ""}${e.s ? " " + H(e.s) : ""}: ${H(e.why)}${e.txt ? " — «" + H(e.txt) + "»" : ""}${e.from ? " — " + H(e.from) : ""}`; }
+      const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
     try { await hpParse(env, (await getGroups(env))[0] || {}, "#Homework\n- 2 ta audio shadowing (bugun 23:59 gacha)", Date.now()); t += "\n✅ AI (Homework o'qish) ishlayapti"; }
     catch (e) { t += "\n❌ AI xatosi: " + H(String(e.message || e).slice(0, 400)); }
     try { await cron(env); t += "\n✅ cron xatosiz ishladi"; } catch (e) { t += "\n❌ cron xatosi: " + H(String(e.stack || e.message).slice(0, 600)); }
@@ -743,10 +750,18 @@ async function onCallback(env, cq){
     return mainMenu(env, r);
   }
 }
+async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 864e5}); } catch (e) {} }
 async function onGroupMessage(env, msg){
-  const gid = String(msg.chat.id); const gs = await getGroups(env); const g = gs.find(x => x.id === gid);
+  const gid = String(msg.chat.id); const gs = await getGroups(env); let g = gs.find(x => x.id === gid);
   if (msg.migrate_to_chat_id) { if (g) { g.id = String(msg.migrate_to_chat_id); await PUT(env, "groups", gs); } return; }
-  if (!g) return;
+  if (!g && msg.chat.title) { // guruh ID o'zgargan bo'lsa (supergroup'ga aylangan) — nomi bo'yicha qayta ulash
+    const same = gs.filter(x => x.title === msg.chat.title);
+    if (same.length === 1) { const old = same[0].id; same[0].id = gid; g = same[0]; await PUT(env, "groups", gs);
+      const studs = await getStudents(env); studs.forEach(x => { if (x.gid === old) x.gid = gid; }); await PUT(env, "students", studs);
+      const ts = await getTeachers(env); ts.forEach(t => t.groups = (t.groups || []).map(x => x === old ? gid : x)); await PUT(env, "teachers", ts);
+      await owner(env, `🔄 <b>${H(g.title)}</b> guruhining ID si o'zgargan ekan — avtomatik qayta ulandi.`); }
+  }
+  if (!g) { await trace(env, "unknown", {chat: gid, title: msg.chat.title || "", why: "guruh ro'yxatda yo'q"}); return; }
   if (g.title !== msg.chat.title && msg.chat.title) { g.title = msg.chat.title; await PUT(env, "groups", gs); }
   const th = msg.message_thread_id; const tname = (msg.forum_topic_created || msg.forum_topic_edited || msg.reply_to_message?.forum_topic_created || {}).name;
   if (th && tname) {
@@ -759,6 +774,7 @@ async function onGroupMessage(env, msg){
   const text = msg.text || msg.caption || "";
   const r = msg.from ? await roleOf(env, msg.from.id) : null;
   const staff = canG(r, g) || (msg.sender_chat && String(msg.sender_chat.id) === gid);
+  if (!staff && th && !(await getStudents(env)).some(x => x.gid === gid && x.thread === th && (x.tg === msg.from?.id || (x.tgs || []).includes(msg.from?.id)))) await trace(env, gid, {th, why: "yozgan odam o'qituvchi deb tanilmadi", from: msg.from ? msg.from.id + " " + (msg.from.first_name || "") : "?"});
   if (staff) {
     const pid = r ? r.uid : String(env.OWNER_ID);
     // dars vaqti / kunlari va o'qituvchi (davomat topic'ida yoki #attendance postida)
@@ -787,9 +803,12 @@ async function onGroupMessage(env, msg){
         await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 864e5}); await tg(env, "setMessageReaction", {chat_id: gid, message_id: msg.message_id, reaction: [{type: "emoji", emoji: "👌"}]}); }
       return;
     }
-    if (!th) return;
-    const s = (await getStudents(env)).find(x => x.gid === gid && x.thread === th); if (!s || !text) return;
-    const pg = parseGrades(text); if (!pg.st && !Object.keys(pg.it).length) return;
+    if (!th) { await trace(env, gid, {th: 0, why: "topic'siz xabar"}); return; }
+    const s = (await getStudents(env)).find(x => x.gid === gid && x.thread === th);
+    if (!s) { const tn = (await J(env, "topics:" + gid, {}))[th]; await trace(env, gid, {th, tn: tn || "", why: "bu topic hech bir o'quvchiga ulanmagan", txt: text.slice(0, 40)}); return; }
+    if (!text) return;
+    const pg = parseGrades(text); if (!pg.st && !Object.keys(pg.it).length) { await trace(env, gid, {th, why: "baho so'zi topilmadi", txt: text.slice(0, 40), s: s.name}); return; }
+    await trace(env, gid, {th, why: "✅ baho o'qildi", txt: text.slice(0, 40), s: s.name});
     const k = `gr:${gid}:${dayKey()}`; const day = await J(env, k, {});
     const rec = day[s.id] || {it: {}}; rec.prev = rec.prev || {};
     for (const [name, v] of Object.entries(pg.it)) { const old = rec.it[name]; if (old && old.l != null && v.l != null && v.l > old.l) rec.prev[name] = old.l; rec.it[name] = v; }
