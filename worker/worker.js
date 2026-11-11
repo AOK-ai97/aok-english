@@ -297,6 +297,16 @@ async function runShadow(env, jk, job, g, hp, s){
   finally { await env.KV.delete(lk); }
 }
 async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
+  if (!(await env.KV.get("mig:sh2"))) { await env.KV.put("mig:sh2", "1", {expirationTtl: 30 * 86400}); // kecha "AI band" bilan yopilgan audiolarni qayta navbatga qo'yish
+    const studs0 = await getStudents(env); const gs0 = await getGroups(env); const q0 = await J(env, "shq", []); let cur;
+    do { const L = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L.list_complete ? null : L.cursor;
+      for (const k of L.keys) { const job = await J(env, k.name, null); if (!job || job.st !== "done" || Date.now() - job.t > 2 * 864e5) continue;
+        const g = gs0.find(x => x.id === job.gid), s = studs0.find(x => x.id === job.sid); const hp = g && await J(env, "hp:" + g.id, null); if (!hp || !s) continue;
+        const it = hp.items.find(i => i.type === "shadowing"); const sub = it && await J(env, hsubKey(hp, s.id), null); const x = sub && sub.it[it.id];
+        const checked = x && (x.list || []).some(e => Math.abs((e.at || 0) - job.t) < 150e3);
+        if (!checked) { job.st = "run"; job.t = 0; job.n = 1; job.msg._notified = true; await PUT(env, k.name, job, {expirationTtl: 3 * 86400}); if (!q0.includes(k.name)) q0.push(k.name); } } }
+    while (cur);
+    await PUT(env, "shq", q0.slice(-80)); }
   if (!(await env.KV.get("mig:sh1"))) { await env.KV.put("mig:sh1", "1", {expirationTtl: 30 * 86400}); // eski qoida (fondagi asl audio) bilan rad etilganlarni qayta hisoblash
     const st0 = await getStudents(env);
     for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue; const it = hp.items.find(i => i.type === "shadowing"); if (!it) continue;
@@ -1235,7 +1245,7 @@ async function onGroupMessage(env, msg){
   const text = msg.text || msg.caption || "";
   const r = msg.from ? await roleOf(env, msg.from.id) : null;
   const staff = canG(r, g) || (msg.sender_chat && String(msg.sender_chat.id) === gid);
-  if (!staff && th && !(await getStudents(env)).some(x => x.gid === gid && x.thread === th && (x.tg === msg.from?.id || (x.tgs || []).includes(msg.from?.id)))) await trace(env, gid, {th, why: "yozgan odam o'qituvchi deb tanilmadi", from: msg.from ? msg.from.id + " " + (msg.from.first_name || "") : "?"});
+  if (!staff && th && !(await getStudents(env)).some(x => x.gid === gid && (x.thread === th || x.tg === String(msg.from?.id) || (x.tgs || []).map(String).includes(String(msg.from?.id))))) await trace(env, gid, {th, why: "yozgan odam o'qituvchi deb tanilmadi", from: msg.from ? msg.from.id + " " + (msg.from.first_name || "") : "?"});
   if (staff) {
     const pid = r ? r.uid : String(env.OWNER_ID);
     // dars vaqti / kunlari va o'qituvchi (davomat topic'ida yoki #attendance postida)

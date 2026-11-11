@@ -276,7 +276,7 @@ let HOME=null,ME=null;
 async function studentLogin(btn){
   msg("");const code=$("#ck_code").value.trim();if(!code) return msg("PIN kodni kiriting.",true);
   loading(true,btn,"Kirilmoqda…");
-  try{HOME=await post("/home",{code,kind:PAGE});ls.set("aok_code",code);ME=HOME.me;renderHome();step(2);checkResume();LOG.add("login",{page:PAGE});outboxFlush()}catch(e){msg("❌ "+e.message,true)}
+  try{HOME=await post("/home",{code,kind:PAGE});ls.set("aok_code",code);ME=HOME.me;renderHome();step(2);checkResume();wResume();LOG.add("login",{page:PAGE});outboxFlush()}catch(e){msg("❌ "+e.message,true)}
   loading(false,btn);
 }
 const left=t=>{const s=Math.max(0,t-Date.now())/1000;const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d} kun ${h} soat`:h?`${h} soat ${m} daqiqa`:`${m} daqiqa`};
@@ -383,14 +383,23 @@ if(PAGE==="writing"){
   $("#files").addEventListener("change",async e=>{LOG.add("photo",{n:e.target.files.length});for(const f of [...e.target.files].slice(0,8-IM.length)){try{IM.push(await compress(f))}catch(err){msg(err.message,true)}}e.target.value="";th()});
   $("#wBack").onclick=()=>{clearInterval(wTimer);step(2)};
   $("#goWriting").onclick=async e=>{const btn=e.currentTarget;msg("");if(!IM.length) return msg("Rasm yuklang.",true);if(btn.disabled&&btn._busy)return;btn._busy=true;
-    const lab="AI xatingizni o'qiyapti, ismingiz va Task'larni aniqlayapti, ideal javobni tekshiryapti… (30–90 soniya)";loading(true,btn,lab);LOG.add("submit",{page:"writing",photos:IM.length});LOG.flush();
-    try{const d=await postRetry("/writing",{code:ls.get("aok_code"),mode:RUN.mode,title:RUN.title,ids:RUN.items.map(x=>x.id),images:IM.map(({mime,data})=>({mime,data}))},lab);
-      clearInterval(wTimer);if(RUN.mode==="exam")ls.del("aok_wexam");step(4);showReport($("#ckResult"),d,null,`<button data-act="again">🏠 Bosh oyna</button>`);
+    const body={code:ls.get("aok_code"),mode:RUN.mode,title:RUN.title,ids:RUN.items.map(x=>x.id),images:IM.map(({mime,data})=>({mime,data}))};
+    try{await idb.set("wpend:"+ls.get("aok_code"),{at:Date.now(),body})}catch(_){} // AI band bo'lib sahifa yopilsa — keyin o'zi qayta yuboriladi
+    await wSubmit(body,btn)};
+}
+async function wSubmit(body,btn){
+    const lab="AI xatingizni o'qiyapti, ismingiz va Task'larni aniqlayapti, ideal javobni tekshiryapti… (30–90 soniya)";loading(true,btn,lab);LOG.add("submit",{page:"writing",photos:body.images.length});LOG.flush();
+    try{const d=await postRetry("/writing",body,lab);try{await idb.del("wpend:"+body.code)}catch(_){}
+      clearInterval(wTimer);if(body.mode==="exam")ls.del("aok_wexam");step(4);showReport($("#ckResult"),d,null,`<button data-act="again">🏠 Bosh oyna</button>`);
       if(d.saved) msg("✅ Natija saqlandi"+(d.can_send?". «📤 Jo'nat» tugmasi bilan Telegram topic'ingizga yuboring.":"."));
       $('[data-act="again"]').onclick=()=>{$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
-    catch(err){LOG.add("error",{msg:err.message});msg("❌ "+err.message,true)}
-    btn._busy=false;loading(false,btn)};
+    catch(err){LOG.add("error",{msg:err.message});msg("❌ "+err.message+(err.busy||err.net?" — ishingiz saqlangan, saytni keyinroq ochsangiz o'zi qayta yuboriladi.":""),true)}
+    if(btn)btn._busy=false;loading(false,btn)
 }
+async function wResume(){if(PAGE!=="writing")return;const c=ls.get("aok_code");if(!c)return;let p=null;try{p=await idb.get("wpend:"+c)}catch(_){}
+  if(!p||!p.body||Date.now()-p.at>48*3600e3){if(p)idb.del("wpend:"+c);return}
+  LOG.add("auto_resubmit",{page:"writing"});msg("🔄 Tekshirilmay qolgan writing'ingiz bor — AI'ga avtomatik qayta yuborilmoqda…");RUN={mode:p.body.mode,title:p.body.title,items:(p.body.ids||[]).map(id=>({id}))};
+  setTimeout(()=>{step(3);wSubmit(p.body,null)},1500)}
 async function refreshHome(){try{HOME=await post("/home",{code:ls.get("aok_code"),kind:PAGE});ME=HOME.me;renderHome()}catch(e){}}
 
 /* ================= SPEAKING (imtihon kabi + video + davom ettirish) ================= */
@@ -431,8 +440,10 @@ function saveRun(){if(!RUN)return;idb.set(runKey(),{at:Date.now(),mode:RUN.mode,
   clips:CLIPS.map(c=>({part:c.part,question:c.question,blob:c.blob,empty:!!c.empty}))})}
 async function checkResume(){
   if(PAGE!=="speaking")return;const s=await idb.get(runKey());const box=$("#resumeBox");if(!box)return;
-  if(!s||Date.now()-s.at>6*3600e3){box.hidden=true;if(s)idb.del(runKey());return}
+  if(!s||Date.now()-s.at>48*3600e3){box.hidden=true;if(s)idb.del(runKey());return}
   const total=buildSteps(s.items).length;
+  if(s.clips.length>=total&&total){box.hidden=false;box.innerHTML=`🔄 <b>Tekshirilmay qolgan speaking:</b> ${esc(s.title||"")} — javoblar yozilgan, AI'ga avtomatik qayta yuborilmoqda…`;LOG.add("auto_resubmit",{page:"speaking"});
+    RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;AWAY=s.away||{n:0,s:0};setTimeout(()=>{box.hidden=true;step(4);submitSpeaking()},1500);return}
   box.hidden=false;box.innerHTML=`🔄 <b>Tugallanmagan topshiriq:</b> ${esc(MODES[s.mode]||"")} · ${esc(s.title||"")} — ${s.clips.length}/${total} savol bajarilgan.
     <div class="rep-acts"><button type="button" class="ck-go" id="rsGo">▶ Davom ettirish</button><button type="button" class="ck-go alt" id="rsDel">🗑 Bekor qilish</button></div>`;
   $("#rsGo").onclick=()=>{box.hidden=true;LOG.add("resume",{done:s.clips.length,of:total});RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;AWAY=s.away||{n:0,s:0};
