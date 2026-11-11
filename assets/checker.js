@@ -129,7 +129,7 @@ function pronHTML(d,clips){
     <td><b>${esc(p.word)}</b><small>/${esc(p.ipa||"")}/</small>${p.heard?`<small class="hd">Siz: «${esc(p.heard)}»</small>`:""}<small class="tp">${esc(p.tip||"")}</small></td>
     <td class="pb"><button type="button" data-a="mine" ${clips&&clips[(p.clip||1)-1]?"":"disabled"} title="Sizning talaffuzingiz">▶<span>Siz</span></button>
      <button type="button" data-a="right" title="To'g'ri talaffuz">🔊<span>To'g'ri</span></button>
-     <button type="button" data-a="rec" title="Yozib oling">🎤<span>Ayting</span></button></td>
+     <button type="button" data-a="rec" title="Yozib oling">🎤<span>Ayting</span></button><small class="pleft" data-l></small></td>
     <td><div class="pct" data-p>—</div></td></tr>`).join("")}</table></div>`;
 }
 function wirePron(box,d,clips){
@@ -143,16 +143,18 @@ function wirePron(box,d,clips){
         src.start(0,Math.min(s,Math.max(0,c.buf.duration-.5)),Math.max(.6,en-s));window._src=src;btn.classList.add("play");src.onended=()=>btn.classList.remove("play")}
       catch(err){const u=urls[(p.clip||1)-1];if(u){const a=new Audio(u);a.play().catch(()=>{})}}};
     tr.querySelector('[data-a="right"]').onclick=()=>sayWord(p.word);
-    const rb=tr.querySelector('[data-a="rec"]');let rec=null;
-    rb.onclick=async()=>{if(rec&&rec.state==="recording"){rec.stop();return}
+    const rb=tr.querySelector('[data-a="rec"]');let rec=null;const lk="aok_pl:"+(d.key||"")+":"+p.word,lf=tr.querySelector("[data-l]");
+    const showLeft=n=>{try{ls.set(lk,String(n))}catch(_){}lf.textContent=n>0?`🎯 ${n} ta urinish qoldi`:"⛔ urinishlar tugadi";lf.style.color=n>1?"":n===1?"#b07a00":"#b3261e";if(n<=0){rb.disabled=true;rb.title="3 ta urinish tugadi"}};
+    {let n=3;try{const v=ls.get(lk);if(v!=null&&v!=="")n=+v}catch(_){}showLeft(n)}
+    rb.onclick=async()=>{if(rec&&rec.state==="recording"){rec.stop();return}if(rb.disabled)return;
       try{const st=await navigator.mediaDevices.getUserMedia({audio:true});const mt=["audio/webm;codecs=opus","audio/mp4","audio/webm"].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||"";
         rec=new MediaRecorder(st,mt?{mimeType:mt}:{});const ch=[];rec.ondataavailable=e=>e.data.size&&ch.push(e.data);
         rec.onstop=async()=>{st.getTracks().forEach(t=>t.stop());rb.classList.remove("on");const bl=new Blob(ch,{type:rec.mimeType||"audio/webm"});
           pc.textContent="⏳";pc.style.background="";
-          try{const r=await post("/pron",{code:ls.get("aok_code"),word:p.word,audio:await b64(bl),mime:bl.type});
+          try{const r=await post("/pron",{code:ls.get("aok_code"),rk:d.key||"",word:p.word,audio:await b64(bl),mime:bl.type});if(r.left!=null)showLeft(r.left);
             LOG.add("pron_try",{word:p.word,score:r.score});pc.textContent=r.score+"%";pc.style.background=`hsl(${Math.round(r.score*1.2)},72%,${r.score>55?38:45}%)`;pc.title=r.tip||"";pc.style.color="#fff";d._pct[p.word]=r.score;
             let t=tr.querySelector(".ptip");if(!t){t=document.createElement("small");t.className="ptip";pc.after(t)}t.textContent=(r.heard?`«${r.heard}» · `:"")+(r.tip||"")}
-          catch(err){pc.textContent="⚠";pc.title=err.message}};
+          catch(err){if(err.status===403){showLeft(0);pc.textContent=d._pct[p.word]!=null?d._pct[p.word]+"%":"⛔"}else{pc.textContent="⚠";pc.title=err.message}}};
         rec.start();rb.classList.add("on");setTimeout(()=>{if(rec.state==="recording")rec.stop()},3000)}catch(e){alert("Mikrofonga ruxsat bering")}};
   });
 }

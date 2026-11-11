@@ -1802,8 +1802,11 @@ export default {
 
       if (path === "/pron") {
         if (!b.audio || !b.word) return out({error: "So'z yoki audio yo'q."}, 400);
+        const pk = `pa:${clean(b.rk || ((stu ? stu.id : "x") + ":" + dayKey()), 80)}:${norm(b.word).slice(0, 40)}`; const used = +(await env.KV.get(pk) || 0);
+        if (used >= 3) return out({error: "Bu so'z uchun 3 ta urinish tugadi.", left: 0, limit: true}, 403);
+        await env.KV.put(pk, String(used + 1), {expirationTtl: 7 * 86400});
         const r = await gemini(env, PRON_SYS, [{text: `Target word: "${clean(b.word, 60)}"`}, {inline_data: {mime_type: (b.mime || "audio/webm").split(";")[0], data: b.audio}}], P_SCHEMA, 0.1, true);
-        r.score = Math.max(0, Math.min(100, Math.round(+r.score || 0)));
+        r.score = Math.max(0, Math.min(100, Math.round(+r.score || 0))); r.left = 2 - used;
         return out(r);
       }
       return out({error: "Noma'lum manzil."}, 404);
