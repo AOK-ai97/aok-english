@@ -105,7 +105,7 @@ function fixTask(t){
 // Model eskirsa ("no longer available" / 404) — keyingi modelga o'tadi; ishlagan model eslab qolinadi
 const GOOD = {};
 const EXH = {}; // key|model → qachongacha band (limit tugagan)
-const gKeys = env => [...new Set([env.GEMINI_KEY, env.GEMINI_KEY2, env.GEMINI_KEY3, env.GEMINI_KEY4, env.GEMINI_KEY5].filter(Boolean).flatMap(k => String(k).split(/[,\s]+/)).filter(Boolean))];
+const gKeys = env => [...new Set([env.GEMINI_KEY, ...Array.from({length: 11}, (_, i) => env["GEMINI_KEY" + (i + 2)])].filter(Boolean).flatMap(k => String(k).split(/[,\s]+/)).filter(Boolean))];
 const USE = {c: {}, n: 0, t: Date.now()};
 function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqtov"],["end-of-lesson feedback","dars feedback"],["SHADOWING","shadowing"],["speaking examiner chatting","speaking suhbat"],["FINAL result of a speaking","speaking suhbat xulosa"],["extract CEFR","vazifa kiritish"],["homework post","homework o'qish"],["Target word","talaffuz"],["model answers","namuna tekshiruvi"],["pronunciation coach","talaffuz mashqi"]];
   const low = sys.toLowerCase(); for (const [k, v] of m) if (low.includes(k.toLowerCase())) return v; return /writing/i.test(sys.slice(0, 400)) ? "writing tekshiruv" : /speaking/i.test(sys.slice(0, 400)) ? "speaking tekshiruv" : /pronunc/i.test(sys.slice(0, 400)) ? "talaffuz" : "boshqa"; }
