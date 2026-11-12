@@ -633,8 +633,8 @@ if(PAGE==="teacher"){
       const kRows=Object.entries(t.keys).sort().map(([k,o])=>`<tr><td>Kalit ${esc(k)}</td><td>✅ ${o.ok}</td><td>${o.limit?"⛔ "+o.limit:"—"}</td><td>${o.err?"⚠️ "+o.err:"—"}</td><td>${Object.entries(o.m).map(([m,n])=>esc(m.replace("gemini-",""))+": "+n).join(", ")||"—"}</td></tr>`).join("");
       const c=j.cap,bar=(u,m)=>{const p=m?Math.min(100,Math.round(u/m*100)):0;return `<div style="background:rgba(127,140,160,.25);border-radius:6px;height:12px;margin:4px 0 8px"><div style="width:${p}%;height:12px;border-radius:6px;background:${p<70?"#1b7a3a":p<90?"#b07a00":"#b3261e"}"></div></div>`};
       box.innerHTML=`<h3 style="margin:8px 0">🧮 Taxminiy kunlik imkoniyat — ${c.n} ta kalit</h3>
-      <div><b>Asosiy model</b> (writing, speaking, shadowing): ishlatildi ${c.uf} / ${c.cf} → qoldi <b>~${c.rf}</b> ta tekshiruv</div>${bar(c.uf,c.cf)}
-      <div><b>Yengil model</b> (talaffuz, feedback, Speaking kuni): ishlatildi ${c.ul} / ${c.cl} → qoldi <b>~${c.rl}</b></div>${bar(c.ul,c.cl)}
+      <div><b>Asosiy model</b> (writing, speaking, shadowing): qoldi <b>~${c.rf} / ${c.cf}</b> <span class="hint">(ishlatildi ${c.uf})</span></div>${bar(c.uf,c.cf)}
+      <div><b>Yengil model</b> (talaffuz, feedback, Speaking kuni): qoldi <b>~${c.rl} / ${c.cl}</b> <span class="hint">(ishlatildi ${c.ul})</span></div>${bar(c.ul,c.cl)}
       <p class="hint">Taxminiy: Google'ning bepul limiti (1 kalit ≈ 250 asosiy + 1000 yengil so'rov/kun). Asosiy tugasa bot o'zi yengil modelga o'tadi.</p>
       <h3 style="margin:8px 0">Bugun: ${t.total} ta so'rov · ${j.keys} ta kalit ulangan</h3>
       <table class="ck-tab"><tr><th>Bo'lim</th><th>So'rov</th></tr>${t.feat.map(([k,n])=>`<tr><td>${esc(k)}</td><td><b>${n}</b></td></tr>`).join("")||`<tr><td colspan=2>Hali yo'q</td></tr>`}</table>

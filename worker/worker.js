@@ -124,7 +124,7 @@ function aiCapacity(env, v){
   const cf = n * L.flash, cl = n * L.lite;
   return {n, cf, cl, uf, ul, rf: Math.max(0, cf - uf), rl: Math.max(0, cl - ul)};
 }
-function aiCapText(c){ return `🧮 <b>Taxminiy imkoniyat (${c.n} kalit, kuniga):</b>\n • Asosiy model (writing, speaking, shadowing): ${c.cf} ta → ishlatildi ${c.uf}, qoldi <b>~${c.rf}</b>\n • Yengil model (talaffuz, feedback, suhbat): ${c.cl} ta → ishlatildi ${c.ul}, qoldi <b>~${c.rl}</b>\n <i>1 writing/speaking/shadowing tekshiruvi ≈ 1 ta asosiy so'rov; asosiy tugasa yengilga o'tadi.</i>`; }
+function aiCapText(c){ return `🧮 <b>Taxminiy imkoniyat (${c.n} kalit, kuniga):</b>\n • Asosiy model (writing, speaking, shadowing): qoldi <b>~${c.rf} / ${c.cf}</b> (ishlatildi ${c.uf})\n • Yengil model (talaffuz, feedback, suhbat): qoldi <b>~${c.rl} / ${c.cl}</b> (ishlatildi ${c.ul})\n <i>1 writing/speaking/shadowing tekshiruvi ≈ 1 ta asosiy so'rov; asosiy tugasa yengilga o'tadi.</i>`; }
 function aiUsageView(u){ // {feature: n, "#k1|model|ok": n}
   const feat = Object.entries(u).filter(([k]) => !k.startsWith("#")).sort((a, b) => b[1] - a[1]);
   const keys = {}; for (const [k, v] of Object.entries(u)) if (k.startsWith("#")) { const [ki, model, st] = k.slice(2).split("|"); const o = keys[ki] = keys[ki] || {ok: 0, limit: 0, err: 0, m: {}}; o[st] += v; if (st === "ok") o.m[model] = (o.m[model] || 0) + v; }
