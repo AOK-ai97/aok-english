@@ -387,7 +387,10 @@ if(PAGE==="writing"){
     try{await idb.set("wpend:"+ls.get("aok_code"),{at:Date.now(),body})}catch(_){} // AI band bo'lib sahifa yopilsa — keyin o'zi qayta yuboriladi
     await wSubmit(body,btn)};
 }
+let W_FLY=false;
 async function wSubmit(body,btn){
+    if(W_FLY)return;W_FLY=true;try{await wSubmit0(body,btn)}finally{W_FLY=false}}
+async function wSubmit0(body,btn){
     const lab="AI xatingizni o'qiyapti, ismingiz va Task'larni aniqlayapti, ideal javobni tekshiryapti… (30–90 soniya)";loading(true,btn,lab);LOG.add("submit",{page:"writing",photos:body.images.length});LOG.flush();
     try{const d=await postRetry("/writing",body,lab);try{await idb.del("wpend:"+body.code)}catch(_){}
       clearInterval(wTimer);if(body.mode==="exam")ls.del("aok_wexam");step(4);showReport($("#ckResult"),d,null,`<button data-act="again">🏠 Bosh oyna</button>`);

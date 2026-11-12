@@ -331,14 +331,14 @@ async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolg
           if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
   const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env); let done = 0;
   for (const jk of q) { const job = await J(env, jk, null);
-    if (!job || job.st === "done" || job.n > 60) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
+    if (!job || job.st === "done" || job.n > 60 || Date.now() - (job.c || 0) > 20 * 3600e3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
     if (Date.now() - job.t < (job.n <= 3 ? 45e3 : job.n <= 10 ? 5 * 60e3 : 20 * 60e3)) continue;
     if (isQuiet(Date.now()) && (job.t === 0 || Date.now() - (job.c || job.t) > 30 * 60e3)) continue; // tungi 00–06: eski audiolar ertalab tekshiriladi (o'quvchini uyg'otmaslik) // AI band bo'lsa — tobora siyrakroq qayta urinish
     const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid), hp = g && await J(env, "hp:" + g.id, null);
     if (!g || !s || !hp) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
     job.n++; job.t = Date.now(); await PUT(env, jk, job, {expirationTtl: 3 * 86400});
     try { await runShadow(env, jk, job, g, hp, s); } catch (e) { console.log("shq", e.message); }
-    if (++done >= 3) break; }
+    if (++done >= 5) break; }
 }
 
 /* ================= VAZIFANI BOT ORQALI KIRITISH: worksheet → baza → vazifa ================= */
@@ -819,6 +819,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   const reply = (text) => toTopic(env, g.id, msg.message_thread_id || s.thread, text, {reply_to_message_id: msg.message_id, allow_sending_without_reply: true});
   // forward ruxsat: ikkinchi telefondan yozib yuborish mumkin. Kanal/guruhdan olingan tayyor audio — shubhali.
   const fo = msg.forward_origin; const fromChannel = !!(fo && (fo.type === "channel" || fo.type === "chat")) || !!msg.forward_from_chat;
+  { const sub0 = await J(env, hsubKey(hp, s.id), null); const x0 = sub0 && sub0.it[it.id]; if (media.file_unique_id && x0 && (x0.list || []).some(e => e.fu === media.file_unique_id)) return; } // shu audio allaqachon tekshirilgan — qayta javob yo'q
   const mine = await tgFileB64(env, media.file_id); if (!mine) return reply("⚠️ Audio juda katta yoki yuklab bo'lmadi. Iltimos, qisqaroq ovozli xabar yuboring.");
   const parts = []; const refs = (hp.refs || []).slice(0, 4);
   for (const [i, r] of refs.entries()) { const a = await tgFileB64(env, r.file_id); if (a) { parts.push({text: `ORIGINAL ${i + 1} — "${r.name}":`}); parts.push({inline_data: {mime_type: r.mime || audioMime(null, a.path), data: a.data}}); } }
@@ -827,15 +828,19 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   parts.push({text: `STUDENT recording${msg.caption ? ` (caption: "${clean(msg.caption, 80)}")` : ""}:`}); parts.push({inline_data: {mime_type: audioMime(media, mine.path), data: mine.data}});
   let r; try { r = await gemini(env, SH_SYS, parts, SH_SCHEMA, 0.1); } catch (e) { if (!msg._notified) await reply("⏳ AI hozir band — shadowing'ingiz navbatga qo'yildi. AI bo'shashi bilan o'zim tekshirib, javobini shu yerga yozaman 📡"); const x = new Error("busy"); x.busy = true; throw x; }
   const cov = Math.round(Math.max(0, Math.min(100, +r.coverage || 0))), pron = Math.round(Math.max(0, Math.min(100, +r.pron || 0))), flu = Math.round(Math.max(0, Math.min(100, +r.fluency || 0)));
-  const refName = r.ref > 0 && refs[r.ref - 1] ? refs[r.ref - 1].name : (msg.caption || "");
+  let refName = r.ref > 0 && refs[r.ref - 1] ? refs[r.ref - 1].name : (msg.caption || "");
   const sus = !!(r.other_person || fromChannel);
   const onlyOrig = r.student_voice === false || (r.playback && (r.voices || 1) <= 1 && r.student_voice !== true);
   if (onlyOrig) return reply("🎧 Bu asl audio ekan — o'quvchi ovozi eshitilmadi. Endi uni tinglab, <b>o'zingiz takrorlab</b> ovozli xabar yuboring 🎙");
   const counted = cov >= 40;
   const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0, refs: [], best: null, list: []};
+  if (media.file_unique_id && (x.list || []).some(e => e.fu === media.file_unique_id)) return; // parallel takror
+  if (counted && refName && x.refs.includes(refName) && refs.length > 1) { // AI allaqachon hisoblangan mashqni tanladi — davomiyligi eng yaqin, hali hisoblanmagan mashqqa o'tkazamiz
+    const d = +media.duration || 0; const free = refs.filter(z => !x.refs.includes(z.name));
+    if (free.length) refName = free.sort((a, b) => Math.abs((+a.dur || 0) - d) - Math.abs((+b.dur || 0) - d))[0].name; }
   const key = refName || ("#" + (x.list.length + 1));
   if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); }
-  x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: Date.now(), ref: key, cov, pron, flu, sus}); x.list = x.list.slice(-10);
+  x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: Date.now(), ref: key, cov, pron, flu, sus, fu: media.file_unique_id || ""}); x.list = x.list.slice(-10);
   await PUT(env, k, sub, {expirationTtl: 30 * 86400});
   if (msg.voice) { const studsAll = studs || await getStudents(env); const ss = studsAll.find(y => y.id === s.id); if (ss && !ss.vf) { ss.vf = msg.voice.file_id; await PUT(env, "students", studsAll); } }
   const bar = v => v >= 85 ? "🟢" : v >= 65 ? "🟡" : v >= 40 ? "🟠" : "🔴";
@@ -899,8 +904,9 @@ async function pinText(env, g){
 
 /* ---------------- Haftalik hisobot ---------------- */
 const WEEK = 7 * 864e5;
+const BAD_SP = e => e.k === "speaking" && e.at >= Date.UTC(2026, 10, 11, 19) && e.at < Date.UTC(2026, 10, 12, 7, 20); // 12.11.2026 12:20 gacha xato baholangan speakinglar — statistikaga kirmaydi
 function weekStats(prof, grades, from, to){
-  const h = (prof.h || []).filter(e => e.at >= from && e.at < to);
+  const h = (prof.h || []).filter(e => e.at >= from && e.at < to && !BAD_SP(e));
   const sp = h.filter(e => e.k === "speaking").map(e => e.tot / (e.max || 5) * 100);
   const wr = h.filter(e => e.k === "writing").map(e => e.tot / (e.max || 10) * 100);
   const days = grades.filter(([t]) => t >= from && t < to).map(([, r]) => r);
@@ -1056,6 +1062,10 @@ async function onPrivate(env, msg){
         let adm = "?"; try { const cm = await tg(env, "getChatMember", {chat_id: g.id, user_id: me2.result.id}); adm = cm.ok ? cm.result.status : "❌ " + (cm.description || ""); } catch (e) {}
         const al = await allowedRx(env, g.id); t += `\n\n👥 <b>${H(g.title)}</b>: reaksiyalar=${al ? al.join("") : "hammasi"}, bot=${H(adm)}, o'quvchi ${ss.length}, topic ulangan ${ss.length - un.length}${un.length ? "\n ulanmagan: " + un.map(x => H(x.name)).join(", ") : ""}`;
         { const q = await J(env, "shq", []); if (q.length) t += `\n ⏳ Shadowing navbatida: ${q.filter(k => k.includes(g.id)).length} ta`; }
+        { const hws = await latestHw(env, g.id); const hp0 = await J(env, "hp:" + g.id, null); const hpA = hp0 && hp0.st !== "done" ? hp0 : null;
+          for (const k of KINDS) { const hw = hws[k]; if (!hw) continue; const due = siteDue(g, hws, k); const done = [];
+            for (const s0 of ss) { const e = subOf(await getProfile(env, s0.id), k, hw, g); if (e) done.push(first(s0.name) + (e.at > due ? "⏰" : "")); }
+            t += `\n ${k === "writing" ? "✍️" : "🎤"} ${H(hw.title || "")} · muddat ${ddmm(due)} ${hhmm(due)}${hw.due ? "" : " (taxminiy)"}${hpA && hpA.items.some(i => i.type === "site_" + k) ? " · Homework postida" : ""} · topshirdi ${done.length}/${ss.length}${done.length ? ": " + H(done.join(", ")) : ""}`; } }
         for (const e of (await J(env, "tr:" + g.id, [])).slice(0, 5)) t += `\n • ${hhmm(e.t)} th=${e.th}${e.tn ? " (" + H(e.tn) + ")" : ""}${e.s ? " " + H(e.s) : ""}: ${H(e.why)}${e.txt ? " — «" + H(e.txt) + "»" : ""}${e.from ? " — " + H(e.from) : ""}`; }
       const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
     { let i = 0; for (const key of gKeys(env)) { i++; const x = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", {headers: {"x-goog-api-key": key}}); t += `\n${x.ok ? "✅" : "❌"} AI kaliti ${i}${x.ok ? "" : " — " + x.status}`; } } // limit sarflamaydi
@@ -1529,6 +1539,20 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
     await addLog(env, sid, [{t: "pron_missed", n: w.length}]); }
 }
 
+
+/* ---------------- Takroriy topshirishdan himoya (bir xil ish ikki marta tekshirilmaydi) ---------------- */
+async function idemStart(env, kind, stu, chunks){
+  if (!stu) return {};
+  let src = kind + "|" + stu.id; for (const c of chunks) { const x = String(c || ""); src += "|" + x.length + ":" + x.slice(0, 4000) + x.slice(-4000); }
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(src)); const k = "idm:" + [...new Uint8Array(d)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join("");
+  const v = await J(env, k, null);
+  if (v && v.key) { const raw = await env.KV.get(v.key); if (raw) { const r = JSON.parse(raw); r.saved = true; r.can_send = !!stu.thread; r.dup = true; return {k, hit: r}; } }
+  if (v && v.st === "run" && Date.now() - v.t < 150e3) { const e = new Error("Bu ish hozir tekshirilmoqda — biroz kuting, natija o'zi chiqadi."); e.busy = true; throw e; }
+  await PUT(env, k, {st: "run", t: Date.now()}, {expirationTtl: 3600});
+  return {k};
+}
+const idemDone = (env, idem, key) => idem.k ? PUT(env, idem.k, {key, t: Date.now()}, {expirationTtl: 6 * 3600}) : null;
+
 /* ---------------- Faoliyat jurnali (o'qituvchi uchun) ---------------- */
 async function addLog(env, sid, evs){
   if (!sid || !evs || !evs.length) return; const k = `log:${sid}:${dayKey()}`;
@@ -1614,6 +1638,9 @@ export default {
           await addLog(env, stu.id, [{t: "pron_sent", n: +(fd.get("n") || 0), avg: +(fd.get("avg") || 0)}]);
           return out({ok: true}); }
         if (rv.metadata.sent) return out({ok: true, dup: true}); // allaqachon yuborilgan — qayta tashlanmaydi
+        { const lk = `lsnd:${stu.id}:${key.split(":")[1]}`, last = await J(env, lk, null), sig = `${rv.metadata.title}|${rv.metadata.total}|${rv.metadata.max}`;
+          if (last && last.key !== key && last.sig === sig && Date.now() - last.at < 10 * 60e3) { await env.KV.put(key, rv.value, {metadata: {...rv.metadata, sent: Date.now(), dupOf: last.key}}); return out({ok: true, dup: true}); }
+          await PUT(env, lk, {key, sig, at: Date.now()}, {expirationTtl: 3600}); }
         const base = {chat_id: g.id, message_thread_id: stu.thread};
         const r0 = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
         if (!r0.ok) return out({error: "Telegram: " + r0.description}, 502);
@@ -1637,7 +1664,7 @@ export default {
     }
 
     let b; try { b = await req.json(); } catch { return out({error: "Noto'g'ri so'rov."}, 400); }
-    const kind = b.kind === "writing" ? "writing" : "speaking";
+    const kind = b.kind === "writing" ? "writing" : "speaking"; let IDK = null;
     try {
       /* ---------- O'QITUVCHI ---------- */
       if (path.startsWith("/teacher/")) {
@@ -1769,7 +1796,7 @@ export default {
         if (!stu) return out({error: "Natijalaringizni ko'rish uchun shaxsiy PIN kod bilan kiring."}, 401);
         const p = await getProfile(env, stu.id); const days = [];
         for (let i = 0; i < 28; i++) { const t = Date.now() - i * 864e5; const d = await env.KV.get(`gr:${stu.gid}:${dayKey(t)}`); if (d) { const r = JSON.parse(d)[stu.id]; if (r) days.push({d: dayKey(t), m: dayMark(r), it: Object.fromEntries(Object.entries(r.it || {}).map(([k, v]) => [ITEM_UZ[k] || k, v.l != null ? LV_NAME(v.l) : "bor"]))}); } }
-        return out({name: stu.name, group: await gName(), h: p.h || [], days, rules: ruleCounts(p)});
+        return out({name: stu.name, group: await gName(), h: (p.h || []).filter(e => !BAD_SP(e)), days, rules: ruleCounts(p)});
       }
       if (path === "/start") {
         const bank = await allBank(env, kind);
@@ -1802,6 +1829,7 @@ export default {
           : `TASK 2 — Essay question: ${it.essay}`).join("\n\n") || "(no question given)";
         const imgs = (b.images || []).slice(0, 8);
         if (!imgs.length && !b.text) return out({error: "Rasm yuklang."}, 400);
+        const idem = await idemStart(env, "writing", stu, [...imgs.map(i => i.data), b.text || "", (b.ids || []).join(",")]); if (idem.hit) return out(idem.hit); IDK = idem.k;
         const parts = [{text: ctx}];
         imgs.forEach((im, i) => { parts.push({text: `Photo ${i + 1}:`}); parts.push({inline_data: {mime_type: im.mime || "image/jpeg", data: im.data}}); });
         if (b.text) parts.push({text: "Typed answer:\n" + clean(b.text, 6000)});
@@ -1827,12 +1855,14 @@ export default {
         if (stu) await saveProfile(env, stu, {at: r.at, k: "writing", m: r.mode, t: r.title, tot: r.total, max: r.max, cr: critAvg(r.tasks.filter(t => !t.missing)), rules: [...new Set(r.tasks.flatMap(t => (t.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
         if (stu) await addLog(env, stu.id, [{t: "graded", kind: "writing", mode: r.mode, title: r.title, score: r.total, max: r.max}]);
+        await idemDone(env, idem, r.key); IDK = null;
         return out(r);
       }
 
       if (path === "/speaking") {
         const clips = (b.clips || []).slice(0, 12).filter(c => c.audio);
         if (!clips.length) return out({error: "Audio yo'q."}, 400);
+        const idem = await idemStart(env, "speaking", stu, clips.map(c => c.audio)); if (idem.hit) return out(idem.hit); IDK = idem.k;
         const parts = [];
         clips.forEach((c, i) => { parts.push({text: `Clip ${i + 1} — Part ${c.part} — Question: ${clean(c.question, 800)}${c.empty ? " (the recording is almost empty)" : ""}`}); parts.push({inline_data: {mime_type: (c.mime || "audio/webm").split(";")[0], data: c.audio}}); });
         const r = await gemini(env, SPEAKING_SYS + tagLine(), parts, S_SCHEMA);
@@ -1861,12 +1891,12 @@ export default {
         r.kind = "speaking"; r.student_name = stu ? stu.name : (clean(b.name, 80) || "Noma'lum"); r.mode = clean(b.mode, 10); r.title = clean(b.title, 120); r.at = Date.now(); r.away = away;
         if (stu) r.repeats = markRepeats(r.parts.map(p => p.errors), ruleCounts(prof));
         const hi = await hwInfo(); if (hi) r.late = hi.late;
-        const prevS = (prof.h || []).filter(e => e.k === "speaking").slice(-1)[0]; if (prevS) r.prev = {tot: prevS.tot, max: prevS.max, at: prevS.at};
+        const prevS = (prof.h || []).filter(e => e.k === "speaking" && !BAD_SP(e)).slice(-1)[0]; if (prevS) r.prev = {tot: prevS.tot, max: prevS.max, at: prevS.at};
         r.audio_key = `aud:${r.at}`; r.audio_until = r.at + 86400000; r.key = `r:speaking:${r.at}`;
         await env.KV.put(r.audio_key, JSON.stringify(clips.map(c => ({mime: c.mime, audio: c.audio}))), {expirationTtl: 86400});
         await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), miss: (r.parts || []).some(p => (p.unanswered || []).length), late: !!r.late, away, at: r.at}});
         if (stu) await saveProfile(env, stu, {at: r.at, k: "speaking", m: r.mode, t: r.title, tot: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), cr: critAvg(r.parts), rules: [...new Set(r.parts.flatMap(p => (p.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
-        r.saved = true; r.can_send = !!(stu && stu.thread);
+        r.saved = true; r.can_send = !!(stu && stu.thread); await idemDone(env, idem, r.key); IDK = null;
         if (stu) { await addLog(env, stu.id, [{t: "graded", kind: "speaking", mode: r.mode, title: r.title, score: r.overall, max: 5, pron: (r.pron || []).length}]);
           if (stu.thread && ["hw", "exam"].includes(r.mode) && (r.pron || []).length) await PUT(env, "pq:" + r.at, {sid: stu.id, gid: stu.gid, words: r.pron.map(p => p.word)}, {expirationTtl: 2 * 86400}); }
         return out(r);
@@ -1882,6 +1912,7 @@ export default {
         return out(r);
       }
       return out({error: "Noma'lum manzil."}, 404);
-    } catch (e) { return out({error: (e.busy ? "BUSY: " : "AI xatosi: ") + e.message.replace(/^BUSY: /, ""), busy: !!e.busy}, e.busy ? 503 : 502); }
+    } catch (e) { if (IDK) try { await env.KV.delete(IDK); } catch (_) {}
+      return out({error: (e.busy ? "BUSY: " : "AI xatosi: ") + e.message.replace(/^BUSY: /, ""), busy: !!e.busy}, e.busy ? 503 : 502); }
   }
 };
