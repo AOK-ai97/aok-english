@@ -367,7 +367,7 @@ Worksheets often contain a long article, vocabulary tables, sample answers and t
 Copy question texts exactly (fix only obvious OCR typos, remove numbering like "1."). Ignore articles, vocabulary tables, answer keys, structures/frames, grammar exercises and reading texts.
 "img" uses the IMAGE numbers (1-based) or photo numbers; in Word text a marker "[PICTURE n]" is IMAGE n placed at that spot (use the label just before it, e.g. "Part 1.2 — 1-rasm"); [] if unknown. topic = short English topic. Answer ONLY with JSON.`;
 const IMP_SCHEMA = {type:"OBJECT",properties:{title:STR,items:{type:"ARRAY",items:{type:"OBJECT",properties:{kind:STR,part:STR,topic:STR,q:{type:"ARRAY",items:STR},img:{type:"ARRAY",items:{type:"INTEGER"}},for:{type:"ARRAY",items:STR},against:{type:"ARRAY",items:STR},sender:STR,email:STR,t11:STR,t12:STR,essay:STR},required:["kind","part"]}}},required:["title","items"]};
-const impK = uid => "imp:" + uid;
+const impK = uid => "imp:" + uid, impD = id => "impd:" + id;
 async function tgFileBytes(env, file_id, max = 18e6){
   const f = await tg(env, "getFile", {file_id}); if (!f.ok || !f.result.file_path || (f.result.file_size || 0) > max) return null;
   const r = await fetch(`https://api.telegram.org/file/bot${env.TG_TOKEN}/${f.result.file_path}`); return r.ok ? {u8: new Uint8Array(await r.arrayBuffer()), path: f.result.file_path} : null;
@@ -390,17 +390,18 @@ function docxText(xml, pic){
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/\n{3,}/g, "\n\n").trim();
 }
 async function impAdd(env, r, msg){
-  const me = r.uid; const d = await J(env, impK(me), null) || {parts: [], at: Date.now()};
+  const me = r.uid; const ptr = await J(env, impK(me), null); // ko'rsatkich → joriy qoralama (har qoralama alohida YANGI kalitda: KV keshi eski "yo'q" javobini bermasin)
+  let d = ptr && ptr.id && Date.now() - (ptr.mt || 0) < 30 * 60e3 ? await J(env, impD(ptr.id), null) : null; if (!d || d._del || d.items) d = {id: uid(), parts: [], at: Date.now()};
   if (msg.document) d.parts.push({t: "doc", id: msg.document.file_id, name: msg.document.file_name || "fayl", mime: msg.document.mime_type || ""});
   else if (msg.photo) d.parts.push({t: "photo", id: msg.photo[msg.photo.length - 1].file_id});
   else d.parts.push({t: "text", text: clean(msg.text, 8000)});
   if (msg.caption) d.parts.push({t: "text", text: clean(msg.caption, 2000)});
   d.parts = d.parts.slice(0, 20);
   const t = `📥 <b>Vazifa uchun qabul qilindi:</b> ${d.parts.filter(p => p.t !== "text").length} ta fayl/rasm${d.parts.some(p => p.t === "text") ? " + matn" : ""}.\nHammasini tashlab bo'lgach bosing 👇`;
-  const k = kb([[{text: "▶️ Savollarni ajratish", callback_data: "imp:go"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]]);
+  const k = kb([[{text: "▶️ Savollarni ajratish", callback_data: "imp:go:" + d.id}], [{text: "🗑 Bekor qilish", callback_data: "imp:del:" + d.id}]]);
   if (d.mid && Date.now() - (d.mt || 0) < 60e3) await tg(env, "editMessageText", {chat_id: me, message_id: d.mid, text: t, parse_mode: "HTML", ...k});
   else { const x = await pm(env, me, t, k); if (x.ok) d.mid = x.result.message_id; }
-  d.mt = Date.now(); await PUT(env, impK(me), d, {expirationTtl: 2 * 86400});
+  d.mt = Date.now(); await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400}); await PUT(env, impK(me), {id: d.id, mt: d.mt}, {expirationTtl: 2 * 86400});
 }
 function impHeur(text){ // zaxira tahlil (AI bo'sh qaytarsa yoki kamroq topsa): lesson pack formati
   const L = String(text || "").split("\n").map(x => x.trim()).filter(Boolean), out = [];
@@ -467,28 +468,35 @@ async function impParse(env, d){
   return {title, items};
 }
 const PART_UZ = {"1.1": "🎤 Part 1.1", "1.2": "🎤 Part 1.2", "2": "🎤 Part 2", "3": "🎤 Part 3", T1: "✍️ Task 1", T2: "✍️ Task 2"};
-async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari (AI band bo'lsa — o'zi qayta urinadi)
+async function impRun(env, r, d, mid){ // savollarni ajratish → ko'rib chiqish xabari
+  const x = await impParse(env, d); d.title = x.title; d.items = x.items; delete d.q;
+  if (!d.items.length) { await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400}); return tg(env, "editMessageText", {chat_id: r.uid, message_id: mid, text: "❓ Speaking/Writing savoli topilmadi. Savollar bor sahifani yuboring.", ...kb([[{text: "🗑 Bekor qilish", callback_data: "imp:del:" + d.id}]])}); }
+  const gs0 = await myGroups(env, r); d.sel = gs0.length === 1 ? [gs0[0].id] : []; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid);
+}
+async function impFail(env, r, d, mid, e){ // AI band — qayta urinish navbati (5 martagacha), boshqa xato — xabar
+  d.q = d.q || {mid, n: 0}; d.q.n++; const er = String(e.message || e).slice(0, 200);
+  if (!e.busy || d.q.n >= 5) { delete d.q; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400});
+    return tg(env, "editMessageText", {chat_id: r.uid, message_id: mid, parse_mode: "HTML", text: "❌ O'qib bo'lmadi: " + H(er), ...kb([[{text: "🔁 Qayta urinish", callback_data: "imp:go:" + d.id}], [{text: "🗑 Bekor qilish", callback_data: "imp:del:" + d.id}]])}); }
+  d.q.next = Date.now() + [60e3, 120e3, 180e3, 300e3][d.q.n - 1]; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400});
+  return tg(env, "editMessageText", {chat_id: r.uid, message_id: mid, parse_mode: "HTML", text: `⏳ Google AI hozir band — ${d.q.n + 1}-urinish ${Math.round((d.q.next - Date.now()) / 60e3)} daqiqadan keyin. Hech narsa bosish shart emas, o'zim qayta urinaman.`});
+}
+async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari
   const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
-  for (const uid of q) { const d = await J(env, impK(uid), null); if (!d || !d.q) { drop.push(uid); continue; } if (d.q.next > Date.now()) continue;
-    const r = await roleOf(env, uid); if (!r) { drop.push(uid); continue; } const mid = d.q.mid;
-    d.q.next = Date.now() + 90e3; await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400}); // ishlayapti — keyingi daqiqada qayta olinmasin
-    try { const x = await impParse(env, d); d.title = x.title; d.items = x.items; delete d.q; drop.push(uid);
-      if (!d.items.length) { await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400}); await tg(env, "editMessageText", {chat_id: uid, message_id: mid, text: "❓ Speaking/Writing savoli topilmadi. Savollar bor sahifani yuboring.", ...kb([[{text: "🗑 Bekor qilish", callback_data: "imp:del"}]])}); continue; }
-      const gs0 = await myGroups(env, r); d.sel = gs0.length === 1 ? [gs0[0].id] : []; await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400}); await impPreview(env, r, d, mid); }
-    catch (e) { d.q.n++; const er = String(e.message || e).slice(0, 160);
-      if (!e.busy || d.q.n >= 5) { delete d.q; drop.push(uid); await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400});
-        await tg(env, "editMessageText", {chat_id: uid, message_id: mid, parse_mode: "HTML", text: "❌ O'qib bo'lmadi: " + H(er), ...kb([[{text: "🔁 Qayta urinish", callback_data: "imp:go"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]])}); continue; }
-      d.q.next = Date.now() + [60e3, 120e3, 180e3, 300e3][d.q.n - 1]; await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400});
-      await tg(env, "editMessageText", {chat_id: uid, message_id: mid, parse_mode: "HTML", text: `⏳ Google AI hozir band — ${d.q.n + 1}-urinish ${Math.round((d.q.next - Date.now()) / 60e3)} daqiqadan keyin. Hech narsa bosish shart emas, o'zim qayta urinaman.`}); } }
-  if (drop.length) await PUT(env, "impq", (await J(env, "impq", [])).filter(x => !drop.includes(x)));
+  for (const j of q) { if (typeof j !== "object") { drop.push(j); continue; } const d = await J(env, impD(j.id), null);
+    if (!d || !d.q || d._del) { if (Date.now() - j.t > 10 * 60e3 || (d && (d._del || d.items))) drop.push(j.id); continue; } // hali ko'rinmagan bo'lishi mumkin — kutamiz
+    if ((d.q.next || 0) > Date.now()) continue;
+    const r = await roleOf(env, j.uid); if (!r) { drop.push(j.id); continue; } const mid = d.q.mid;
+    d.q.next = Date.now() + 120e3; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400}); // ishlayapti — qayta olinmasin
+    try { await impRun(env, r, d, mid); drop.push(j.id); } catch (e) { await impFail(env, r, d, mid, e); if (!d.q) drop.push(j.id); } }
+  if (drop.length) await PUT(env, "impq", (await J(env, "impq", [])).filter(x => !drop.includes(typeof x === "object" ? x.id : x)));
 }
 async function impPreview(env, r, d, edit){
   const gs = await myGroups(env, r); const sel = d.sel || [];
   let t = `📝 <b>${H(d.title)}</b> — ${d.items.length} ta savol topildi:\n\n`;
   t += d.items.map((it, i) => `${i + 1}. ${PART_UZ[it.part || it.wtype]}${(it._img || []).length ? " 🖼" + it._img.length : (it.part === "1.2" || it.part === "2") ? " ⚠️ rasmsiz" : ""} — ${H(clean(it.kind === "writing" ? (it.wtype === "T1" ? it.sender + " " + (it.t11 ? "(1.1 + 1.2)" : "") : it.essay) : it.q.join(" / "), 110))}`).join("\n");
   t += `\n\n👥 Qaysi guruhga vazifa qilinsin? (belgilang)\n<i>Muddat: keyingi dars boshlanishigacha. Saytda o'quvchilarga darhol chiqadi.</i>`;
-  const rows = gs.map(g => [{text: (sel.includes(g.id) ? "✅ " : "⬜️ ") + g.title, callback_data: "impg:" + g.id}]);
-  rows.push([{text: "📌 Vazifa qilish", callback_data: "imp:ok"}, {text: "📚 Faqat bazaga", callback_data: "imp:bank"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]);
+  const rows = gs.map(g => [{text: (sel.includes(g.id) ? "✅ " : "⬜️ ") + g.title, callback_data: "impg:" + g.id + ":" + d.id}]);
+  rows.push([{text: "📌 Vazifa qilish", callback_data: "imp:ok:" + d.id}, {text: "📚 Faqat bazaga", callback_data: "imp:bank:" + d.id}], [{text: "🗑 Bekor qilish", callback_data: "imp:del:" + d.id}]);
   return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text: t, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, t, kb(rows));
 }
 async function impSave(env, r, d, assign){
@@ -1266,17 +1274,20 @@ async function onCallback(env, cq){
     if (x.left.length) t += `\n\n⏳ Qolgan ${x.left.length} tasi (${x.left.map(H).join(", ")}) 5 daqiqa ichida yuboriladi — o'zim xabar beraman.`;
     t += "\n\n<i>Baho qo'shsangiz yoki o'zgartirsangiz, tugmani yana bosing — faqat o'zgarganlarga yuboriladi.</i>";
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: t, ...fbKb(g)}); }
-  if (a === "imp" || a === "impg") { const d = await J(env, impK(r.uid), null);
-    if (!d) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "ℹ️ Bu vazifa qoralamasi eskirgan — faylni qayta yuboring."});
-    if (a === "imp" && b === "del") { await env.KV.delete(impK(r.uid)); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "🗑 Bekor qilindi."}); }
-    if (a === "imp" && b === "go") { // katta fayl + AI 30 soniyaga sig'maydi — navbatga qo'yiladi, har daqiqalik cron o'qiydi
-      d.q = {mid, n: 0, next: 0}; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400});
-      const q = await J(env, "impq", []); if (!q.includes(r.uid)) { q.push(r.uid); await PUT(env, "impq", q.slice(-20)); }
-      return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "⏳ Savollar ajratilmoqda — 1–2 daqiqa. Tayyor bo'lganda shu xabar o'zi yangilanadi."}); }
-    if (a === "impg") { d.sel = d.sel || []; d.sel = d.sel.includes(b) ? d.sel.filter(x => x !== b) : [...d.sel, b]; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid); }
+  if (a === "imp" || a === "impg") { const id = c || ((await J(env, impK(r.uid), null)) || {}).id; const d = id ? await J(env, impD(id), null) : null;
+    if (!d) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "⏳ Fayl hali saqlanmoqda — 10–20 soniyadan keyin qayta bosing.", show_alert: true}); // xabar o'chmaydi, tugmalar qoladi
+    if (d._del) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "ℹ️ Bu qoralama yopilgan — faylni qayta yuboring."});
+    if (a === "imp" && b === "del") { await PUT(env, impD(d.id), {_del: 1}, {expirationTtl: 2 * 86400}); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "🗑 Bekor qilindi."}); }
+    if (a === "imp" && b === "go") { if (d.q && (d.q.next || 0) > Date.now()) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "⏳ Ajratilmoqda — kuting, xabar o'zi yangilanadi.", show_alert: true});
+      d.q = {mid, n: (d.q && d.q.n) || 0, next: Date.now() + 120e3}; delete d.items; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400});
+      const q = (await J(env, "impq", [])).filter(x => typeof x === "object" && x.id !== d.id); q.push({id: d.id, uid: r.uid, t: Date.now()}); await PUT(env, "impq", q.slice(-20));
+      await tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "⏳ Savollar ajratilmoqda — odatda 10–40 soniya. Tayyor bo'lganda shu xabar o'zi yangilanadi."});
+      try { await impRun(env, r, d, mid); } catch (e) { d.q.next = 0; await impFail(env, r, d, mid, e); } // darhol urinib ko'ramiz; ulgurmasa — cron davom ettiradi
+      return; }
+    if (a === "impg") { d.sel = d.sel || []; d.sel = d.sel.includes(b) ? d.sel.filter(x => x !== b) : [...d.sel, b]; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid); }
     if (a === "imp" && (b === "ok" || b === "bank")) { if (!d.items) return;
       if (b === "ok" && !(d.sel || []).length) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Avval guruhni belgilang ✅", show_alert: true});
-      const x = await impSave(env, r, d, b === "ok"); await env.KV.delete(impK(r.uid));
+      const x = await impSave(env, r, d, b === "ok"); await PUT(env, impD(d.id), {_del: 1}, {expirationTtl: 2 * 86400});
       return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(d.title)}</b>
 📚 Bazaga qo'shildi: ${x.added} ta${x.dup ? ` (${x.dup} tasi bazada bor edi)` : ""}${x.done.length ? `
 📌 Vazifa qilindi:
