@@ -851,7 +851,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
 async function hwOf(env, kind, gid){ const h = await J(env, `hw:${kind}:${gid}`, null); if (h && h.ids && h.ids.length) return h; const l = await J(env, "hw:" + kind, null); return hwFor(l, gid) ? l : null; }
 async function latestHw(env, gid){ const o = {}; for (const k of KINDS) o[k] = gid ? await hwOf(env, k, gid) : await J(env, "hw:" + k, null); return o; }
 const hwFor = (hw, gid) => hw && hw.ids && hw.ids.length && (!hw.groups || !hw.groups.length || hw.groups.includes(gid));
-function hwFrom(g, hw){ if (hw.from) return hw.from; const days = (g && g.days) || []; let dk = dayKey(hw.at); for (let i = 0; i < 7 && days.length && !days.includes(wdOf(dk)); i++) dk = addDays(dk, -1); return Math.min(hw.at, g ? atLocal(dk, lessonStart(g)) : hw.at); }
+function hwFrom(g, hw){ if (hw.from) return hw.from; const days = (g && g.days) || []; let dk = dayKey(hw.at); for (let i = 0; i < 7 && days.length && !days.includes(wdOf(dk)); i++) dk = addDays(dk, -1); return Math.min(hw.at, g && days.length ? atLocal(dk, lessonStart(g)) : hw.at - 864e5); }
 function subOf(prof, kind, hw, g){ const from = hwFrom(g, hw) - 5 * 60e3; // vazifa qayta saqlansa ham: shu vazifa davrida "Uyga vazifa" rejimida topshirilgan har qanday natija hisob
   const e = (prof.h || []).filter(e => e.k === kind && (e.hw === hw.at || (e.at >= from && (!e.hw || e.hw >= from)))).sort((a, b) => b.at - a.at)[0] || null;
   return e && hw.due ? {...e, late: e.at > hw.due} : e; }
@@ -1406,7 +1406,7 @@ async function cron(env){
     if (rp.due > now) continue; const g = gs.find(x => x.id === rp.gid); if (!g) continue;
     const n = await rpSend(env, g, rp); await pm(env, rp.by, `✅ <b>${H(rp.title)}</b> — avtomatik yuborildi (${n} ta o'quvchi).`); }
   // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
-  const hpGroups = new Set();
+  const hpAct = {};
   for (const g of gs) {
     const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue;
     if (hp.retry && !hp.items.length) {
@@ -1416,82 +1416,117 @@ async function cron(env){
         if (first || hp.retry > 6) await pm(env, hp.by, `❌ Homework postini o'qib bo'lmadi (urinish ${hp.retry - 1}).\n<i>Sabab: ${H(er)}</i>`, kb([[{text: "🗑 Bekor qilish", callback_data: "hpdel:" + g.id}]])); }
       continue; }
     if (!hp.items.length) continue;
-    hpGroups.add(g.id);
     if (hp.st === "draft" && now - (hp.at2 || hp.at) > 15 * 60e3) { hp.st = "active"; await PUT(env, "hp:" + g.id, hp); await pm(env, hp.by, `✅ <b>${H(g.title)}</b> — Homework avtomatik nazoratga olindi.`); }
     if (now >= hpEnd(g, hp)) { if (!quiet) await hpFinalize(env, g, hp); continue; }
-    if (quiet || g.quiet) continue;
-    const items = hp.items.filter(i => SUBMIT(i.type)); if (!items.length) continue;
-    const sk = "hst:" + hp.id; const st = await J(env, sk, {rem: {}, late: {}, pr: {}}); let ch = false; const kun = [], lateK = [];
-    for (const s of studs.filter(x => x.gid === g.id && x.thread)) {
-      const pr = await hpProgress(env, g, hp, s);
-      const allOk = items.every(it => pr[it.id].ok);
-      if (allOk && !st.pr[s.id] && items.some(it => pr[it.id].late)) { st.pr[s.id] = 1; ch = true; }
-      if (allOk && !st.pr[s.id]) { st.pr[s.id] = 1; ch = true; await toTopic(env, g.id, s.thread, await radarText(env, "praise", s.name, `uy vazifasining hamma qismi bajarildi (${items.length}/${items.length}) muddatidan oldin`)); continue; }
-      const pend = items.filter(it => !pr[it.id].ok && now < it.due && it.due - now <= 12 * 3600e3);
-      if (pend.length && now - (st.rem[s.id] || 0) >= 3 * 3600e3 - 5 * 60e3) {
-        const left = Math.min(...pend.map(i => i.due)) - now;
-        await toTopic(env, g.id, s.thread, await radarText(env, "remind", s.name, `bajarilmagan: ${pend.map(i => `${i.title}${i.count > 1 ? ` (${pr[i.id].n}/${i.count})` : ""}`).join("; ")}; eng yaqin muddatgacha ${fmtLeft(left)} qoldi`));
-        st.rem[s.id] = now; ch = true; }
-      // kech bo'lsa ham bajargan — bir marta rahmat
-      const lateDone = items.filter(it => pr[it.id].ok && pr[it.id].late && !(st.lok || {})[s.id + ":" + it.id]);
-      if (lateDone.length) { st.lok = st.lok || {}; lateDone.forEach(it => st.lok[s.id + ":" + it.id] = 1); ch = true; lateK.push({s, items: lateDone, pr});
-        await toTopic(env, g.id, s.thread, await radarText(env, "late_ok", s.name, `kech topshirildi: ${lateDone.map(i => i.title).join("; ")}`)); }
-      // muddat o'tgan, lekin dars boshlanmagan — har 3 soatda eslatma
-      const ls0 = hpLessonStart(g, hp);
-      const overdue = items.filter(it => !pr[it.id].ok && now >= it.due && now < ls0 && it.due > hp.at + 30 * 60e3 && st.late[s.id + ":" + it.id]);
-      st.lrem = st.lrem || {};
-      if (overdue.length && now - (st.lrem[s.id] || 0) >= 3 * 3600e3 - 5 * 60e3) {
-        const left = ls0 - now; st.lrem[s.id] = now; ch = true;
-        await toTopic(env, g.id, s.thread, await radarText(env, "late_remind", s.name, `muddati o'tgan, hali bajarilmagan: ${overdue.map(i => `${i.title}${i.count > 1 ? ` (${pr[i.id].n}/${i.count})` : ""}`).join("; ")}; darsgacha ${fmtLeft(left)} qoldi`)); }
-      const late = items.filter(it => !pr[it.id].ok && now >= it.due && it.due > hp.at + 30 * 60e3 && !st.late[s.id + ":" + it.id]); // post paytida muddati o'tib bo'lgan vazifa uchun tanbeh yo'q
-      if (late.length) { late.forEach(it => st.late[s.id + ":" + it.id] = 1); st.lrem = st.lrem || {}; st.lrem[s.id] = now; ch = true; kun.push({s, late});
-        await toTopic(env, g.id, s.thread, await radarText(env, "late", s.name, `muddat o'tdi, bajarilmagan: ${late.map(i => i.title).join("; ")}`)); }
-    }
-    if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.late.map(it => `${HP_ICON[it.type]} ${H(it.title)}`).join(", ")}`).join("\n"));
-    if (lateK.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\n⏰ Kech, ammo topshirdi:\n\n` +
-      lateK.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${HP_ICON[it.type]} ${H(it.title)} (${x.pr[it.id].doneAt ? DAY_UZ[wdOf(dayKey(x.pr[it.id].doneAt))] + " " + hhmm(x.pr[it.id].doneAt) : "kech"})`).join(", ")}`).join("\n"));
-    if (ch) await PUT(env, sk, st, {expirationTtl: 30 * 86400});
+    hpAct[g.id] = hp;
   }
-  // 3) saytdagi vazifa muddati (panelda qo'yilgan) — Homework posti bo'lmagan guruhlar uchun
-  if (!quiet) {
-    const st = await J(env, "hwst", {}); let ch = false;
-    const S = (k, hw) => { const id = k + ":" + hw.at; return st[id] = st[id] || {pr: {}, rem: {}, late: {}, posted: {}}; };
-    for (const g of gs) {
-      if (hpGroups.has(g.id)) continue;
-      const hws = await latestHw(env, g.id); const mine = KINDS.filter(k => hws[k] && hws[k].due); if (!mine.length) continue;
-      const kunList = [];
-      for (const s of studs.filter(x => x.gid === g.id)) {
-        const p = await getProfile(env, s.id); const pend = [], newSub = [], lateMiss = [];
-        for (const k of mine) { const hw = hws[k], e = subOf(p, k, hw, g), stt = S(k, hw);
-          if (e && !stt.pr[s.id]) { stt.pr[s.id] = 1; ch = true; if (now - e.at < 30 * 60e3) newSub.push({k, e}); } // eski topshiriqlar uchun qayta maqtov yo'q
-          if (!e && now < hw.due && hw.due - now <= 12 * 3600e3) pend.push(k);
-          if (!e && now >= hw.due && !stt.late[s.id]) { stt.late[s.id] = 1; ch = true; lateMiss.push(k); } }
-        if (g.quiet || !s.thread) { if (lateMiss.length) kunList.push({s, ks: lateMiss}); continue; }
-        if (newSub.length) { const late = newSub.some(x => x.e.late);
-          await toTopic(env, g.id, s.thread, await radarText(env, late ? "late_ok" : "praise", s.name, newSub.map(x => `${x.k} uy vazifasi topshirildi${x.e.late ? " (kech)" : " muddatidan oldin"}, ball ${fmtN(x.e.tot)}/${x.e.max}`).join("; "))); }
-        if (pend.length) { const last = Math.max(...pend.map(k => S(k, hws[k]).rem[s.id] || 0));
-          if (now - last >= 3 * 3600e3 - 5 * 60e3) { const left = Math.min(...pend.map(k => hws[k].due)) - now;
-            await toTopic(env, g.id, s.thread, await radarText(env, "remind", s.name, `topshirilmagan: ${pend.map(k => k === "writing" ? "Writing (yozma ish)" : "Speaking").join(" va ")}; muddatgacha ${fmtLeft(left)} qoldi`));
-            pend.forEach(k => S(k, hws[k]).rem[s.id] = now); ch = true; } }
-        if (lateMiss.length) { kunList.push({s, ks: lateMiss});
-          await toTopic(env, g.id, s.thread, await radarText(env, "late", s.name, `muddat o'tdi, topshirilmagan: ${lateMiss.map(k => k === "writing" ? "Writing" : "Speaking").join(" va ")}`)); }
-      }
-      let post = false; for (const k of mine) { const stt = S(k, hws[k]); if (now >= hws[k].due && !stt.posted[g.id]) { stt.posted[g.id] = 1; ch = true; post = true; } }
-      if (post && g.res) await toTopic(env, g.id, g.res, await resultsText(env, g));
-      if (kunList.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida topshirilmadi:\n\n` +
-        kunList.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.ks.map(k => k === "writing" ? "✍️ Writing topshirmadi" : "🎤 Speaking topshirmadi").join(", ")}`).join("\n"));
-    }
-    for (const id of Object.keys(st)) { const at = +id.split(":")[1]; if (now - at > 30 * 864e5) { delete st[id]; ch = true; } }
-    if (ch) await PUT(env, "hwst", st);
-  }
-  // 4) talaffuz mashqi qilinmagan natijalar (30 daqiqadan keyin eslatma)
-  try { await pronMissed(env, now, quiet); } catch (e) { console.log("pron", e.message); }
+  // 3) eslatmalar va talaffuz: har o'quvchiga bitta xabar
+  try { await digestAll(env, gs, studs, hpAct, now, quiet); } catch (e) { console.log("digest", e.message); }
   // 5) yakshanba 11:00 — haftalik hisobot
   const lt = L(now);
   if (lt.getUTCDay() === 0 && lt.getUTCHours() === 11) {
     const last = await env.KV.get("wk:last"); const today = dayKey(now);
     if (last !== today) { await env.KV.put("wk:last", today); for (const g of gs) if (g.res) await weeklyReport(env, g); }
   }
+}
+
+
+/* ---------------- Eslatmalar: har o'quvchiga BITTA xabar (Homework posti + saytdagi vazifa + talaffuz) ---------------- */
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const DG = {
+  r1: ["📡 {n}, vazifalar holati — muddatgacha {t} bor:", "📋 {n}, eslatib qo'yaman: muddatgacha {t} qoldi.", "🗓 {n}, bugungi vazifalaringiz — {t} vaqtingiz bor:", "☀️ {n}, vazifalarni rejalashtirib oling — {t} qoldi:"],
+  r2: ["⏳ {n}, muddatga {t} qoldi!", "⚡️ {n}, {t} qoldi — ulgurib qoling!", "📡 {n}, radar kutyapti: {t} qoldi.", "💪 {n}, oz qoldi — {t} ichida tugatib qo'ying!"],
+  r3: ["🚨 {n}, oxirgi {t}!", "⏰ {n}, muddat tugashiga {t} qoldi!", "🔔 {n}, so'nggi eslatma — {t} qoldi!", "🏁 {n}, marraga {t} qoldi!"],
+  late: ["⌛ {n}, muddat o'tdi.", "📡 {n}, radar vazifani muddatida ko'rmadi.", "⚠️ {n}, muddat tugadi."],
+  lrem: ["📡 {n}, darsgacha {t} qoldi — muddati o'tgan vazifani hali topshirsa bo'ladi.", "⏳ {n}, dars boshlanishiga {t} qoldi — kech bo'lsa ham topshiring."],
+  pron: ["🗣 {n}, talaffuz mashqini qilmadingiz.", "🎯 {n}, talaffuz mashqi qolib ketdi."]
+};
+function lessonAfter(g, t){ const days = g.days || []; if (!days.length) return null; const d0 = dayKey(t);
+  for (let i = 0; i <= 8; i++) { const dk = addDays(d0, i); if (days.includes(wdOf(dk))) { const x = atLocal(dk, lessonStart(g)); if (x > t) return x; } } return null; }
+function siteDue(g, hws, k){ const hw = hws[k]; if (hw.due) return hw.due; const o = hws[k === "writing" ? "speaking" : "writing"];
+  if (o && o.due && Math.abs(o.at - hw.at) < 864e5) return o.due; return nextLesson(g, dayKey(hw.at)); }
+async function digestTasks(env, g, s, hp, hws, now){
+  const T = []; const prof = await getProfile(env, s.id);
+  if (hp) { const pr = await hpProgress(env, g, hp, s, prof);
+    for (const it of hp.items.filter(i => SUBMIT(i.type) && i.due)) { const x = pr[it.id];
+      T.push({key: "h" + hp.id + ":" + it.id, icon: HP_ICON[it.type], title: it.title, due: it.due, ok: x.ok, late: x.late, n: x.n, need: x.need, info: x.info, created: hp.at, ls: hpLessonStart(g, hp)}); } }
+  for (const k of KINDS) { const hw = hws[k]; if (!hw || now - hw.at > 8 * 864e5) continue;
+    if (hp && hp.items.some(i => i.type === "site_" + k)) continue; // Homework postida bor — o'sha hisoblaydi
+    const due = siteDue(g, hws, k); if (now - due > 864e5) continue;
+    const e = subOf(prof, k, hw, g);
+    T.push({key: "w" + k + ":" + hwFrom(g, hw), icon: k === "writing" ? "✍️" : "🎤", title: (k === "writing" ? "Writing" : "Speaking") + (hw.title ? " — " + hw.title : ""), due, ok: !!e, late: !!(e && e.at > due), n: e ? 1 : 0, need: 1, info: e ? `${fmtN(e.tot)}/${e.max}` : "", created: hw.at, ls: lessonAfter(g, due), site: k}); }
+  return T;
+}
+function digestLine(x, now){
+  const cnt = x.need > 1 ? ` — ${x.n}/${x.need}` : "";
+  if (x.ok) return `${x.late ? "⏰" : "✅"} ${x.icon} ${H(x.title)}${cnt}${x.info ? ` (${H(x.info)})` : ""}`;
+  return `${x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${cnt} · ${x.due > now ? "⏰ " + DAY_UZ[wdOf(dayKey(x.due))] + " " + hhmm(x.due) : "muddati o'tdi"}`;
+}
+async function digestAll(env, gs, studs, hpAct, now, quiet){
+  if (quiet) return;
+  const hour = L(now).getUTCHours();
+  // talaffuz mashqi qilinmaganlar (pq:<at>) — o'quvchi bo'yicha
+  const pqL = await env.KV.list({prefix: "pq:"}); const pq = {};
+  for (const k of pqL.keys) { const at = +k.name.slice(3); if (now - at < 30 * 60e3) continue; const q = await J(env, k.name, null); if (!q) { await env.KV.delete(k.name); continue; }
+    (pq[q.sid] = pq[q.sid] || []).push({k: k.name, at, words: q.words || []}); }
+  const usedPq = new Set();
+  for (const g of gs) {
+    const hp = hpAct[g.id] || null; const hws = await latestHw(env, g.id);
+    const sk = "rst:" + g.id; const st0 = await J(env, sk, null); const fresh = !st0; const st = st0 || {s: {}, posted: {}}; let ch = false; // fresh: birinchi ishga tushish — eski tizim yuborganlarini jim belgilab qo'yamiz
+    const kun = [], lateK = [];
+    for (const s of studs.filter(x => x.gid === g.id)) {
+      const T = await digestTasks(env, g, s, hp, hws, now); const P = pq[s.id] || [];
+      if (!T.length && !P.length) continue;
+      const S = st.s[s.id] = st.s[s.id] || {rs: {}, late: {}, lr: {}, ok: {}, all: {}};
+      const pend = T.filter(x => !x.ok); let type = null, tl = "";
+      const newly = T.filter(x => x.ok && !S.ok[x.key]); newly.forEach(x => S.ok[x.key] = now); if (newly.length) ch = true;
+      const allSig = T.map(x => x.key).join("|");
+      if (T.length && !pend.length && !S.all[allSig]) { S.all[allSig] = now; ch = true; type = T.some(x => x.late) ? "late_ok" : "praise"; }
+      const fut = pend.filter(x => x.due > now);
+      if (!type && fut.length) { const nd = Math.min(...fut.map(x => x.due)), left = nd - now;
+        const stage = left <= 3600e3 + 3 * 60e3 ? 3 : left <= 3 * 3600e3 + 3 * 60e3 ? 2 : left <= 12 * 3600e3 && hour >= 8 ? 1 : 0;
+        if (stage > (S.rs[nd] || 0)) { S.rs[nd] = stage; ch = true; type = "r" + stage; tl = fmtLeft(left); } }
+      const over = pend.filter(x => x.due <= now && now - x.due < 864e5 && x.due > x.created + 30 * 60e3);
+      const newLate = over.filter(x => !S.late[x.key]);
+      if (newLate.length) { newLate.forEach(x => S.late[x.key] = now); ch = true; kun.push({s, items: newLate}); if (!type) type = "late"; }
+      if (!type) { const lr = over.filter(x => S.late[x.key] && !S.lr[x.key] && x.ls && now < x.ls && x.ls - now <= 3600e3);
+        if (lr.length) { lr.forEach(x => S.lr[x.key] = now); ch = true; type = "lrem"; tl = fmtLeft(Math.min(...lr.map(x => x.ls)) - now); } }
+      const lateDone = newly.filter(x => x.late); if (lateDone.length) { lateK.push({s, items: lateDone}); if (!type) type = "late_ok"; }
+      const pOld = P.filter(p => now - p.at > 3 * 3600e3);
+      if (!type && pOld.length) type = "pron";
+      if (!type) continue;
+      // xabar
+      const hdr = (type === "praise" ? pick(TPL.praise) : type === "late_ok" ? pick(TPL.late_ok) : pick(DG[type])).replace("{n}", "<b>" + H(first(s.name)) + "</b>").replace("{t}", tl);
+      let t = hdr + (T.length ? "\n\n" + T.map(x => digestLine(x, now)).join("\n") : "");
+      if (P.length) { const w = [...new Set(P.flatMap(p => p.words))].slice(0, 10); P.forEach(p => usedPq.add(p.k));
+        t += `\n🗣 Talaffuz mashqi qilinmadi: ${w.map(x => "<b>" + H(x) + "</b>").join(", ")}\n<i>Feedbackdagi 🔊 To'g'ri → 🎤 Ayting tugmalari bilan mashq qilib, «📤 Talaffuz natijasini yuborish» ni bosing.</i>`; }
+      if (type === "late" || type === "lrem") t += `\n\n<i>Kech bo'lsa ham topshiring — hisobga olinadi.</i>`;
+      else if (pend.length && type !== "pron") t += `\n\n<i>Topshirgan qismlaringiz ✅ bilan belgilangan.</i>`;
+      if (fresh) { ch = true; continue; }
+      if (s.thread && !g.quiet) await toTopic(env, g.id, s.thread, t);
+      if (P.length) await addLog(env, s.id, [{t: "pron_missed", n: P.reduce((a, p) => a + p.words.length, 0)}]);
+    }
+    // natijalar jadvali (saytdagi vazifa muddati o'tganda, Homework posti yo'q guruhlarda)
+    if (!hp) for (const k of KINDS) { const hw = hws[k]; if (!hw || now - hw.at > 8 * 864e5) continue; const due = siteDue(g, hws, k), pk = k + ":" + hwFrom(g, hw);
+      if (now >= due && now - due < 864e5 && !st.posted[pk]) { ch = true;
+        for (const k2 of KINDS) if (hws[k2] && now >= siteDue(g, hws, k2)) st.posted[k2 + ":" + hwFrom(g, hws[k2])] = now; // bitta jadval — ikkala tur uchun
+        if (g.res && !fresh) await toTopic(env, g.id, g.res, await resultsText(env, g)); break; } }
+    if (fresh) { kun.length = 0; lateK.length = 0; ch = true; }
+    if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${it.icon} ${H(it.title)}`).join(", ")}`).join("\n"));
+    if (lateK.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\n⏰ Kech, ammo topshirdi:\n\n` + lateK.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${it.icon} ${H(it.title)}`).join(", ")}`).join("\n"));
+    // eski yozuvlarni tozalash (14 kun)
+    const old = now - 14 * 864e5;
+    for (const S of Object.values(st.s)) for (const m of ["rs", "late", "lr", "ok", "all"]) for (const [k, v] of Object.entries(S[m] || {})) if ((m === "rs" ? +k : v) < old) { delete S[m][k]; ch = true; }
+    for (const [k, v] of Object.entries(st.posted)) if (v < old) { delete st.posted[k]; ch = true; }
+    if (ch) await PUT(env, sk, st, {expirationTtl: 30 * 864e2});
+  }
+  for (const k of usedPq) await env.KV.delete(k);
+  // guruhida eslatma bo'lmagan talaffuz yozuvlari — 6 soatdan keyin alohida (bitta) xabar
+  for (const [sid, P] of Object.entries(pq)) { const rest = P.filter(p => !usedPq.has(p.k)); if (!rest.length || !rest.some(p => now - p.at > 6 * 3600e3)) continue;
+    const s = studs.find(x => x.id === sid); const g = s && gs.find(x => x.id === s.gid); rest.forEach(p => env.KV.delete(p.k));
+    if (!s || !s.thread || !g || g.quiet) continue; const w = [...new Set(rest.flatMap(p => p.words))].slice(0, 10);
+    await toTopic(env, g.id, s.thread, pick(DG.pron).replace("{n}", "<b>" + H(first(s.name)) + "</b>") + `\nFeedbackdagi so'zlar: ${w.map(x => "<b>" + H(x) + "</b>").join(", ")}\n<i>🔊 To'g'ri → 🎤 Ayting tugmalari bilan mashq qilib, «📤 Talaffuz natijasini yuborish» ni bosing.</i>`);
+    await addLog(env, sid, [{t: "pron_missed", n: w.length}]); }
 }
 
 /* ---------------- Faoliyat jurnali (o'qituvchi uchun) ---------------- */
