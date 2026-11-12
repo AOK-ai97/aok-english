@@ -715,10 +715,10 @@ function lessonEnd(g){ const m = String(g.time || "").match(/(\d{1,2})[:.](\d{2}
 const atLocal = (dk, mins) => Date.parse(dk + "T00:00:00Z") - TZ + mins * 60e3;      // dk = "YYYY-MM-DD" mahalliy
 const addDays = (dk, n) => new Date(Date.parse(dk + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const wdOf = dk => new Date(dk + "T00:00:00Z").getUTCDay();
-function nextLesson(g, fromDk){ // keyingi dars kuni (post kunidan keyin), dars tugashidan 15 daqiqa oldin
+function nextLesson(g, fromDk){ // keyingi dars kuni (bugundan keyin) — dars BOSHLANISHI vaqti
   const days = g.days && g.days.length ? g.days : null;
-  for (let i = 1; i <= 8; i++) { const dk = addDays(fromDk, i); if (!days || days.includes(wdOf(dk))) return atLocal(dk, lessonEnd(g) - 15); if (!days && i >= 2) break; }
-  return atLocal(addDays(fromDk, 2), lessonEnd(g) - 15);
+  for (let i = 1; i <= 8; i++) { const dk = addDays(fromDk, i); if (!days || days.includes(wdOf(dk))) return atLocal(dk, lessonStart(g)); if (!days && i >= 2) break; }
+  return atLocal(addDays(fromDk, 2), lessonStart(g));
 }
 
 /* ---------------- Homework posti (#Homework) ---------------- */
@@ -1674,7 +1674,7 @@ export default {
         const myG = (await getGroups(env)).filter(g => g.active !== false && (TT.admin || (TT.t.groups || []).includes(g.id))).map(g => ({id: g.id, title: g.title}));
         const myGid = myG.map(g => g.id);
         const writeHw = async (k, mk) => { const tgt = (b.groups || []).map(String).filter(x => myGid.includes(x)); const list = tgt.length ? tgt : (myGid.length ? myGid : ["*"]); let n = 0;
-          for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
+          for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v && !v.due && gid !== "*") { const g0 = (await getGroups(env)).find(x => String(x.id) === gid); if (g0) v.due = nextLesson(g0, dayKey()); } /* muddat yozilmasa — keyingi dars boshlanishi */ if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
         if (path === "/teacher/login") { const sv = await env.KV.get("seed:v1"); return out({ok: true, seeded: !!sv, seedv: +(sv || 0), name: TT.name, admin: TT.admin}); }
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
         if (path === "/teacher/ai") { await aiCount(env, null, null, true); const days = [];
