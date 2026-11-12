@@ -53,11 +53,11 @@ const idb=(()=>{let db;const open=()=>db||(db=new Promise((res,rej)=>{const r=in
   return{get:k=>tx("readonly",s=>s.get(k)).catch(()=>null),set:(k,v)=>tx("readwrite",s=>s.put(v,k)).catch(()=>{}),del:k=>tx("readwrite",s=>s.delete(k)).catch(()=>{})}})();
 
 /* Faoliyat jurnali — o'qituvchi har bir harakatni sana/soat bilan ko'radi */
-const LOG={buf:[],add(t,d){if(!ME)return;this.buf.push({t,at:Date.now(),...(d||{})});if(this.buf.length>=25)this.flush()},
+const LOG={buf:[],add(t,d){if(!ME)return;this.buf.push({t,at:Date.now(),...(d||{})});if(this.buf.length>=60)this.flush()},
   flush(beacon){if(!this.buf.length||!API||!ME)return;const body=JSON.stringify({code:ls.get("aok_code"),events:this.buf.splice(0)});
     if(beacon&&navigator.sendBeacon){try{navigator.sendBeacon(API+"/log",new Blob([body],{type:"text/plain"}));return}catch(e){}}
     fetch(API+"/log",{method:"POST",headers:{"content-type":"text/plain"},body,keepalive:true}).catch(()=>{})}};
-setInterval(()=>LOG.flush(),60000);
+setInterval(()=>LOG.flush(),300000); // har 5 daqiqada (server yozuvlarini tejash)
 window.addEventListener("pagehide",()=>{LOG.add("leave");LOG.flush(true)});
 document.addEventListener("visibilitychange",()=>{if(document.hidden)LOG.flush(true)});
 /* Jo'natish navbati: internet uzilsa ham saqlanadi va o'zi qayta yuboriladi */
@@ -65,7 +65,7 @@ const OUTK="outbox";
 async function outboxAll(){return (await idb.get(OUTK))||[]}
 async function outboxPut(job){const L=(await outboxAll()).filter(j=>j.key!==job.key);L.push(job);await idb.set(OUTK,L)}
 async function outboxDel(key){await idb.set(OUTK,(await outboxAll()).filter(j=>j.key!==key))}
-async function sendJob(job){const fd=new FormData();fd.append("code",job.code);fd.append("key",job.key);fd.append("caption",job.caption);if(job.auto)fd.append("auto","1");
+async function sendJob(job){const fd=new FormData();fd.append("code",job.code);fd.append("key",job.key);fd.append("caption",job.caption);if(job.auto)fd.append("auto","1");if(job.title!=null){fd.append("title",job.title||"—");fd.append("total",String(job.total||0));fd.append("max",String(job.max||0))}
   (job.videos||[]).forEach((v,i)=>fd.append("video",v,`speaking${i}.${/mp4/.test(v.type)?"mp4":"webm"}`));(job.pages||[]).forEach((p,i)=>fd.append("page",p,`page${i+1}.png`));
   const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));
   if(!r.ok||j.error){const e=new Error(j.error||("Server xatosi "+r.status));e.fatal=r.status>=400&&r.status<500;throw e}return j}
@@ -234,7 +234,7 @@ async function sendTG(box,d,btn,auto){
   btn.disabled=true;btn.textContent=auto?"⏳ Guruhga avtomatik yuborilmoqda…":"⏳ Tayyorlanmoqda…";
   let job=null;
   try{const pages=await a4Pages(box,d);
-    job={key:d.key,code:ls.get("aok_code"),caption:tgCaption(d)+(d.kind==="speaking"&&!VSEG.length?"\n🎥 Video yozilmagan (kamera o'chiq yoki sahifa qayta ochilgan)":""),pages,videos:d.kind==="speaking"?VSEG.slice():[],auto:!!auto,at:Date.now()};
+    job={key:d.key,title:d.title||"",total:d.kind==="speaking"?d.overall:d.total,max:d.kind==="speaking"?5:d.max,code:ls.get("aok_code"),caption:tgCaption(d)+(d.kind==="speaking"&&!VSEG.length?"\n🎥 Video yozilmagan (kamera o'chiq yoki sahifa qayta ochilgan)":""),pages,videos:d.kind==="speaking"?VSEG.slice():[],auto:!!auto,at:Date.now()};
     await outboxPut(job);VSEG=[];               // navbatga yozildi — sahifa yopilsa ham yo'qolmaydi
     btn.textContent="⏳ Yuborilmoqda…";
     let ok=false,last="";

@@ -112,7 +112,7 @@ function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqto
 async function aiCount(env, tag, model, force, ki, status){
   if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); const inc = x => USE.c[x] = (USE.c[x] || 0) + 1;
     if (!status || status === 200) inc(k); inc(`#k${ki || 0}|${model}|${status === 200 ? "ok" : status === 429 ? "limit" : "err"}`); USE.n++; }
-  if (!USE.n || (!force && USE.n < 12 && Date.now() - USE.t < 10 * 60e3)) return;
+  if (!USE.n || (!force && USE.n < 40 && Date.now() - USE.t < 30 * 60e3)) return; // yozuvlarni tejash
   const dk = "aiu:" + qDay(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
   USE.c = {}; USE.n = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
 }
@@ -312,19 +312,20 @@ async function shadowJob(env, g, hp, s, msg){
   if (ex && (ex.st === "done" || (ex.st === "run" && Date.now() - ex.t < 150e3))) return; // takror (Telegram qayta yuborgan)
   const job = {st: "run", t: Date.now(), c: Date.now(), gid: g.id, sid: s.id, n: ((ex && ex.n) || 0) + 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat}};
   await PUT(env, jk, job, {expirationTtl: 3 * 86400});
+  if (env.__kvfull) return toTopic(env, g.id, msg.message_thread_id || s.thread, "⏳ Bugun botning kunlik xotira limiti tugadi — shadowing hisobga yozilmaydi. Iltimos, audioni <b>ertalab 05:00 dan keyin</b> qayta yuboring.", {reply_to_message_id: msg.message_id, allow_sending_without_reply: true});
   const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-60)); }
   await runShadow(env, jk, job, g, hp, s);
 }
 async function runShadow(env, jk, job, g, hp, s){
   const lk = "shl:" + job.sid; const lock = await J(env, lk, null);
   if (lock && lock.k !== jk && Date.now() - lock.t < 90e3) return; // shu o'quvchining boshqa audiosi tekshirilmoqda — navbat (cron 1 daqiqada oladi)
-  await PUT(env, lk, {k: jk, t: Date.now()}, {expirationTtl: 300});
+  await PUT(env, lk, {k: jk, t: Date.now()}, {expirationTtl: 300}); if (env.__kvfull) return; // yozib bo'lmaydi — tekshirsak takror javob bo'ladi
   try { await checkShadowing(env, g, hp, s, job.msg); job.st = "done"; await PUT(env, jk, job, {expirationTtl: 3 * 86400});
     await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
   catch (e) { if (!e.busy) throw e; job.st = "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
   finally { await env.KV.delete(lk); }
 }
-async function shadowQueue(env){ // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
+async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
   if (!(await env.KV.get("mig:sh2"))) { await env.KV.put("mig:sh2", "1", {expirationTtl: 30 * 86400}); // kecha "AI band" bilan yopilgan audiolarni qayta navbatga qo'yish
     const studs0 = await getStudents(env); const gs0 = await getGroups(env); const q0 = await J(env, "shq", []); let cur;
     do { const L = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L.list_complete ? null : L.cursor;
@@ -617,7 +618,7 @@ async function spkLaunch(env, g){
   await PUT(env, `spd:${g.id}:${day}`, {}, {expirationTtl: 60 * 86400});
   return n;
 }
-async function spkSweep(env){ // har daqiqa: javob kutayotganlarga eslatma, osilib qolganlarni yakunlash
+async function spkSweep(env){ if (env.__kvfull) return; // har daqiqa: javob kutayotganlarga eslatma, osilib qolganlarni yakunlash
   const l = await J(env, "spl", []); if (!l.length) return; const gs = await getGroups(env); const studs = await getStudents(env);
   for (const sid of l) { const ses = await J(env, spsK(sid), null); const s = studs.find(x => x.id === sid); const g = ses && gs.find(x => x.id === ses.gid);
     if (!ses || ses.st === "done" || !s || !g) { await PUT(env, "spl", (await J(env, "spl", [])).filter(x => x !== sid)); continue; }
@@ -721,7 +722,7 @@ async function rpPreview(env, g, rp){
   return pm(env, rp.by, t, kb([[{text: "✅ Yuborish", callback_data: `rpok:${g.id}:${rp.mid}`}, {text: "🗑 Yubormaslik", callback_data: `rpno:${g.id}:${rp.mid}`}]]));
 }
 async function rpSend(env, g, rp, dl = Infinity){ // qayta boshlansa — yuborilganlarga takror yozmaydi
-  if (!["pending", "sending"].includes(rp.st)) return {n: 0, left: 0}; rp.st = "sending"; rp.sentTo = rp.sentTo || []; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400});
+  if (!["pending", "sending"].includes(rp.st)) return {n: 0, left: 0}; rp.st = "sending"; rp.sentTo = rp.sentTo || []; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400}); if (env.__kvfull) return {n: 0, left: 1};
   const studs = await getStudents(env); let left = 0;
   for (const x of await rpFacts(env, g, rp)) { if (!x.type) continue; const s = studs.find(y => y.id === x.sid); if (!s || !s.thread || rp.sentTo.includes(s.id)) continue;
     if (Date.now() > dl) { left++; continue; }
@@ -1343,7 +1344,8 @@ async function react(env, chat, mid, emoji){ let last = null; const al = await a
   }
   return last;
 }
-async function trace(env, gid, o){ try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 86400}); } catch (e) {} }
+const TRT = {};
+async function trace(env, gid, o){ if (Date.now() - (TRT[gid] || 0) < 60e3) return; TRT[gid] = Date.now(); try { const k = "tr:" + gid; const a = await J(env, k, []); a.unshift({t: Date.now(), ...o}); await PUT(env, k, a.slice(0, 8), {expirationTtl: 7 * 86400}); } catch (e) {} }
 async function onGroupMessage(env, msg){
   const gid = String(msg.chat.id); const gs = await getGroups(env); let g = gs.find(x => x.id === gid);
   if (msg.migrate_to_chat_id) { if (g) { g.id = String(msg.migrate_to_chat_id); await PUT(env, "groups", gs); } return; }
@@ -1574,18 +1576,19 @@ function digestLine(x, now){
 }
 // Eslatma xabari: o'zi yangilanadi (edit). Topic'da undan keyin yangi xabar bo'lsa — eskisi o'chiriladi va pastga qayta tashlanadi (≤ har 30 daqiqada)
 async function remindSend(env, g, s, text, live, now, hour){
-  const k = `rmr:${g.id}:${s.thread}`; const o = await J(env, k, null);
+  if (env.__kvfull) return "kvfull"; const k = `rmr:${g.id}:${s.thread}`; const o = await J(env, k, null);
   if (o && o.live && !o.moved) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: o.mid, text, parse_mode: "HTML", disable_web_page_preview: true});
     if (e.ok || /not modified/i.test(e.description || "")) { if (!live) await PUT(env, k, {...o, live: false}, {expirationTtl: 3 * 86400}); return "edit"; } }
   if (live && (hour < 8 || (o && o.live && now - (o.at || 0) < 30 * 60e3))) return "wait"; // erta tong yoki yaqinda tashlangan — keyinroq
   if (o && o.live) await tg(env, "deleteMessage", {chat_id: g.id, message_id: o.mid});
+  await PUT(env, k, {...(o || {}), pend: now}, {expirationTtl: 3 * 86400}); if (env.__kvfull) return "kvfull"; // holat saqlanmasa — yubormaymiz (aks holda har 5 daqiqada takrorlanadi)
   const r = await toTopic(env, g.id, s.thread, text, {_rm: 1});
   if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, at: now, live: !!live, moved: false}, {expirationTtl: 3 * 86400});
   return "post";
 }
 async function rmMark(env, gid, th, mid){ try { const k = `rmr:${gid}:${th}`; const o = await J(env, k, null); if (o && o.live && !o.moved && mid > o.mid) await PUT(env, k, {...o, moved: true}, {expirationTtl: 3 * 86400}); } catch (e) {} }
 async function digestAll(env, gs, studs, hpAct, now, quiet){
-  if (quiet) return;
+  if (quiet || env.__kvfull) return;
   const hour = L(now).getUTCHours();
   // talaffuz mashqi qilinmaganlar (pq:<at>) — o'quvchi bo'yicha
   const pqL = await env.KV.list({prefix: "pq:"}); const pq = {};
@@ -1636,7 +1639,7 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
       if (now >= due && now - due < 864e5 && !st.posted[pk]) { ch = true;
         for (const k2 of KINDS) if (hws[k2] && now >= siteDue(g, hws, k2)) st.posted[k2 + ":" + hwFrom(g, hws[k2])] = now; // bitta jadval — ikkala tur uchun
         if (g.res && !fresh) await toTopic(env, g.id, g.res, await resultsText(env, g)); break; } }
-    if (fresh) { kun.length = 0; lateK.length = 0; ch = true; }
+    if (fresh || env.__kvfull) { kun.length = 0; lateK.length = 0; ch = true; }
     if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${it.icon} ${H(it.title)}`).join(", ")}`).join("\n"));
     if (lateK.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\n⏰ Kech, ammo topshirdi:\n\n` + lateK.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${it.icon} ${H(it.title)}`).join(", ")}`).join("\n"));
     // eski yozuvlarni tozalash (14 kun)
@@ -1662,9 +1665,7 @@ async function idemStart(env, kind, stu, chunks){
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(src)); const k = "idm:" + [...new Uint8Array(d)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join("");
   const v = await J(env, k, null);
   if (v && v.key) { const raw = await env.KV.get(v.key); if (raw) { const r = JSON.parse(raw); r.saved = true; r.can_send = !!stu.thread; r.dup = true; return {k, hit: r}; } }
-  if (v && v.st === "run" && Date.now() - v.t < 150e3) { const e = new Error("Bu ish hozir tekshirilmoqda — biroz kuting, natija o'zi chiqadi."); e.busy = true; throw e; }
-  await PUT(env, k, {st: "run", t: Date.now()}, {expirationTtl: 3600});
-  return {k};
+  return {k}; // (yozuvlarni tejash: "ishlayapti" belgisi yozilmaydi — faqat tayyor natija)
 }
 const idemDone = (env, idem, key) => idem.k ? PUT(env, idem.k, {key, t: Date.now()}, {expirationTtl: 6 * 3600}) : null;
 
@@ -1703,9 +1704,17 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
 /* =====================================================================
    ASOSIY
    ===================================================================== */
+// KV yozish limiti tugasa ham tizim yiqilmasin: yozuv xatosi yutiladi, env.__kvfull belgilanadi (yuborishlar shunga qarab to'xtaydi)
+let KVFULL_UNTIL = 0;
+function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = Object.create(env);
+  e.__safe = true; e.__kvfull = Date.now() < KVFULL_UNTIL;
+  e.KV = new Proxy(kv, {get(t, p){ const f = t[p]; if (typeof f !== "function") return f;
+    if (p === "put" || p === "delete") return async (...a) => { if (e.__kvfull) return; try { return await f.apply(t, a); } catch (x) { if (/limit exceeded|429|Too Many/i.test(String(x && x.message))) { e.__kvfull = true; const d = new Date(); KVFULL_UNTIL = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); console.log("KV FULL"); return; } throw x; } };
+    return f.bind(t); }});
+  return e; }
 export default {
-  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env)]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
-  async fetch(req, env, ctx){
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env)]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
     if (path === "/tg" && req.method === "POST") {
@@ -1744,6 +1753,7 @@ export default {
         const g = (await getGroups(env)).find(x => x.id === stu.gid);
         if (!g || !stu.thread) return out({error: "Sizning topic'ingiz hali ulanmagan — o'qituvchiga ayting."}, 400);
         const key = String(fd.get("key") || ""); const rv = await env.KV.getWithMetadata(key);
+        if (key.startsWith("r:") && !rv.value && fd.get("title")) { rv.value = "{}"; rv.metadata = {sid: stu.id, title: String(fd.get("title")).slice(0, 100), total: +fd.get("total") || 0, max: +fd.get("max") || 0, nokv: 1}; } // kunlik KV limiti tugagan kunda saqlanmagan natija — o'quvchining o'zidagi nusxa yuboriladi
         if (!key.startsWith("r:") || !rv.metadata || rv.metadata.sid !== stu.id) return out({error: "Natija topilmadi."}, 404);
         if (fd.get("extra") === "pron") { // talaffuz mashqi natijasi — qo'shimcha xabar (bir xili qayta yuborilmaydi)
           const cap = String(fd.get("caption") || "").slice(0, 3500); const hsh = String(cap.length) + ":" + [...cap].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
