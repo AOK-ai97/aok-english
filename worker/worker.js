@@ -441,7 +441,7 @@ async function impParse(env, d){
       const want = /part\s*(1\.2|2)\b/i.test(xml.replace(/<[^>]+>/g, " ")); let budget = 7e6; const seen = {};
       // rasmlar hujjatdagi TARTIBda: [PICTURE n] = IMAGE n
       const dt = docxText(xml, dr => { const rid = (dr.match(/r:embed="([^"]+)"/) || [])[1], mf = rid && rmap[rid]; if (!want || !mf || !z[mf] || z[mf].length < 15000 || !/\.(png|jpe?g)$/i.test(mf)) return " [PICTURE] ";
-        if (!seen[mf]) { if (imgs.length >= 8 || (budget -= z[mf].length) < 0) return " [PICTURE] "; addImg(/png$/i.test(mf) ? "image/png" : "image/jpeg", b64of(z[mf]), "IMAGE"); seen[mf] = imgs.length; } return ` [PICTURE ${seen[mf]}] `; });
+        if (!seen[mf]) { if (imgs.length >= 8 || (budget -= z[mf].length) < 0) return " [PICTURE] "; imgs.push("data:" + (/png$/i.test(mf) ? "image/png" : "image/jpeg") + ";base64," + b64of(z[mf])); seen[mf] = imgs.length; } return ` [PICTURE ${seen[mf]}] `; });
       allText += "\n" + dt; parts.unshift({text: "WORD FILE TEXT (" + p.name + "):\n" + dt.slice(0, 30000)}); continue; }
     if (/\.pdf$/.test(nm) || p.mime === "application/pdf") { parts.push({text: "PDF FILE (" + p.name + "):"}); parts.push({inline_data: {mime_type: "application/pdf", data: b64of(f.u8)}}); continue; }
     if (/^image\//.test(p.mime)) { addImg(p.mime, b64of(f.u8), "IMAGE"); continue; }
@@ -449,7 +449,7 @@ async function impParse(env, d){
   }
   if (!parts.length) throw new Error("Fayl o'qilmadi (docx, pdf, rasm yoki matn yuboring).");
   const hz = impHeur(allText); let r;
-  try { r = await gemini(env, IMP_SYS, parts, IMP_SCHEMA, 0.1); } catch (e) { if (!hz.length) throw e; r = {items: []}; } // AI ishlamasa ham lesson pack formatini o'qiymiz
+  try { r = await gemini(env, IMP_SYS, parts, IMP_SCHEMA, 0.1); } catch (e) { if (!hz.length) { e.message += ` [matn ${allText.length} belgi, ${d.parts.length} qism]`; throw e; } r = {items: []}; } // AI ishlamasa ham lesson pack formatini o'qiymiz
   let raw = r.items || []; if (hz.length > raw.length) raw = hz; // AI bo'sh yoki kam topsa — matndan o'zimiz ajratamiz
   const items = [];
   for (const x of raw) { x.part = String(x.part || "").replace(/part|task|\s/ig, "").replace(/^1$/, "T1").replace(/^([12])\.?$/, (m, d) => x.kind === "writing" ? "T" + d : d);
