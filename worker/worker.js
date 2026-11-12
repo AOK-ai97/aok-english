@@ -367,6 +367,9 @@ Worksheets often contain a long article, vocabulary tables, sample answers and t
 Copy question texts exactly (fix only obvious OCR typos, remove numbering like "1."). Ignore articles, vocabulary tables, answer keys, structures/frames, grammar exercises and reading texts.
 "img" uses the IMAGE numbers (1-based) or photo numbers; in Word text a marker "[PICTURE n]" is IMAGE n placed at that spot (use the label just before it, e.g. "Part 1.2 — 1-rasm"); [] if unknown. topic = short English topic. Answer ONLY with JSON.`;
 const IMP_SCHEMA = {type:"OBJECT",properties:{title:STR,items:{type:"ARRAY",items:{type:"OBJECT",properties:{kind:STR,part:STR,topic:STR,q:{type:"ARRAY",items:STR},img:{type:"ARRAY",items:{type:"INTEGER"}},for:{type:"ARRAY",items:STR},against:{type:"ARRAY",items:STR},sender:STR,email:STR,t11:STR,t12:STR,essay:STR},required:["kind","part"]}}},required:["title","items"]};
+// Ustoz so'rovi (wizard): o'chirish o'rniga "yopildi" belgisi — kalit doim mavjud, KV keshi eskirgan "yo'q" javobini bermaydi
+const wizGet = async (env, u) => { const w = await J(env, wizK(u), null); return w && !w._del ? w : null; };
+const wizDel = (env, u) => PUT(env, wizK(u), {_del: 1}, {expirationTtl: 7 * 86400});
 const impK = uid => "imp:" + uid, impD = id => "impd:" + id;
 async function tgFileBytes(env, file_id, max = 18e6){
   const f = await tg(env, "getFile", {file_id}); if (!f.ok || !f.result.file_path || (f.result.file_size || 0) > max) return null;
@@ -1082,7 +1085,7 @@ async function askNextLink(env, w){
     kb([[{text:"⏭ O'tkazib yuborish", callback_data:"skip"}, {text:"✅ Keyinroq ulayman", callback_data:"wdone"}]]));
 }
 async function finishWizard(env, w){
-  await env.KV.delete(wizK(w.uid)); const g = (await getGroups(env)).find(x => x.id === w.gid); if (!g) return;
+  await wizDel(env, w.uid); const g = (await getGroups(env)).find(x => x.id === w.gid); if (!g) return;
   const studs = await getStudents(env); if (studs.some(s => s.thread === 0)) { studs.forEach(s => { if (s.thread === 0) s.thread = null; }); await PUT(env, "students", studs); }
   await pm(env, w.uid, `✅ <b>${H(g.title)}</b> nazoratga olindi!\n\n💡 Davomat topic'iga dars kunlari va vaqtini bir marta yozib qo'ying, masalan:\n<code>Time: 16:00-18:00\nTuesday-Thursday-Saturday</code>\nBot "keyingi darsgacha" muddatini shundan hisoblaydi.`);
   await pm(env, w.uid, await pinText(env, g)); const r = await roleOf(env, w.uid); return r && groupMenu(env, r, g);
@@ -1096,7 +1099,7 @@ async function wizardNext(env, w){
     if (w.type === "new") { await pm(env, w.uid, "🆕 Yangi guruh: o'quvchilar topic'larini guruhda o'zingiz oching. <b>Topic nomi o'quvchi ismi bilan bir xil bo'lsa, bot uni o'zi ulaydi.</b>"); return finishWizard(env, w); }
     return askNextLink(env, w);
   }
-  await env.KV.delete(wizK(w.uid)); const r = await roleOf(env, w.uid); return groupMenu(env, r, g);
+  await wizDel(env, w.uid); const r = await roleOf(env, w.uid); return groupMenu(env, r, g);
 }
 async function teachersMenu(env, uid, edit){
   const ts = await getTeachers(env); const gs = (await getGroups(env)).filter(g => g.active !== false);
@@ -1120,8 +1123,8 @@ async function onPrivate(env, msg){
       await pm(env, env.OWNER_ID, `👩‍🏫 <b>${H(t.name)}</b> botga ulandi.`); return mainMenu(env, await roleOf(env, me)); }
     return pm(env, me, "📡 <b>AOK Radar</b>\nBu bot AOK English o'qituvchilari uchun. O'quvchi bo'lsangiz, natijalaringiz guruhdagi topic'ingizga keladi 🙂\n\n👩‍🏫 O'qituvchi bo'lsangiz — 6 xonali kodingizni yuboring.");
   }
-  const w = await J(env, wizK(me), null);
-  if (/^\/(start|guruhlar|menu)/.test(text)) { if (w) await env.KV.delete(wizK(me)); return mainMenu(env, r); }
+  const w = await wizGet(env, me);
+  if (/^\/(start|guruhlar|menu)/.test(text)) { if (w) await wizDel(env, me); return mainMenu(env, r); }
   const one = await myGroups(env, r);
   const pickG = async (cmd) => one.length === 1 ? one[0] : (await pm(env, me, "Guruhni tanlang:", kb(one.map(g => [{text: g.title, callback_data: cmd + ":" + g.id}]))), null);
   if (/^\/limit/.test(text)) { const m = await pm(env, me, await limText(env)); if (m && m.ok) { try { await tg(env, "pinChatMessage", {chat_id: me, message_id: m.result.message_id, disable_notification: true}); } catch (e) {}
@@ -1166,25 +1169,25 @@ async function onPrivate(env, msg){
     if (/^\/ochir/.test(text)) { await PUT(env, "students", studs.filter(x => x.id !== s.id)); return pm(env, me, `🗑 ${H(s.name)} ro'yxatdan o'chirildi.`); }
     s.pin = newPin(studs); await PUT(env, "students", studs); return pm(env, me, `🔑 ${H(s.name)} — yangi PIN: <code>${s.pin}</code>`);
   }
-  if (msg.document || msg.photo) { if (w) await env.KV.delete(wizK(me)); return impAdd(env, r, msg); } // fayl/rasm — har doim vazifa importi (ochiq qolgan matn so'rovi bo'lsa ham)
+  if (msg.document || msg.photo) { if (w) await wizDel(env, me); return impAdd(env, r, msg); } // fayl/rasm — har doim vazifa importi (ochiq qolgan matn so'rovi bo'lsa ham)
   if (!w && text.length >= 60 && !text.startsWith("/")) return impAdd(env, r, msg); // worksheet matni → vazifa
   if (!w) return pm(env, me, "📡 Menyu uchun /start bosing.");
   if (w.step === "tname" && r.admin) {
     const ts = await getTeachers(env); const t = {id: uid(), name: text.slice(0, 60), code: newCode(ts, env), tg: null, groups: [], at: Date.now()};
-    ts.push(t); await PUT(env, "teachers", ts); await env.KV.delete(wizK(me)); return teacherCard(env, me, t);
+    ts.push(t); await PUT(env, "teachers", ts); await wizDel(env, me); return teacherCard(env, me, t);
   }
-  const gs = await getGroups(env); const g = gs.find(x => x.id === w.gid); if (!g || !canG(r, g)) { await env.KV.delete(wizK(me)); return; }
+  const gs = await getGroups(env); const g = gs.find(x => x.id === w.gid); if (!g || !canG(r, g)) { await wizDel(env, me); return; }
   if (w.step === "hpfix") {
-    const hp = await J(env, "hp:" + g.id, null); if (!hp) { await env.KV.delete(wizK(me)); return; }
+    const hp = await J(env, "hp:" + g.id, null); if (!hp) { await wizDel(env, me); return; }
     try { hp.items = await hpParse(env, g, hp.text, hp.at, [hp.fix, text].filter(Boolean).join("\n")); hp.fix = [hp.fix, text].filter(Boolean).join("\n"); }
-    catch (e) { if (!text) return; hp.fixq = text; await PUT(env, "hp:" + g.id, hp); await env.KV.delete(wizK(me)); return pm(env, me, "⏳ AI hozir band — tuzatishingizni saqladim, 5 daqiqa ichida o'zim qayta o'qib, yangi ro'yxatni yuboraman."); }
-    hp.st = "draft"; hp.at2 = Date.now(); await PUT(env, "hp:" + g.id, hp); await env.KV.delete(wizK(me)); return hpConfirm(env, g, hp);
+    catch (e) { if (!text) return; hp.fixq = text; await PUT(env, "hp:" + g.id, hp); await wizDel(env, me); return pm(env, me, "⏳ AI hozir band — tuzatishingizni saqladim, 5 daqiqa ichida o'zim qayta o'qib, yangi ro'yxatni yuboraman."); }
+    hp.st = "draft"; hp.at2 = Date.now(); await PUT(env, "hp:" + g.id, hp); await wizDel(env, me); return hpConfirm(env, g, hp);
   }
   if (["kun", "res", "dav", "hwt"].includes(w.step)) {
     const l = parseLink(text); if (!l) return pm(env, me, "❗ Link topilmadi. <code>https://t.me/c/…/…</code> ko'rinishidagi linkni yuboring.");
     if (l.chat !== g.id) return pm(env, me, "❗ Bu link boshqa guruhniki. Shu guruhdagi topic linkini yuboring.");
     g[w.step] = l.thread; await PUT(env, "groups", gs); await pm(env, me, "✅ Saqlandi.");
-    if (w.flow !== "setup") { await env.KV.delete(wizK(me)); return groupMenu(env, r, g); }
+    if (w.flow !== "setup") { await wizDel(env, me); return groupMenu(env, r, g); }
     return wizardNext(env, w);
   }
   if (w.step === "list") {
@@ -1308,8 +1311,8 @@ Natijalar Results topic'idagi jadvalda yangilanib boradi.`}); }
     const x = await rpSend(env, g, rp, Date.now() + 18e3); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: x.left ? `⏳ <b>${H(rp.title)}</b> — ${x.n} tasi yuborildi, qolgan ${x.left} tasi 5 daqiqa ichida yuboriladi (o'zim xabar beraman).` : `✅ <b>${H(rp.title)}</b> — ${x.n} ta o'quvchi topic'iga maqtov/tanbeh yuborildi.`}); }
   if (a === "hpdel" && g) { await env.KV.delete("hp:" + g.id); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🗑 <b>${H(g.title)}</b> — bu Homework nazorat qilinmaydi. Keyingi #Homework postini bot yana o'qiydi.`}); }
   if (a === "hped" && g) { await PUT(env, wizK(r.uid), {uid: r.uid, gid: g.id, step: "hpfix"}); return pm(env, r.uid, ASK.hpfix); }
-  if (a === "skip") { const w = await J(env, wizK(r.uid), null); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
-  if (a === "wdone") { const w = await J(env, wizK(r.uid), null); if (!w) return; return finishWizard(env, w); }
+  if (a === "skip") { const w = await wizGet(env, r.uid); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
+  if (a === "wdone") { const w = await wizGet(env, r.uid); if (!w) return; return finishWizard(env, w); }
   if (!r.admin) return;
   if (a === "del1" && g) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `⚠️ <b>${H(g.title)}</b> yopilsinmi?\n\nO'quvchilar, PIN kodlar, davomat va natijalar tarixi o'chadi. Guruhdagi xabarlar va topic'lar tegilmaydi.`,
     ...kb([[{text:"Ha, yopilsin", callback_data:"del2:" + g.id}, {text:"Yo'q", callback_data:"g:" + g.id}]])});
