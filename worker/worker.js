@@ -116,6 +116,15 @@ async function aiCount(env, tag, model, force, ki, status){
   const dk = "aiu:" + dayKey(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
   USE.c = {}; USE.n = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
 }
+// Taxminiy bepul limit (1 kalit = 1 Google loyiha, kuniga). Google o'zgartirsa — Cloudflare'da AI_LIMITS='{"flash":250,"lite":1000}' bilan yangilanadi
+function aiLimits(env){ let o = {flash: 250, lite: 1000}; try { if (env.AI_LIMITS) o = {...o, ...JSON.parse(env.AI_LIMITS)}; } catch (e) {} return o; }
+function aiCapacity(env, v){
+  const L = aiLimits(env), n = gKeys(env).length; let uf = 0, ul = 0;
+  for (const o of Object.values(v.keys)) for (const [m, c] of Object.entries(o.m)) /lite/.test(m) ? ul += c : uf += c;
+  const cf = n * L.flash, cl = n * L.lite;
+  return {n, cf, cl, uf, ul, rf: Math.max(0, cf - uf), rl: Math.max(0, cl - ul)};
+}
+function aiCapText(c){ return `🧮 <b>Taxminiy imkoniyat (${c.n} kalit, kuniga):</b>\n • Asosiy model (writing, speaking, shadowing): ${c.cf} ta → ishlatildi ${c.uf}, qoldi <b>~${c.rf}</b>\n • Yengil model (talaffuz, feedback, suhbat): ${c.cl} ta → ishlatildi ${c.ul}, qoldi <b>~${c.rl}</b>\n <i>1 writing/speaking/shadowing tekshiruvi ≈ 1 ta asosiy so'rov; asosiy tugasa yengilga o'tadi.</i>`; }
 function aiUsageView(u){ // {feature: n, "#k1|model|ok": n}
   const feat = Object.entries(u).filter(([k]) => !k.startsWith("#")).sort((a, b) => b[1] - a[1]);
   const keys = {}; for (const [k, v] of Object.entries(u)) if (k.startsWith("#")) { const [ki, model, st] = k.slice(2).split("|"); const o = keys[ki] = keys[ki] || {ok: 0, limit: 0, err: 0, m: {}}; o[st] += v; if (st === "ok") o.m[model] = (o.m[model] || 0) + v; }
@@ -1050,7 +1059,7 @@ async function onPrivate(env, msg){
     { const v = aiUsageView(await J(env, "aiu:" + dayKey(), {}));
       t += `\n\n📊 <b>Bugun AI: ${v.total} ta so'rov</b>\n` + (v.feat.map(([k, n]) => ` • ${H(k)}: ${n}`).join("\n") || " • hali yo'q");
       const ks = Object.entries(v.keys).sort(); if (ks.length) t += "\n🔑 Kalitlar bo'yicha:\n" + ks.map(([ki, o]) => ` • Kalit ${ki}: ✅ ${o.ok}${o.limit ? ` · ⛔ limit ${o.limit}` : ""}${o.err ? ` · ⚠️ ${o.err}` : ""}${Object.keys(o.m).length ? " (" + Object.entries(o.m).map(([m, n]) => m.replace("gemini-", "") + " " + n).join(", ") + ")" : ""}`).join("\n");
-      t += "\n<i>Limit har kuni ~13:00 (Toshkent) da yangilanadi.</i>"; }
+      t += "\n" + aiCapText(aiCapacity(env, v)) + "\n<i>Limit har kuni ~13:00 (Toshkent) da yangilanadi.</i>"; }
     try { await cron(env); t += "\n✅ cron xatosiz ishladi"; } catch (e) { t += "\n❌ cron xatosi: " + H(String(e.stack || e.message).slice(0, 600)); }
     return pm(env, me, t);
   }
@@ -1604,7 +1613,7 @@ export default {
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
         if (path === "/teacher/ai") { await aiCount(env, null, null, true); const days = [];
           for (let i = 0; i < 7; i++) { const d = dayKey(Date.now() - i * 864e5); days.push({d, ...aiUsageView(await J(env, "aiu:" + d, {}))}); }
-          return out({keys: gKeys(env).length, days}); }
+          return out({keys: gKeys(env).length, days, cap: aiCapacity(env, days[0])}); }
         if (path === "/teacher/log") {
           const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : dayKey(); const q = nn(b.q || "");
           const studs = (await getStudents(env)).filter(s => myGid.includes(s.gid) && (!q || nn(s.name).includes(q)) && (!b.gid || s.gid === b.gid));

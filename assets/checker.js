@@ -631,7 +631,12 @@ if(PAGE==="teacher"){
   async function loadAI(){const box=$("#aiBox");box.innerHTML=`<div class="ck-load"><div class="ck-spin"></div><span>Yuklanmoqda…</span></div>`;
     try{const j=await post("/teacher/ai",{tcode:T()});const t=j.days[0];
       const kRows=Object.entries(t.keys).sort().map(([k,o])=>`<tr><td>Kalit ${esc(k)}</td><td>✅ ${o.ok}</td><td>${o.limit?"⛔ "+o.limit:"—"}</td><td>${o.err?"⚠️ "+o.err:"—"}</td><td>${Object.entries(o.m).map(([m,n])=>esc(m.replace("gemini-",""))+": "+n).join(", ")||"—"}</td></tr>`).join("");
-      box.innerHTML=`<h3 style="margin:8px 0">Bugun: ${t.total} ta so'rov · ${j.keys} ta kalit ulangan</h3>
+      const c=j.cap,bar=(u,m)=>{const p=m?Math.min(100,Math.round(u/m*100)):0;return `<div style="background:rgba(127,140,160,.25);border-radius:6px;height:12px;margin:4px 0 8px"><div style="width:${p}%;height:12px;border-radius:6px;background:${p<70?"#1b7a3a":p<90?"#b07a00":"#b3261e"}"></div></div>`};
+      box.innerHTML=`<h3 style="margin:8px 0">🧮 Taxminiy kunlik imkoniyat — ${c.n} ta kalit</h3>
+      <div><b>Asosiy model</b> (writing, speaking, shadowing): ishlatildi ${c.uf} / ${c.cf} → qoldi <b>~${c.rf}</b> ta tekshiruv</div>${bar(c.uf,c.cf)}
+      <div><b>Yengil model</b> (talaffuz, feedback, Speaking kuni): ishlatildi ${c.ul} / ${c.cl} → qoldi <b>~${c.rl}</b></div>${bar(c.ul,c.cl)}
+      <p class="hint">Taxminiy: Google'ning bepul limiti (1 kalit ≈ 250 asosiy + 1000 yengil so'rov/kun). Asosiy tugasa bot o'zi yengil modelga o'tadi.</p>
+      <h3 style="margin:8px 0">Bugun: ${t.total} ta so'rov · ${j.keys} ta kalit ulangan</h3>
       <table class="ck-tab"><tr><th>Bo'lim</th><th>So'rov</th></tr>${t.feat.map(([k,n])=>`<tr><td>${esc(k)}</td><td><b>${n}</b></td></tr>`).join("")||`<tr><td colspan=2>Hali yo'q</td></tr>`}</table>
       <h3 style="margin:12px 0 6px">Kalitlar bo'yicha (bugun)</h3><table class="ck-tab"><tr><th>Kalit</th><th>Muvaffaqiyatli</th><th>Limit tugagan</th><th>Xato</th><th>Modellar</th></tr>${kRows||`<tr><td colspan=5>Hali yo'q</td></tr>`}</table>
       <h3 style="margin:12px 0 6px">Oxirgi 7 kun</h3><table class="ck-tab"><tr><th>Sana</th><th>Jami</th><th>Eng ko'p</th></tr>${j.days.map(d=>`<tr><td>${esc(d.d.slice(8,10)+"."+d.d.slice(5,7))}</td><td><b>${d.total}</b></td><td>${d.feat.slice(0,3).map(([k,n])=>esc(k)+" "+n).join(", ")||"—"}</td></tr>`).join("")}</table>`}
