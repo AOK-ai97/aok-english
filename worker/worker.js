@@ -429,11 +429,26 @@ async function impParse(env, d){
   return {title: clean(r.title, 100) || "Uyga vazifa", items};
 }
 const PART_UZ = {"1.1": "🎤 Part 1.1", "1.2": "🎤 Part 1.2", "2": "🎤 Part 2", "3": "🎤 Part 3", T1: "✍️ Task 1", T2: "✍️ Task 2"};
+async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari (AI band bo'lsa — o'zi qayta urinadi)
+  const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
+  for (const uid of q) { const d = await J(env, impK(uid), null); if (!d || !d.q) { drop.push(uid); continue; } if (d.q.next > Date.now()) continue;
+    const r = await roleOf(env, uid); if (!r) { drop.push(uid); continue; } const mid = d.q.mid;
+    d.q.next = Date.now() + 90e3; await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400}); // ishlayapti — keyingi daqiqada qayta olinmasin
+    try { const x = await impParse(env, d); d.title = x.title; d.items = x.items; delete d.q; drop.push(uid);
+      if (!d.items.length) { await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400}); await tg(env, "editMessageText", {chat_id: uid, message_id: mid, text: "❓ Speaking/Writing savoli topilmadi. Savollar bor sahifani yuboring.", ...kb([[{text: "🗑 Bekor qilish", callback_data: "imp:del"}]])}); continue; }
+      const gs0 = await myGroups(env, r); d.sel = gs0.length === 1 ? [gs0[0].id] : []; await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400}); await impPreview(env, r, d, mid); }
+    catch (e) { d.q.n++; const er = String(e.message || e).slice(0, 160);
+      if (!e.busy || d.q.n >= 5) { delete d.q; drop.push(uid); await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400});
+        await tg(env, "editMessageText", {chat_id: uid, message_id: mid, parse_mode: "HTML", text: "❌ O'qib bo'lmadi: " + H(er), ...kb([[{text: "🔁 Qayta urinish", callback_data: "imp:go"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]])}); continue; }
+      d.q.next = Date.now() + [60e3, 120e3, 180e3, 300e3][d.q.n - 1]; await PUT(env, impK(uid), d, {expirationTtl: 2 * 86400});
+      await tg(env, "editMessageText", {chat_id: uid, message_id: mid, parse_mode: "HTML", text: `⏳ Google AI hozir band — ${d.q.n + 1}-urinish ${Math.round((d.q.next - Date.now()) / 60e3)} daqiqadan keyin. Hech narsa bosish shart emas, o'zim qayta urinaman.`}); } }
+  if (drop.length) await PUT(env, "impq", (await J(env, "impq", [])).filter(x => !drop.includes(x)));
+}
 async function impPreview(env, r, d, edit){
   const gs = await myGroups(env, r); const sel = d.sel || [];
   let t = `📝 <b>${H(d.title)}</b> — ${d.items.length} ta savol topildi:\n\n`;
   t += d.items.map((it, i) => `${i + 1}. ${PART_UZ[it.part || it.wtype]}${(it._img || []).length ? " 🖼" + it._img.length : (it.part === "1.2" || it.part === "2") ? " ⚠️ rasmsiz" : ""} — ${H(clean(it.kind === "writing" ? (it.wtype === "T1" ? it.sender + " " + (it.t11 ? "(1.1 + 1.2)" : "") : it.essay) : it.q.join(" / "), 110))}`).join("\n");
-  t += `\n\n👥 Qaysi guruhga vazifa qilinsin? (belgilang)\n<i>Muddat: keyingi dars oxirigacha. Saytda o'quvchilarga darhol chiqadi.</i>`;
+  t += `\n\n👥 Qaysi guruhga vazifa qilinsin? (belgilang)\n<i>Muddat: keyingi dars boshlanishigacha. Saytda o'quvchilarga darhol chiqadi.</i>`;
   const rows = gs.map(g => [{text: (sel.includes(g.id) ? "✅ " : "⬜️ ") + g.title, callback_data: "impg:" + g.id}]);
   rows.push([{text: "📌 Vazifa qilish", callback_data: "imp:ok"}, {text: "📚 Faqat bazaga", callback_data: "imp:bank"}], [{text: "🗑 Bekor qilish", callback_data: "imp:del"}]);
   return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text: t, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, t, kb(rows));
@@ -1105,7 +1120,8 @@ async function onPrivate(env, msg){
     if (/^\/ochir/.test(text)) { await PUT(env, "students", studs.filter(x => x.id !== s.id)); return pm(env, me, `🗑 ${H(s.name)} ro'yxatdan o'chirildi.`); }
     s.pin = newPin(studs); await PUT(env, "students", studs); return pm(env, me, `🔑 ${H(s.name)} — yangi PIN: <code>${s.pin}</code>`);
   }
-  if (!w && (msg.document || msg.photo || (text.length >= 60 && !text.startsWith("/")))) return impAdd(env, r, msg); // worksheet → vazifa
+  if (msg.document || msg.photo) { if (w) await env.KV.delete(wizK(me)); return impAdd(env, r, msg); } // fayl/rasm — har doim vazifa importi (ochiq qolgan matn so'rovi bo'lsa ham)
+  if (!w && text.length >= 60 && !text.startsWith("/")) return impAdd(env, r, msg); // worksheet matni → vazifa
   if (!w) return pm(env, me, "📡 Menyu uchun /start bosing.");
   if (w.step === "tname" && r.admin) {
     const ts = await getTeachers(env); const t = {id: uid(), name: text.slice(0, 60), code: newCode(ts, env), tg: null, groups: [], at: Date.now()};
@@ -1115,7 +1131,7 @@ async function onPrivate(env, msg){
   if (w.step === "hpfix") {
     const hp = await J(env, "hp:" + g.id, null); if (!hp) { await env.KV.delete(wizK(me)); return; }
     try { hp.items = await hpParse(env, g, hp.text, hp.at, [hp.fix, text].filter(Boolean).join("\n")); hp.fix = [hp.fix, text].filter(Boolean).join("\n"); }
-    catch (e) { return pm(env, me, "⏳ AI hozir band, bir daqiqadan keyin qayta yozing."); }
+    catch (e) { if (!text) return; hp.fixq = text; await PUT(env, "hp:" + g.id, hp); await env.KV.delete(wizK(me)); return pm(env, me, "⏳ AI hozir band — tuzatishingizni saqladim, 5 daqiqa ichida o'zim qayta o'qib, yangi ro'yxatni yuboraman."); }
     hp.st = "draft"; hp.at2 = Date.now(); await PUT(env, "hp:" + g.id, hp); await env.KV.delete(wizK(me)); return hpConfirm(env, g, hp);
   }
   if (["kun", "res", "dav", "hwt"].includes(w.step)) {
@@ -1215,10 +1231,10 @@ async function onCallback(env, cq){
   if (a === "imp" || a === "impg") { const d = await J(env, impK(r.uid), null);
     if (!d) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "ℹ️ Bu vazifa qoralamasi eskirgan — faylni qayta yuboring."});
     if (a === "imp" && b === "del") { await env.KV.delete(impK(r.uid)); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "🗑 Bekor qilindi."}); }
-    if (a === "imp" && b === "go") { await tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "⏳ Savollar ajratilmoqda (10–40 soniya)…"});
-      try { const x = await impParse(env, d); d.title = x.title; d.items = x.items; } catch (e) { return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "❌ O'qib bo'lmadi: " + H(String(e.message || e).slice(0, 200)), ...kb([[{text: "🔁 Qayta urinish", callback_data: "imp:go"}]])}); }
-      if (!d.items.length) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "❓ Speaking/Writing savoli topilmadi. Savollar bor sahifani yuboring.", ...kb([[{text: "🗑 Bekor qilish", callback_data: "imp:del"}]])});
-      const gs0 = await myGroups(env, r); d.sel = gs0.length === 1 ? [gs0[0].id] : []; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid); }
+    if (a === "imp" && b === "go") { // katta fayl + AI 30 soniyaga sig'maydi — navbatga qo'yiladi, har daqiqalik cron o'qiydi
+      d.q = {mid, n: 0, next: 0}; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400});
+      const q = await J(env, "impq", []); if (!q.includes(r.uid)) { q.push(r.uid); await PUT(env, "impq", q.slice(-20)); }
+      return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "⏳ Savollar ajratilmoqda — 1–2 daqiqa. Tayyor bo'lganda shu xabar o'zi yangilanadi."}); }
     if (a === "impg") { d.sel = d.sel || []; d.sel = d.sel.includes(b) ? d.sel.filter(x => x !== b) : [...d.sel, b]; await PUT(env, impK(r.uid), d, {expirationTtl: 2 * 86400}); return impPreview(env, r, d, mid); }
     if (a === "imp" && (b === "ok" || b === "bank")) { if (!d.items) return;
       if (b === "ok" && !(d.sel || []).length) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "Avval guruhni belgilang ✅", show_alert: true});
@@ -1448,6 +1464,7 @@ async function cron(env){
   for (const g of gs) {
     if (!quiet) { const of = await J(env, "hpf:" + g.id, null); if (of) { await env.KV.delete("hpf:" + g.id); try { await hpFinalize(env, g, of); } catch (e) { console.log("hpf", e.message); } } } // oldingi Homework posti yakuni
     const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue;
+    if (hp.fixq) { try { const fx = [hp.fix, hp.fixq].filter(Boolean).join("\n"); hp.items = await hpParse(env, g, hp.text, hp.at, fx); hp.fix = fx; delete hp.fixq; hp.st = "draft"; hp.at2 = now; await PUT(env, "hp:" + g.id, hp); await hpConfirm(env, g, hp); } catch (e) { console.log("hpfix", e.message); } continue; }
     if (hp.retry && !hp.items.length) {
       if (now - hp.at < 60e3) continue; // hozirgina tashlangan — webhook o'zi o'qiyapti
       if (hp.retry > 6) continue;
@@ -1619,7 +1636,7 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
    ASOSIY
    ===================================================================== */
 export default {
-  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env)]) : Promise.all([cron(env), shadowQueue(env), spkSweep(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env)]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
