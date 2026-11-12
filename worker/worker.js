@@ -113,7 +113,7 @@ async function aiCount(env, tag, model, force, ki, status){
   if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); const inc = x => USE.c[x] = (USE.c[x] || 0) + 1;
     if (!status || status === 200) inc(k); inc(`#k${ki || 0}|${model}|${status === 200 ? "ok" : status === 429 ? "limit" : "err"}`); USE.n++; }
   if (!USE.n || (!force && USE.n < 12 && Date.now() - USE.t < 10 * 60e3)) return;
-  const dk = "aiu:" + dayKey(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
+  const dk = "aiu:" + qDay(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
   USE.c = {}; USE.n = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
 }
 // Taxminiy bepul limit (1 kalit = 1 Google loyiha, kuniga). Google o'zgartirsa — Cloudflare'da AI_LIMITS='{"flash":250,"lite":1000}' bilan yangilanadi
@@ -124,6 +124,14 @@ function aiCapacity(env, v){
   const cf = n * L.flash, cl = n * L.lite;
   return {n, cf, cl, uf, ul, rf: Math.max(0, cf - uf), rl: Math.max(0, cl - ul)};
 }
+const qDay = (t = Date.now()) => dayKey(t - 13 * 3600e3); // Google bepul limiti ~13:00 (Toshkent) da yangilanadi — "limit kuni" shu paytdan boshlanadi
+function limBar(u, m){ const p = m ? Math.min(100, Math.round(u / m * 100)) : 0; let r = Math.round(p / 10); if (u > 0 && r === 0) r = 1; if (p < 100 && r === 10) r = 9;
+  return `${"🟥".repeat(r)}${"🟦".repeat(10 - r)}\n🔴 Ishlatildi <b>${p}%</b> (${u}) · 🔵 Qoldi <b>${100 - p}%</b> (~${Math.max(0, m - u)})`; }
+async function limText(env){ await aiCount(env, null, null, true); const c = aiCapacity(env, aiUsageView(await J(env, "aiu:" + qDay(), {})));
+  const now = Date.now(); let nr = atLocal(dayKey(now), 13 * 60); if (nr <= now) nr = atLocal(addDays(dayKey(now), 1), 13 * 60);
+  return `🤖 <b>AI LIMIT</b> · ${c.n} ta kalit\n\n✍️ <b>Asosiy</b> — writing, speaking, shadowing · kuniga ${c.cf}\n${limBar(c.uf, c.cf)}\n\n💬 <b>Yengil</b> — talaffuz, feedback, suhbat · kuniga ${c.cl}\n${limBar(c.ul, c.cl)}\n\n♻️ Yangi limit: 13:00 (${fmtLeft(nr - now)} qoldi)\n🕒 Yangilandi: ${hhmm(now)}`; }
+async function limRefresh(env){ const L0 = await J(env, "limpin", []); if (!L0.length) return; const t = await limText(env);
+  for (const x of L0) try { await tg(env, "editMessageText", {chat_id: x.chat, message_id: x.mid, text: t, parse_mode: "HTML"}); } catch (e) {} }
 function aiCapText(c){ return `🧮 <b>Taxminiy imkoniyat (${c.n} kalit, kuniga):</b>\n • Asosiy model (writing, speaking, shadowing): qoldi <b>~${c.rf} / ${c.cf}</b> (ishlatildi ${c.uf})\n • Yengil model (talaffuz, feedback, suhbat): qoldi <b>~${c.rl} / ${c.cl}</b> (ishlatildi ${c.ul})\n <i>1 writing/speaking/shadowing tekshiruvi ≈ 1 ta asosiy so'rov; asosiy tugasa yengilga o'tadi.</i>`; }
 function aiUsageView(u){ // {feature: n, "#k1|model|ok": n}
   const feat = Object.entries(u).filter(([k]) => !k.startsWith("#")).sort((a, b) => b[1] - a[1]);
@@ -1045,6 +1053,8 @@ async function onPrivate(env, msg){
   if (/^\/(start|guruhlar|menu)/.test(text)) { if (w) await env.KV.delete(wizK(me)); return mainMenu(env, r); }
   const one = await myGroups(env, r);
   const pickG = async (cmd) => one.length === 1 ? one[0] : (await pm(env, me, "Guruhni tanlang:", kb(one.map(g => [{text: g.title, callback_data: cmd + ":" + g.id}]))), null);
+  if (/^\/limit/.test(text)) { const m = await pm(env, me, await limText(env)); if (m && m.ok) { try { await tg(env, "pinChatMessage", {chat_id: me, message_id: m.result.message_id, disable_notification: true}); } catch (e) {}
+      const L0 = (await J(env, "limpin", [])).filter(x => x.chat !== me); L0.push({chat: me, mid: m.result.message_id}); await PUT(env, "limpin", L0.slice(-10)); } return; }
   if (/^\/natijalar/.test(text)) { const g = await pickG("res"); return g && cbAction(env, r, "res", g); }
   if (/^\/davomat/.test(text)) { const g = await pickG("dav"); return g && cbAction(env, r, "dav", g); }
   if (/^\/holat/.test(text)) { const g = await pickG("hol"); return g && cbAction(env, r, "hol", g); }
@@ -1070,7 +1080,7 @@ async function onPrivate(env, msg){
       const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
     { let i = 0; for (const key of gKeys(env)) { i++; const x = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", {headers: {"x-goog-api-key": key}}); t += `\n${x.ok ? "✅" : "❌"} AI kaliti ${i}${x.ok ? "" : " — " + x.status}`; } } // limit sarflamaydi
     await aiCount(env, null, null, true);
-    { const v = aiUsageView(await J(env, "aiu:" + dayKey(), {}));
+    { const v = aiUsageView(await J(env, "aiu:" + qDay(), {}));
       t += `\n\n📊 <b>Bugun AI: ${v.total} ta so'rov</b>\n` + (v.feat.map(([k, n]) => ` • ${H(k)}: ${n}`).join("\n") || " • hali yo'q");
       const ks = Object.entries(v.keys).sort(); if (ks.length) t += "\n🔑 Kalitlar bo'yicha:\n" + ks.map(([ki, o]) => ` • Kalit ${ki}: ✅ ${o.ok}${o.limit ? ` · ⛔ limit ${o.limit}` : ""}${o.err ? ` · ⚠️ ${o.err}` : ""}${Object.keys(o.m).length ? " (" + Object.entries(o.m).map(([m, n]) => m.replace("gemini-", "") + " " + n).join(", ") + ")" : ""}`).join("\n");
       t += "\n" + aiCapText(aiCapacity(env, v)) + "\n<i>Limit har kuni ~13:00 (Toshkent) da yangilanadi.</i>"; }
@@ -1589,7 +1599,7 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
    ASOSIY
    ===================================================================== */
 export default {
-  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env)]) : Promise.all([cron(env), shadowQueue(env), spkSweep(env), aiCount(env, null, null, true)])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env)]) : Promise.all([cron(env), shadowQueue(env), spkSweep(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
@@ -1605,7 +1615,7 @@ export default {
       if (!env.TG_TOKEN) return new Response("TG_TOKEN qo'yilmagan.", {status: 500});
       const me = await tg(env, "getMe", {});
       const wh = await tg(env, "setWebhook", {url: url.origin + "/tg", secret_token: await secretOf(env), allowed_updates: ["message", "edited_message", "callback_query", "my_chat_member"], drop_pending_updates: false});
-      const cmds = [["start","📡 Bosh menyu"],["guruhlar","📚 Guruhlarim"],["natijalar","📊 Oxirgi vazifa natijalari"],["davomat","📋 Bugungi davomat"],["holat","🔎 Kim topshirdi / kim topshirmadi"],["pinlar","🔑 O'quvchilar PIN kodlari"],["hisobot","📈 Haftalik hisobotni hozir yuborish"],["jim","🔕 Eslatmalarni vaqtincha o'chirish"],["yoq","🔔 Eslatmalarni yoqish"]];
+      const cmds = [["start","📡 Bosh menyu"],["guruhlar","📚 Guruhlarim"],["natijalar","📊 Oxirgi vazifa natijalari"],["limit","🤖 AI limit (tepaga pin)"],["davomat","📋 Bugungi davomat"],["holat","🔎 Kim topshirdi / kim topshirmadi"],["pinlar","🔑 O'quvchilar PIN kodlari"],["hisobot","📈 Haftalik hisobotni hozir yuborish"],["jim","🔕 Eslatmalarni vaqtincha o'chirish"],["yoq","🔔 Eslatmalarni yoqish"]];
       await tg(env, "setMyCommands", {commands: cmds.map(([command, description]) => ({command, description})), scope: {type: "chat", chat_id: +env.OWNER_ID}});
       if (wh.ok && env.OWNER_ID) await owner(env, "📡 <b>AOK Radar ishga tushdi!</b>\n\nEndi botni guruhlaringizga qo'shing va <b>admin</b> qiling. Menyu: /start");
       return new Response(`<meta charset=utf-8><body style="font:18px system-ui;padding:30px"><h2>${wh.ok ? "✅ Bot ulandi" : "❌ Xato"}</h2><p>Bot: @${H(me.result && me.result.username)}</p><p>${H(wh.description || "")}</p><p>${wh.ok ? "Telegram'da botga qarang — xabar yubordi." : ""}</p>`, {headers: {"content-type": "text/html; charset=utf-8"}});
@@ -1678,7 +1688,7 @@ export default {
         if (path === "/teacher/login") { const sv = await env.KV.get("seed:v1"); return out({ok: true, seeded: !!sv, seedv: +(sv || 0), name: TT.name, admin: TT.admin}); }
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
         if (path === "/teacher/ai") { await aiCount(env, null, null, true); const days = [];
-          for (let i = 0; i < 7; i++) { const d = dayKey(Date.now() - i * 864e5); days.push({d, ...aiUsageView(await J(env, "aiu:" + d, {}))}); }
+          for (let i = 0; i < 7; i++) { const d = qDay(Date.now() - i * 864e5); days.push({d, ...aiUsageView(await J(env, "aiu:" + d, {}))}); }
           return out({keys: gKeys(env).length, days, cap: aiCapacity(env, days[0])}); }
         if (path === "/teacher/log") {
           const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : dayKey(); const q = nn(b.q || "");
