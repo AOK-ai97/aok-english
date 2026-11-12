@@ -1300,12 +1300,14 @@ async function onGroupMessage(env, msg){
     // #Homework posti
     if (/#\s*home\s*work/i.test(text)) {
       if (th && !g.hwt) { g.hwt = th; await PUT(env, "groups", gs); }
-      const old = await J(env, "hp:" + gid, null); if (old && old.st !== "done") await hpFinalize(env, g, old);
-      const hp = {id: uid(), at: Date.now(), by: pid, text: clean(text, 3000), items: [], refs: [], st: "draft", mid: msg.message_id};
-      try { hp.items = await hpParse(env, g, text, hp.at); } catch (e) { hp.items = []; hp.retry = 1; hp.err = String(e.message || e).slice(0, 200);
+      // Tartib muhim (vaqt chegarasi 30s): avval 👀 + postni saqlash, keyin AI; eski postni yakunlash — oxirida yoki cron'da
+      await react(env, gid, msg.message_id, "👀");
+      const old = await J(env, "hp:" + gid, null); if (old && old.st !== "done" && old.mid !== msg.message_id) await PUT(env, "hpf:" + gid, old, {expirationTtl: 7 * 86400});
+      const hp = {id: old && old.mid === msg.message_id ? old.id : uid(), at: old && old.mid === msg.message_id ? old.at : Date.now(), by: pid, text: clean(text, 3000), items: [], refs: old && old.mid === msg.message_id ? old.refs || [] : [], st: "draft", mid: msg.message_id, retry: 1};
+      await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); // AI to'xtab qolsa ham cron 5 daqiqada o'qiydi
+      try { hp.items = await hpParse(env, g, text, hp.at); hp.retry = 0; delete hp.err; } catch (e) { hp.items = []; hp.err = String(e.message || e).slice(0, 200);
         await pm(env, pid, `⏳ Homework hali o'qilmadi — 5 daqiqada qayta urinaman.\n<i>Sabab: ${H(hp.err)}</i>`); }
-      await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); if (hp.items.length) await hpConfirm(env, g, hp);
-      await react(env, gid, msg.message_id, "✍");
+      await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); if (hp.items.length) { await hpConfirm(env, g, hp); await react(env, gid, msg.message_id, "✍"); }
       return;
     }
     // Results topic: darsdagi test natijalari → har o'quvchiga maqtov / tanbeh
@@ -1399,7 +1401,7 @@ async function hpFinalize(env, g, hp){
     for (const s of studs) { const pr = await hpProgress(env, g, hp, s); const p = await getProfile(env, s.id);
       p.hwc = [...(p.hwc || []).filter(e => e.id !== hp.id), {id: hp.id, at: hp.at, done: items.filter(it => pr[it.id].ok).length, total: items.length}].slice(-60); await PUT(env, "p:" + s.id, p); }
   }
-  hp.st = "done"; await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 86400});
+  hp.st = "done"; const cur = await J(env, "hp:" + g.id, null); if (!cur || cur.id === hp.id) await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 86400}); // yangi post ustiga yozilmaydi
 }
 
 /* ---------------- CRON: har 5 daqiqada ---------------- */
@@ -1428,8 +1430,10 @@ async function cron(env){
   // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
   const hpAct = {};
   for (const g of gs) {
+    if (!quiet) { const of = await J(env, "hpf:" + g.id, null); if (of) { await env.KV.delete("hpf:" + g.id); try { await hpFinalize(env, g, of); } catch (e) { console.log("hpf", e.message); } } } // oldingi Homework posti yakuni
     const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue;
     if (hp.retry && !hp.items.length) {
+      if (now - hp.at < 60e3) continue; // hozirgina tashlangan — webhook o'zi o'qiyapti
       if (hp.retry > 6) continue;
       try { hp.items = await hpParse(env, g, hp.text, hp.at); hp.retry = 0; await PUT(env, "hp:" + g.id, hp); if (hp.items.length) await hpConfirm(env, g, hp); }
       catch (e) { const er = String(e.message || e).slice(0, 300); const first = hp.err !== er; hp.retry++; hp.err = er; await PUT(env, "hp:" + g.id, hp);
