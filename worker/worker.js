@@ -1778,6 +1778,8 @@ export default {
         clips.forEach((c, i) => { parts.push({text: `Clip ${i + 1} — Part ${c.part} — Question: ${clean(c.question, 800)}${c.empty ? " (the recording is almost empty)" : ""}`}); parts.push({inline_data: {mime_type: (c.mime || "audio/webm").split(";")[0], data: c.audio}}); });
         const r = await gemini(env, SPEAKING_SYS + tagLine(), parts, S_SCHEMA);
         r.parts = r.parts || [];
+        r.parts.forEach(p => { const m = String(p.part || "").match(/1\s*[.,]\s*([12])|\b([23])\b/); p.part = m ? (m[1] ? "1." + m[1] : m[2]) : String(p.part || "").replace(/part/ig, "").trim(); }); // "Part 1.1" → "1.1"
+        { const seen = {}; r.parts = r.parts.filter(p => { if (seen[p.part]) { const a = seen[p.part]; a.transcript = [a.transcript, p.transcript].filter(Boolean).join(" / "); a.errors = [...(a.errors || []), ...(p.errors || [])]; a.unanswered = [...(a.unanswered || []), ...(p.unanswered || [])]; return false; } seen[p.part] = p; return true; }); } // bir Part ikki marta kelsa — birlashtiriladi
         const nq = {}; clips.forEach(c => nq[c.part] = (nq[c.part] || 0) + 1);
         const emptyQ = {}; clips.forEach(c => { if (c.empty) (emptyQ[c.part] = emptyQ[c.part] || []).push(c.question); });
         for (const pt of Object.keys(nq)) if (!r.parts.some(x => x.part === pt))
