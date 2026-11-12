@@ -1740,7 +1740,8 @@ export default {
     const allow = (env.ALLOWED_ORIGIN || "https://aok-ai97.github.io").split(",").map(s => s.trim());
     const cors = {"Access-Control-Allow-Origin": allow.includes(origin) ? origin : allow[0],
       "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "content-type", "Vary": "Origin"};
-    const out = (o, s = 200) => new Response(JSON.stringify(o), {status: s, headers: {...cors, "content-type": "application/json; charset=utf-8"}});
+    const out = (o, s = 200) => { if (env.__kvfull && s < 300 && o && o.ok && /^\/teacher\//.test(path)) { o = {error: "⏳ Bugun xotiraning kunlik yozuv limiti tugadi — o'zgarish SAQLANMADI. Ertalab 05:00 dan keyin qayta saqlang."}; s = 507; } // jim "saqlandi" demasin
+      return new Response(JSON.stringify(o), {status: s, headers: {...cors, "content-type": "application/json; charset=utf-8"}}); };
     if (req.method === "OPTIONS") return new Response(null, {headers: cors});
     if (req.method !== "POST") return out({ok: true, service: "AOK checker + Radar", version: 8, kv: !!env.KV, bot: !!env.TG_TOKEN});
     if (!allow.includes(origin)) return out({error: "Ruxsat yo'q (origin)."}, 403);
