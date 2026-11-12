@@ -785,8 +785,12 @@ async function hpProgress(env, g, hp, s, prof){
   for (const it of hp.items.filter(i => SUBMIT(i.type))) {
     let n = 0, info = "", doneAt = null;
     if (it.type === "site_writing" || it.type === "site_speaking") { const k = it.type === "site_writing" ? "writing" : "speaking";
-      const e = (prof.h || []).filter(x => x.k === k && x.at >= hp.at).sort((a, b) => b.at - a.at); n = e.length ? Math.min(it.count, e.length) : 0; if (e[0]) info = `${fmtN(e[0].tot)}/${e[0].max}`;
-      const asc = e.slice().sort((a, b) => a.at - b.at); doneAt = asc.length >= it.count ? asc[it.count - 1].at : null; }
+      const e = (prof.h || []).filter(x => x.k === k && x.at >= hp.at).sort((a, b) => b.at - a.at); if (e[0]) info = `${fmtN(e[0].tot)}/${e[0].max}`;
+      // bitta topshiriqda bir nechta Task/Part bo'lishi mumkin — har xil Task/Part soni hisoblanadi
+      const asc = e.slice().sort((a, b) => a.at - b.at); const seen = new Set(); doneAt = null;
+      for (const x of asc) { const u = String((k === "writing" ? x.tasks : x.parts) || "").split(",").map(z => z.trim()).filter(Boolean);
+        if (u.length) u.forEach(z => seen.add(z)); else seen.add("#" + x.at); if (!doneAt && seen.size >= it.count) doneAt = x.at; }
+      n = Math.min(it.count, seen.size); }
     else { const x = sub.it[it.id]; n = x ? x.n : 0; if (x && x.best != null) info = x.best + "%"; doneAt = x && x.doneAt || (x && n >= it.count ? x.at : null); }
     const ok = n >= it.count; res[it.id] = {n, need: it.count, ok, info, doneAt, late: !!(ok && it.due && doneAt && doneAt > it.due)};
   }
@@ -1878,7 +1882,7 @@ export default {
         const sc = {}; r.tasks.forEach(t => sc["t" + t.task.replace(".", "")] = t.overall);
         r.key = `r:writing:${r.at}`;
         await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.total, max: r.max, off: r.tasks.some(t => t.on_topic === false), miss: r.tasks.some(t => t.missing), late: !!r.late, away, at: r.at, ...sc}});
-        if (stu) await saveProfile(env, stu, {at: r.at, k: "writing", m: r.mode, t: r.title, tot: r.total, max: r.max, cr: critAvg(r.tasks.filter(t => !t.missing)), rules: [...new Set(r.tasks.flatMap(t => (t.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
+        if (stu) await saveProfile(env, stu, {at: r.at, k: "writing", m: r.mode, t: r.title, tot: r.total, max: r.max, tasks: r.tasks.filter(t => !t.missing).map(t => t.task).join(","), cr: critAvg(r.tasks.filter(t => !t.missing)), rules: [...new Set(r.tasks.flatMap(t => (t.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread);
         if (stu) await addLog(env, stu.id, [{t: "graded", kind: "writing", mode: r.mode, title: r.title, score: r.total, max: r.max}]);
         await idemDone(env, idem, r.key); IDK = null;
