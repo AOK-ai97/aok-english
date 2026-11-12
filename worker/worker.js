@@ -109,11 +109,17 @@ const gKeys = env => [...new Set([env.GEMINI_KEY, ...Array.from({length: 11}, (_
 const USE = {c: {}, n: 0, t: Date.now()};
 function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqtov"],["end-of-lesson feedback","dars feedback"],["SHADOWING","shadowing"],["speaking examiner chatting","speaking suhbat"],["FINAL result of a speaking","speaking suhbat xulosa"],["extract CEFR","vazifa kiritish"],["homework post","homework o'qish"],["Target word","talaffuz"],["model answers","namuna tekshiruvi"],["pronunciation coach","talaffuz mashqi"]];
   const low = sys.toLowerCase(); for (const [k, v] of m) if (low.includes(k.toLowerCase())) return v; return /writing/i.test(sys.slice(0, 400)) ? "writing tekshiruv" : /speaking/i.test(sys.slice(0, 400)) ? "speaking tekshiruv" : /pronunc/i.test(sys.slice(0, 400)) ? "talaffuz" : "boshqa"; }
-async function aiCount(env, tag, model, force){
-  if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); USE.c[k] = (USE.c[k] || 0) + 1; USE.n++; }
+async function aiCount(env, tag, model, force, ki, status){
+  if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); const inc = x => USE.c[x] = (USE.c[x] || 0) + 1;
+    if (!status || status === 200) inc(k); inc(`#k${ki || 0}|${model}|${status === 200 ? "ok" : status === 429 ? "limit" : "err"}`); USE.n++; }
   if (!USE.n || (!force && USE.n < 12 && Date.now() - USE.t < 10 * 60e3)) return;
   const dk = "aiu:" + dayKey(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
   USE.c = {}; USE.n = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
+}
+function aiUsageView(u){ // {feature: n, "#k1|model|ok": n}
+  const feat = Object.entries(u).filter(([k]) => !k.startsWith("#")).sort((a, b) => b[1] - a[1]);
+  const keys = {}; for (const [k, v] of Object.entries(u)) if (k.startsWith("#")) { const [ki, model, st] = k.slice(2).split("|"); const o = keys[ki] = keys[ki] || {ok: 0, limit: 0, err: 0, m: {}}; o[st] += v; if (st === "ok") o.m[model] = (o.m[model] || 0) + v; }
+  return {total: feat.reduce((a, b) => a + b[1], 0), feat, keys};
 }
 async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
   const TAG = aiTag(sys);
@@ -128,7 +134,7 @@ async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
         method:"POST", headers:{"content-type":"application/json","x-goog-api-key":key},
         body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
           generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) });
-      const j = await r.json().catch(()=>({})); await aiCount(env, TAG, model);
+      const j = await r.json().catch(()=>({})); await aiCount(env, TAG, model, false, keys.indexOf(key) + 1, r.status);
       if (r.ok) { GOOD[lite ? "l" : "m"] = model; return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}"); }
       last = `${model}: ` + ((j.error && j.error.message) || ("Gemini " + r.status));
       if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
@@ -1041,8 +1047,10 @@ async function onPrivate(env, msg){
       const uk = await J(env, "tr:unknown", []); if (uk.length) t += "\n\n❓ Ro'yxatda yo'q chatlardan xabar:\n" + uk.slice(0, 4).map(e => ` • ${hhmm(e.t)} ${H(e.title)} (${e.chat})`).join("\n"); }
     { let i = 0; for (const key of gKeys(env)) { i++; const x = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1", {headers: {"x-goog-api-key": key}}); t += `\n${x.ok ? "✅" : "❌"} AI kaliti ${i}${x.ok ? "" : " — " + x.status}`; } } // limit sarflamaydi
     await aiCount(env, null, null, true);
-    { const u = await J(env, "aiu:" + dayKey(), {}); const tot = Object.values(u).reduce((a, b) => a + b, 0);
-      t += `\n\n📊 <b>Bugun AI so'rovlari: ${tot}</b>\n` + (Object.entries(u).sort((a, b) => b[1] - a[1]).map(([k, v]) => ` • ${H(k)}: ${v}`).join("\n") || " • hali yo'q"); }
+    { const v = aiUsageView(await J(env, "aiu:" + dayKey(), {}));
+      t += `\n\n📊 <b>Bugun AI: ${v.total} ta so'rov</b>\n` + (v.feat.map(([k, n]) => ` • ${H(k)}: ${n}`).join("\n") || " • hali yo'q");
+      const ks = Object.entries(v.keys).sort(); if (ks.length) t += "\n🔑 Kalitlar bo'yicha:\n" + ks.map(([ki, o]) => ` • Kalit ${ki}: ✅ ${o.ok}${o.limit ? ` · ⛔ limit ${o.limit}` : ""}${o.err ? ` · ⚠️ ${o.err}` : ""}${Object.keys(o.m).length ? " (" + Object.entries(o.m).map(([m, n]) => m.replace("gemini-", "") + " " + n).join(", ") + ")" : ""}`).join("\n");
+      t += "\n<i>Limit har kuni ~13:00 (Toshkent) da yangilanadi.</i>"; }
     try { await cron(env); t += "\n✅ cron xatosiz ishladi"; } catch (e) { t += "\n❌ cron xatosi: " + H(String(e.stack || e.message).slice(0, 600)); }
     return pm(env, me, t);
   }
@@ -1594,6 +1602,9 @@ export default {
           for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
         if (path === "/teacher/login") { const sv = await env.KV.get("seed:v1"); return out({ok: true, seeded: !!sv, seedv: +(sv || 0), name: TT.name, admin: TT.admin}); }
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
+        if (path === "/teacher/ai") { await aiCount(env, null, null, true); const days = [];
+          for (let i = 0; i < 7; i++) { const d = dayKey(Date.now() - i * 864e5); days.push({d, ...aiUsageView(await J(env, "aiu:" + d, {}))}); }
+          return out({keys: gKeys(env).length, days}); }
         if (path === "/teacher/log") {
           const day = /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : dayKey(); const q = nn(b.q || "");
           const studs = (await getStudents(env)).filter(s => myGid.includes(s.gid) && (!q || nn(s.name).includes(q)) && (!b.gid || s.gid === b.gid));

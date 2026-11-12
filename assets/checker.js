@@ -519,7 +519,7 @@ if(PAGE==="teacher"){
       try{const r=await post("/teacher/import",{tcode:T(),items:SEED.items,version:SEED.version});msg(`✅ Bazaga ${r.added} ta yangi savol qo'shildi${r.updated?`, ${r.updated} tasiga tur belgilandi`:""} (${r.skipped} tasi bor edi).`);box.hidden=true;await load()}catch(err){msg("❌ "+err.message,true)}loading(false,btn)}}
   tIn.addEventListener("keydown",e=>{if(e.key==="Enter")$("#goLogin").click()});
   $$(".ktabs button").forEach(b=>b.onclick=async()=>{KIND=b.dataset.k;$$(".ktabs button").forEach(x=>x.classList.toggle("on",x===b));SEL.clear();EDIT=null;await load()});
-  $$(".ttabs button").forEach(b=>b.onclick=()=>{$$(".ttabs button").forEach(x=>x.classList.toggle("on",x===b));$$(".ttp").forEach(p=>p.hidden=p.dataset.t!==b.dataset.t);if(b.dataset.t==="res")loadResults();if(b.dataset.t==="stu")loadStudents();if(b.dataset.t==="log")loadLog()});
+  $$(".ttabs button").forEach(b=>b.onclick=()=>{$$(".ttabs button").forEach(x=>x.classList.toggle("on",x===b));$$(".ttp").forEach(p=>p.hidden=p.dataset.t!==b.dataset.t);if(b.dataset.t==="res")loadResults();if(b.dataset.t==="stu")loadStudents();if(b.dataset.t==="log")loadLog();if(b.dataset.t==="ai")loadAI()});
   const allItems=()=>partsOf(KIND).flatMap(p=>BANK[p]||[]);
   const topics=()=>[...new Set(allItems().map(x=>x.topic))].sort();
   function render(){
@@ -628,6 +628,15 @@ if(PAGE==="teacher"){
     if(e.q)x.push(`${e.q}/${e.of} savol${e.part?" (Part "+e.part+")":""}${e.empty?" — ❌ jim":""}${e.how==="skip"?" · erta tugatdi":""}`);if(e.n&&!e.q)x.push(e.n+" ta");if(e.score!=null)x.push(`ball: ${fmt(e.score)}/${e.max}`);
     if(e.word)x.push(`${e.word} — ${e.score}%`);if(e.sec)x.push(e.sec+" s");if(e.videos!=null)x.push(`🎥${e.videos} · 📄${e.pages}${e.auto?" · avtomatik":""}`);if(e.avg)x.push("o'rtacha "+e.avg+"%");if(e.msg)x.push(e.msg);if(e.done!=null)x.push(`${e.done}/${e.of} bajarilgan`);
     return x.map(esc).join(" · ")};
+  async function loadAI(){const box=$("#aiBox");box.innerHTML=`<div class="ck-load"><div class="ck-spin"></div><span>Yuklanmoqda…</span></div>`;
+    try{const j=await post("/teacher/ai",{tcode:T()});const t=j.days[0];
+      const kRows=Object.entries(t.keys).sort().map(([k,o])=>`<tr><td>Kalit ${esc(k)}</td><td>✅ ${o.ok}</td><td>${o.limit?"⛔ "+o.limit:"—"}</td><td>${o.err?"⚠️ "+o.err:"—"}</td><td>${Object.entries(o.m).map(([m,n])=>esc(m.replace("gemini-",""))+": "+n).join(", ")||"—"}</td></tr>`).join("");
+      box.innerHTML=`<h3 style="margin:8px 0">Bugun: ${t.total} ta so'rov · ${j.keys} ta kalit ulangan</h3>
+      <table class="ck-tab"><tr><th>Bo'lim</th><th>So'rov</th></tr>${t.feat.map(([k,n])=>`<tr><td>${esc(k)}</td><td><b>${n}</b></td></tr>`).join("")||`<tr><td colspan=2>Hali yo'q</td></tr>`}</table>
+      <h3 style="margin:12px 0 6px">Kalitlar bo'yicha (bugun)</h3><table class="ck-tab"><tr><th>Kalit</th><th>Muvaffaqiyatli</th><th>Limit tugagan</th><th>Xato</th><th>Modellar</th></tr>${kRows||`<tr><td colspan=5>Hali yo'q</td></tr>`}</table>
+      <h3 style="margin:12px 0 6px">Oxirgi 7 kun</h3><table class="ck-tab"><tr><th>Sana</th><th>Jami</th><th>Eng ko'p</th></tr>${j.days.map(d=>`<tr><td>${esc(d.d.slice(8,10)+"."+d.d.slice(5,7))}</td><td><b>${d.total}</b></td><td>${d.feat.slice(0,3).map(([k,n])=>esc(k)+" "+n).join(", ")||"—"}</td></tr>`).join("")}</table>`}
+    catch(e){box.innerHTML=`<div class="ck-msg bad">❌ ${esc(e.message)}</div>`}}
+  $("#aiRef").onclick=loadAI;
   async function loadLog(){const day=$("#lgDate").value,q=$("#lgQ").value.trim();$("#lgList").innerHTML=`<div class="ck-load"><div class="ck-spin"></div><span>Yuklanmoqda…</span></div>`;
     try{const j=await post("/teacher/log",{tcode:T(),date:day,q});
       $("#lgList").innerHTML=j.students.length?j.students.map(st=>{const evs=st.events.slice().sort((a,b)=>a.at-b.at).filter(e=>e.t!=="pron_try"||$("#lgPron").checked);
