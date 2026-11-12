@@ -154,7 +154,9 @@ async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
           generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) }); }
       catch (e) { busy = true; last = `${model}: javob kelmadi (${e.name})`; OVL[model] = Date.now() + 45e3; continue MODELS; } // osilib qolgan so'rov — kutmaymiz
       const j = await r.json().catch(()=>({})); await aiCount(env, TAG, model, false, keys.indexOf(key) + 1, r.status);
-      if (r.ok) { GOOD[lite ? "l" : "m"] = model; return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}"); }
+      if (r.ok) { const tx = j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || ""; let o = null; try { o = tx ? JSON.parse(tx) : null; } catch (e) {}
+        if (o) { GOOD[lite ? "l" : "m"] = model; return o; }
+        busy = true; last = `${model}: bo'sh/buzuq javob (${j.candidates?.[0]?.finishReason || j.promptFeedback?.blockReason || "?"})`; continue MODELS; } // keyingi model
       last = `${model}: ` + ((j.error && j.error.message) || ("Gemini " + r.status));
       if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
       if (r.status === 429) { busy = true; const daily = /per.?day|PerDay|daily/i.test(last); EXH[ek] = Date.now() + (daily ? 3 * 3600e3 : 60e3); break; } // limit — darhol keyingi kalit/model
@@ -257,7 +259,8 @@ async function tgForm(env, method, fd){
   catch (e) { return {ok:false, description:e.message}; }
 }
 const say = (env, chat, text, extra = {}) => tg(env, "sendMessage", {chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra});
-const toTopic = (env, gid, thread, text, extra = {}) => say(env, gid, text, thread && thread > 1 ? {message_thread_id: thread, ...extra} : extra);
+const toTopic = async (env, gid, thread, text, extra = {}) => { const {_rm, ...ex} = extra; const r = await say(env, gid, text, thread && thread > 1 ? {message_thread_id: thread, ...ex} : ex);
+  if (!_rm && thread > 1 && r && r.ok && r.result) await rmMark(env, gid, thread, r.result.message_id); return r; }; // eslatmadan keyin topic'ga yozildi — eslatma pastga ko'chiriladi
 const owner = (env, text, extra) => say(env, env.OWNER_ID, text, extra);
 const kb = rows => ({reply_markup: {inline_keyboard: rows}});
 async function secretOf(env){ const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("aok-radar:" + env.TG_TOKEN)); return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2,"0")).join("").slice(0, 48); }
@@ -360,8 +363,9 @@ Return JSON {"title": short homework title (the topic, e.g. "Celebrations & Holi
 - Speaking Part 3: {"kind":"speaking","part":"3","topic":"…","q":["the statement/topic"],"for":[up to 3 points],"against":[up to 3 points]}.
 - Writing Task 1: {"kind":"writing","part":"T1","topic":"…","sender":"e.g. The City Council sent you an email.","email":"full email text","t11":"Task 1.1 instruction","t12":"Task 1.2 instruction"} (t11 / t12 may be "" if missing).
 - Writing Task 2: {"kind":"writing","part":"T2","topic":"…","essay":"full essay question"}.
+Worksheets often contain a long article, vocabulary tables, sample answers and tips — skip those, but ALWAYS return every exam question you find: e.g. a "SPEAKING PART 3" section with a statement and a FOR/AGAINST table is one Part 3 item (the table cells alternate FOR, AGAINST row by row). Never return an empty list if any question exists.
 Copy question texts exactly (fix only obvious OCR typos, remove numbering like "1."). Ignore articles, vocabulary tables, answer keys, structures/frames, grammar exercises and reading texts.
-"img" uses the IMAGE numbers (1-based) or photo numbers; [] if unknown. topic = short English topic. Answer ONLY with JSON.`;
+"img" uses the IMAGE numbers (1-based) or photo numbers; in Word text a marker "[PICTURE n]" is IMAGE n placed at that spot (use the label just before it, e.g. "Part 1.2 — 1-rasm"); [] if unknown. topic = short English topic. Answer ONLY with JSON.`;
 const IMP_SCHEMA = {type:"OBJECT",properties:{title:STR,items:{type:"ARRAY",items:{type:"OBJECT",properties:{kind:STR,part:STR,topic:STR,q:{type:"ARRAY",items:STR},img:{type:"ARRAY",items:{type:"INTEGER"}},for:{type:"ARRAY",items:STR},against:{type:"ARRAY",items:STR},sender:STR,email:STR,t11:STR,t12:STR,essay:STR},required:["kind","part"]}}},required:["title","items"]};
 const impK = uid => "imp:" + uid;
 async function tgFileBytes(env, file_id, max = 18e6){
@@ -375,14 +379,14 @@ async function unzip(u8){ // .docx (zip) — kerakli fayllarni ochish
   for (let i = 0; i < n; i++) { if (dv.getUint32(p, true) !== 0x02014b50) break;
     const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
     const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
-    if (!/^word\/(document\.xml|media\/)/.test(name)) continue;
+    if (!/^word\/(document\.xml|media\/|_rels\/document\.xml\.rels)/.test(name)) continue;
     const ln = dv.getUint16(off + 26, true), lx = dv.getUint16(off + 28, true); const data = u8.subarray(off + 30 + ln + lx, off + 30 + ln + lx + csize);
     if (method === 0) out[name] = data; else if (method === 8) out[name] = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
   }
   return out;
 }
-function docxText(xml){
-  return xml.replace(/<w:tab\/>/g, "\t").replace(/<\/w:p>/g, "\n").replace(/<w:br[^>]*\/>/g, "\n").replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, " [PICTURE] ").replace(/<[^>]+>/g, "")
+function docxText(xml, pic){
+  return xml.replace(/<w:tab\/>/g, "\t").replace(/<\/w:p>/g, "\n").replace(/<w:br[^>]*\/>/g, "\n").replace(/<w:drawing>[\s\S]*?<\/w:drawing>/g, d => pic ? pic(d) : " [PICTURE] ").replace(/<[^>]+>/g, "")
     .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/\n{3,}/g, "\n\n").trim();
 }
 async function impAdd(env, r, msg){
@@ -398,26 +402,57 @@ async function impAdd(env, r, msg){
   else { const x = await pm(env, me, t, k); if (x.ok) d.mid = x.result.message_id; }
   d.mt = Date.now(); await PUT(env, impK(me), d, {expirationTtl: 2 * 86400});
 }
+function impHeur(text){ // zaxira tahlil (AI bo'sh qaytarsa yoki kamroq topsa): lesson pack formati
+  const L = String(text || "").split("\n").map(x => x.trim()).filter(Boolean), out = [];
+  const cq = x => x.replace(/^\d+[.)]\s*/, "").replace(/\s*\((Struktura|Part)[^)]*\)\s*$/i, "").trim();
+  const pic = {}; for (let i = 1; i < L.length; i++) { const m = L[i].match(/^\[PICTURE (\d+)\]$/); if (m) { const lb = L[i - 1]; const k = /1\.2/.test(lb) ? "1.2" : /part\s*2\b/i.test(lb) ? "2" : null; if (k) (pic[k] = pic[k] || []).push(+m[1]); } }
+  const qsAfter = i => { const q = []; for (let k = i + 1; k < L.length && q.length < 6; k++) { if (/^(part\s*(1\.1|1\.2|2|3)|task\s*[12]|💡|writing|speaking)/i.test(L[k])) break; if (/\?\s*(\([^)]*\))?$/.test(L[k]) || /^\d+[.)]\s/.test(L[k])) q.push(cq(L[k])); } return q.filter(x => x.length > 8); };
+  for (let i = 0; i < L.length; i++) { const x = L[i];
+    if (/^part\s*1\.1$/i.test(x)) { for (const q of qsAfter(i)) out.push({kind: "speaking", part: "1.1", topic: "", q: [q]}); continue; }
+    if (/^part\s*1\.2$/i.test(x)) { const q = qsAfter(i); if (q.length) out.push({kind: "speaking", part: "1.2", topic: "", q: q.slice(0, 3), img: (pic["1.2"] || []).slice(0, 2)}); continue; }
+    if (/^part\s*2$/i.test(x) && !/^\[PICTURE/.test(L[i + 1] || "")) { const q = qsAfter(i); if (q.length) out.push({kind: "speaking", part: "2", topic: "", q: q.slice(0, 3), img: (pic["2"] || []).slice(0, 1)}); continue; }
+    // Part 3: "A. Statement" + "FOR: a · b · c" + "AGAINST: ..."
+    if (/^FOR\s*:/i.test(L[i + 1] || "") && /^AGAINST\s*:/i.test(L[i + 2] || "")) { const sp = z => z.replace(/^(FOR|AGAINST)\s*:\s*/i, "").split(/\s*[·•;]\s*/).filter(Boolean).slice(0, 3);
+      out.push({kind: "speaking", part: "3", topic: "", q: [x.replace(/^([A-Z]|\d+)[.)]\s*/, "")], for: sp(L[i + 1]), against: sp(L[i + 2])}); i += 2; continue; }
+    // Part 3: jadval (✅ FOR / ❌ AGAINST, kataklar navbatma-navbat)
+    if (/speaking\s*part\s*3\b/i.test(x)) { let j = i + 1; while (j < L.length && /qadam|daqiqa|minute|instruction/i.test(L[j])) j++; const st = L[j];
+      const fi = L.findIndex((y, k) => k > j && k < j + 4 && /^(✅\s*)?FOR\b/i.test(y)), ai = L.findIndex((y, k) => k > j && k < j + 4 && /^(❌\s*)?AGAINST\b/i.test(y)); const b = [];
+      if (st && fi > 0 && ai > 0) for (let k = Math.max(fi, ai) + 1; k < L.length && /^[•\-–·]/.test(L[k]); k++) b.push(L[k].replace(/^[•\-–·]\s*/, ""));
+      if (b.length) { const f = [], a = []; b.forEach((y, k) => (k % 2 ? a : f).push(y)); out.push({kind: "speaking", part: "3", topic: "", q: [st], for: f.slice(0, 3), against: a.slice(0, 3)}); i = j; } continue; }
+    // Writing Task 1: "... sent you an email." + xat + Task 1.1 / 1.2
+    if (/sent you an? (e-?mail|letter)\.?$/i.test(x)) { const em = []; let k = i + 1; for (; k < L.length && !/^task\s*1\.1/i.test(L[k]); k++) em.push(L[k]);
+      const t11 = (L.find((y, q) => q > i && /^task\s*1\.1/i.test(y)) || "").replace(/^task\s*1\.1[:.\s]*/i, ""), t12 = (L.find((y, q) => q > i && /^task\s*1\.2/i.test(y)) || "").replace(/^task\s*1\.2[:.\s]*/i, "");
+      if (em.length) out.push({kind: "writing", part: "T1", topic: "", sender: x, email: em.join("\n").slice(0, 3000), t11, t12}); continue; }
+    if (/^task\s*2\b[:.\s]*/i.test(x) && x.length > 25) out.push({kind: "writing", part: "T2", topic: "", essay: x.replace(/^task\s*2\b[:.\s]*/i, "")});
+  }
+  return out;
+}
 async function impParse(env, d){
-  const parts = [], imgs = []; let ph = 0;
+  const parts = [], imgs = []; let ph = 0, allText = "";
   const addImg = (mime, b64, label) => { imgs.push("data:" + mime + ";base64," + b64); parts.push({text: label + " " + imgs.length + ":"}); parts.push({inline_data: {mime_type: mime, data: b64}}); };
   for (const p of d.parts) {
-    if (p.t === "text") { parts.push({text: "TEXT:\n" + p.text}); continue; }
+    if (p.t === "text") { allText += "\n" + p.text; parts.push({text: "TEXT:\n" + p.text}); continue; }
     const f = await tgFileBytes(env, p.id); if (!f) continue;
     if (p.t === "photo") { ph++; addImg("image/jpeg", b64of(f.u8), "IMAGE"); continue; }
     const nm = (p.name || f.path).toLowerCase();
-    if (/\.docx$/.test(nm) || /wordprocessingml/.test(p.mime)) { const z = await unzip(f.u8); const xml = z["word/document.xml"] ? new TextDecoder().decode(z["word/document.xml"]) : "";
-      parts.push({text: "WORD FILE TEXT (" + p.name + "):\n" + docxText(xml).slice(0, 30000)});
-      const media = Object.keys(z).filter(x => /\.(png|jpe?g)$/i.test(x)).sort((a, b) => (+(a.match(/(\d+)\.\w+$/) || [0, 0])[1]) - (+(b.match(/(\d+)\.\w+$/) || [0, 0])[1]));
-      for (const m of media.slice(0, 8)) if (z[m].length > 15000) addImg(/png$/i.test(m) ? "image/png" : "image/jpeg", b64of(z[m]), "IMAGE"); continue; }
+    if (/\.docx$/.test(nm) || /wordprocessingml/.test(p.mime)) { const z = await unzip(f.u8); const dec = k => z[k] ? new TextDecoder().decode(z[k]) : "";
+      const xml = dec("word/document.xml"), rels = dec("word/_rels/document.xml.rels"), rmap = {};
+      for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) { const id = (m[0].match(/\bId="([^"]+)"/) || [])[1], tg0 = (m[0].match(/\bTarget="([^"]+)"/) || [])[1]; if (id && tg0) rmap[id] = "word/" + tg0.replace(/^(\.\/|\/word\/)/, ""); }
+      const want = /part\s*(1\.2|2)\b/i.test(xml.replace(/<[^>]+>/g, " ")); let budget = 7e6; const seen = {};
+      // rasmlar hujjatdagi TARTIBda: [PICTURE n] = IMAGE n
+      const dt = docxText(xml, dr => { const rid = (dr.match(/r:embed="([^"]+)"/) || [])[1], mf = rid && rmap[rid]; if (!want || !mf || !z[mf] || z[mf].length < 15000 || !/\.(png|jpe?g)$/i.test(mf)) return " [PICTURE] ";
+        if (!seen[mf]) { if (imgs.length >= 8 || (budget -= z[mf].length) < 0) return " [PICTURE] "; addImg(/png$/i.test(mf) ? "image/png" : "image/jpeg", b64of(z[mf]), "IMAGE"); seen[mf] = imgs.length; } return ` [PICTURE ${seen[mf]}] `; });
+      allText += "\n" + dt; parts.unshift({text: "WORD FILE TEXT (" + p.name + "):\n" + dt.slice(0, 30000)}); continue; }
     if (/\.pdf$/.test(nm) || p.mime === "application/pdf") { parts.push({text: "PDF FILE (" + p.name + "):"}); parts.push({inline_data: {mime_type: "application/pdf", data: b64of(f.u8)}}); continue; }
     if (/^image\//.test(p.mime)) { addImg(p.mime, b64of(f.u8), "IMAGE"); continue; }
     if (/\.txt$/.test(nm)) parts.push({text: new TextDecoder().decode(f.u8).slice(0, 20000)});
   }
   if (!parts.length) throw new Error("Fayl o'qilmadi (docx, pdf, rasm yoki matn yuboring).");
-  const r = await gemini(env, IMP_SYS, parts, IMP_SCHEMA, 0.1);
+  const hz = impHeur(allText); let r;
+  try { r = await gemini(env, IMP_SYS, parts, IMP_SCHEMA, 0.1); } catch (e) { if (!hz.length) throw e; r = {items: []}; } // AI ishlamasa ham lesson pack formatini o'qiymiz
+  let raw = r.items || []; if (hz.length > raw.length) raw = hz; // AI bo'sh yoki kam topsa — matndan o'zimiz ajratamiz
   const items = [];
-  for (const x of r.items || []) {
+  for (const x of raw) { x.part = String(x.part || "").replace(/part|task|\s/ig, "").replace(/^1$/, "T1").replace(/^([12])\.?$/, (m, d) => x.kind === "writing" ? "T" + d : d);
     const k = x.kind === "writing" ? "writing" : "speaking"; const part = k === "writing" ? (x.part === "T2" || /2/.test(x.part) && !/1/.test(x.part) ? "T2" : "T1") : (SPARTS.includes(x.part) ? x.part : "1.1");
     const it = {id: uid(), kind: k, topic: clean(x.topic, 60) || clean(r.title, 60) || "Boshqa", created: Date.now()};
     if (k === "writing") { it.wtype = part; if (part === "T1") Object.assign(it, {sender: clean(x.sender, 150) || "The manager sent you an email.", email: clean(x.email, 3000), t11: clean(x.t11, 600), t12: clean(x.t12, 600)}); else it.essay = clean(x.essay, 1200); }
@@ -426,7 +461,10 @@ async function impParse(env, d){
       if (part === "1.2" || part === "2") it._img = (x.img || []).map(i => imgs[i - 1]).filter(Boolean).slice(0, part === "1.2" ? 2 : 1); }
     if (norm(keyText(it))) items.push(it);
   }
-  return {title: clean(r.title, 100) || "Uyga vazifa", items};
+  const fn = ((d.parts.find(p => p.name) || {}).name || "").replace(/\.\w+$/, "").split(/[_\-]+/).filter(w => /^[A-Za-z]{3,}$/.test(w) && !/^(part|dars|lesson|pack|worksheet)$/i.test(w)).join(" ");
+  const tt = (allText.match(/·\s*([A-Z][A-Za-z &'-]{3,40})\s*[:—]/) || [])[1] || fn;
+  const title = clean(r.title, 100) || clean(tt, 60) || "Uyga vazifa"; items.forEach(it => { if (it.topic === "Boshqa") it.topic = title.slice(0, 60); });
+  return {title, items};
 }
 const PART_UZ = {"1.1": "🎤 Part 1.1", "1.2": "🎤 Part 1.2", "2": "🎤 Part 2", "3": "🎤 Part 3", T1: "✍️ Task 1", T2: "✍️ Task 2"};
 async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari (AI band bo'lsa — o'zi qayta urinadi)
@@ -1304,6 +1342,7 @@ async function onGroupMessage(env, msg){
   }
   if (!g) { await trace(env, "unknown", {chat: gid, title: msg.chat.title || "", why: "guruh ro'yxatda yo'q"}); return; }
   if (g.title !== msg.chat.title && msg.chat.title) { g.title = msg.chat.title; await PUT(env, "groups", gs); }
+  if (msg.message_thread_id > 1 && !(msg.from && msg.from.is_bot)) await rmMark(env, gid, msg.message_thread_id, msg.message_id);
   const th = msg.message_thread_id; const tname = (msg.forum_topic_created || msg.forum_topic_edited || msg.reply_to_message?.forum_topic_created || {}).name;
   if (th && tname) {
     const topics = await J(env, "topics:" + gid, {});
@@ -1519,6 +1558,18 @@ function digestLine(x, now){
   if (x.ok) return `${x.late ? "⏰" : "✅"} ${x.icon} ${H(x.title)}${cnt}${x.info ? ` (${H(x.info)})` : ""}`;
   return `${x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${cnt} · ${x.due > now ? "⏰ " + DAY_UZ[wdOf(dayKey(x.due))] + " " + hhmm(x.due) : "muddati o'tdi"}`;
 }
+// Eslatma xabari: o'zi yangilanadi (edit). Topic'da undan keyin yangi xabar bo'lsa — eskisi o'chiriladi va pastga qayta tashlanadi (≤ har 30 daqiqada)
+async function remindSend(env, g, s, text, live, now, hour){
+  const k = `rmr:${g.id}:${s.thread}`; const o = await J(env, k, null);
+  if (o && o.live && !o.moved) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: o.mid, text, parse_mode: "HTML", disable_web_page_preview: true});
+    if (e.ok || /not modified/i.test(e.description || "")) { if (!live) await PUT(env, k, {...o, live: false}, {expirationTtl: 3 * 86400}); return "edit"; } }
+  if (live && (hour < 8 || (o && o.live && now - (o.at || 0) < 30 * 60e3))) return "wait"; // erta tong yoki yaqinda tashlangan — keyinroq
+  if (o && o.live) await tg(env, "deleteMessage", {chat_id: g.id, message_id: o.mid});
+  const r = await toTopic(env, g.id, s.thread, text, {_rm: 1});
+  if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, at: now, live: !!live, moved: false}, {expirationTtl: 3 * 86400});
+  return "post";
+}
+async function rmMark(env, gid, th, mid){ try { const k = `rmr:${gid}:${th}`; const o = await J(env, k, null); if (o && o.live && !o.moved && mid > o.mid) await PUT(env, k, {...o, moved: true}, {expirationTtl: 3 * 86400}); } catch (e) {} }
 async function digestAll(env, gs, studs, hpAct, now, quiet){
   if (quiet) return;
   const hour = L(now).getUTCHours();
@@ -1531,21 +1582,21 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
     const hp = hpAct[g.id] || null; const hws = await latestHw(env, g.id);
     const sk = "rst:" + g.id; const st0 = await J(env, sk, null); const fresh = !st0; const st = st0 || {s: {}, posted: {}}; let ch = false; // fresh: birinchi ishga tushish — eski tizim yuborganlarini jim belgilab qo'yamiz
     const kun = [], lateK = [];
+    const ic = hp ? hp.items.filter(i => i.type === "in_class") : []; // darsda so'raladigan (yodlash) vazifalar
     for (const s of studs.filter(x => x.gid === g.id)) {
       const T = await digestTasks(env, g, s, hp, hws, now); const P = pq[s.id] || [];
       if (!T.length && !P.length) continue;
-      const S = st.s[s.id] = st.s[s.id] || {rs: {}, late: {}, lr: {}, ok: {}, all: {}};
-      const pend = T.filter(x => !x.ok); let type = null, tl = "";
+      const S = st.s[s.id] = st.s[s.id] || {late: {}, lr: {}, ok: {}, all: {}};
+      const pend = T.filter(x => !x.ok); let type = null, tl = "", live = false;
       const newly = T.filter(x => x.ok && !S.ok[x.key]); newly.forEach(x => S.ok[x.key] = now); if (newly.length) ch = true;
       const allSig = T.map(x => x.key).join("|");
-      if (T.length && !pend.length && !S.all[allSig]) { S.all[allSig] = now; ch = true; type = T.some(x => x.late) ? "late_ok" : "praise"; }
+      if (T.length && !pend.length && !S.all[allSig]) { S.all[allSig] = now; ch = true; type = "done"; }
       const fut = pend.filter(x => x.due > now);
-      if (!type && fut.length) { const nd = Math.min(...fut.map(x => x.due)), left = nd - now;
-        const stage = left <= 3600e3 + 3 * 60e3 ? 3 : left <= 3 * 3600e3 + 3 * 60e3 ? 2 : left <= 12 * 3600e3 && hour >= 8 ? 1 : 0;
-        if (stage > (S.rs[nd] || 0)) { S.rs[nd] = stage; ch = true; type = "r" + stage; tl = fmtLeft(left); } }
+      // eslatma faqat muddatga ≤3 soat qolganda; bitta xabar har 5 daqiqada YANGILANADI (qolgan vaqt bilan)
+      if (!type && fut.length) { const left = Math.min(...fut.map(x => x.due)) - now; if (left <= 3 * 3600e3 + 3 * 60e3) { type = "rem"; live = true; tl = fmtLeft(Math.max(60e3, Math.round(left / 300e3) * 300e3)); } }
       const over = pend.filter(x => x.due <= now && now - x.due < 864e5 && x.due > x.created + 30 * 60e3);
       const newLate = over.filter(x => !S.late[x.key]);
-      if (newLate.length) { newLate.forEach(x => S.late[x.key] = now); ch = true; kun.push({s, items: newLate}); if (!type) type = "late"; }
+      if (newLate.length) { newLate.forEach(x => S.late[x.key] = now); ch = true; kun.push({s, items: newLate}); type = "late"; live = false; }
       if (!type) { const lr = over.filter(x => S.late[x.key] && !S.lr[x.key] && x.ls && now < x.ls && x.ls - now <= 3600e3);
         if (lr.length) { lr.forEach(x => S.lr[x.key] = now); ch = true; type = "lrem"; tl = fmtLeft(Math.min(...lr.map(x => x.ls)) - now); } }
       const lateDone = newly.filter(x => x.late); if (lateDone.length) { lateK.push({s, items: lateDone}); if (!type) type = "late_ok"; }
@@ -1553,15 +1604,18 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
       if (!type && pOld.length) type = "pron";
       if (!type) continue;
       // xabar
-      const hdr = (type === "praise" ? pick(TPL.praise) : type === "late_ok" ? pick(TPL.late_ok) : pick(DG[type])).replace("{n}", "<b>" + H(first(s.name)) + "</b>").replace("{t}", tl);
-      let t = hdr + (T.length ? "\n\n" + T.map(x => digestLine(x, now)).join("\n") : "");
-      if (P.length) { const w = [...new Set(P.flatMap(p => p.words))].slice(0, 10); P.forEach(p => usedPq.add(p.k));
+      const nm = "<b>" + H(first(s.name)) + "</b>"; let t;
+      if (type === "done") t = (T.some(x => x.late) ? `🏁 ${nm}, kech bo'lsa ham uy vazifasini yakunladingiz! 👍` : pick([`🏁 ${nm}, siz uy vazifasini yakunladingiz! 👏`, `🎉 ${nm}, barakalla — uy vazifasi to'liq bajarildi!`, `✅ ${nm}, hammasi topshirildi — zo'r ish!`])) + "\n\n" + T.map(x => digestLine(x, now)).join("\n")
+        + (ic.length ? `\n\n📚 Endi yodlaydigan vazifalaringizga e'tiborli bo'ling — darsda so'raladi:\n${ic.map(i => "• " + H(i.title)).join("\n")}` : `\n\n📚 Yodlaydigan vazifalaringizga ham e'tiborli bo'ling!`);
+      else { const hdr = (type === "late_ok" ? pick(TPL.late_ok) : type === "rem" ? pick(["⏳ {n}, muddatgacha <b>{t}</b> qoldi!", "⏰ {n}, vazifa muddatiga <b>{t}</b> qoldi!"]) : pick(DG[type])).replace("{n}", nm).replace("{t}", tl);
+        t = hdr + (T.length ? "\n\n" + T.map(x => digestLine(x, now)).join("\n") : "");
+        if (type === "late" || type === "lrem") t += `\n\n<i>Kech bo'lsa ham topshiring — hisobga olinadi.</i>`;
+        else if (type === "rem") t += `\n\n<i>✅ — topshirilgan. Bu xabar o'zi yangilanib turadi · ${hhmm(now)}</i>`; }
+      if (P.length && type !== "rem") { const w = [...new Set(P.flatMap(p => p.words))].slice(0, 10); P.forEach(p => usedPq.add(p.k));
         t += `\n🗣 Talaffuz mashqi qilinmadi: ${w.map(x => "<b>" + H(x) + "</b>").join(", ")}\n<i>Feedbackdagi 🔊 To'g'ri → 🎤 Ayting tugmalari bilan mashq qilib, «📤 Talaffuz natijasini yuborish» ni bosing.</i>`; }
-      if (type === "late" || type === "lrem") t += `\n\n<i>Kech bo'lsa ham topshiring — hisobga olinadi.</i>`;
-      else if (pend.length && type !== "pron") t += `\n\n<i>Topshirgan qismlaringiz ✅ bilan belgilangan.</i>`;
       if (fresh) { ch = true; continue; }
-      if (s.thread && !g.quiet) await toTopic(env, g.id, s.thread, t);
-      if (P.length) await addLog(env, s.id, [{t: "pron_missed", n: P.reduce((a, p) => a + p.words.length, 0)}]);
+      if (s.thread && !g.quiet) await remindSend(env, g, s, t, live, now, hour);
+      if (P.length && type !== "rem") await addLog(env, s.id, [{t: "pron_missed", n: P.reduce((a, p) => a + p.words.length, 0)}]);
     }
     // natijalar jadvali (saytdagi vazifa muddati o'tganda, Homework posti yo'q guruhlarda)
     if (!hp) for (const k of KINDS) { const hw = hws[k]; if (!hw || now - hw.at > 8 * 864e5) continue; const due = siteDue(g, hws, k), pk = k + ":" + hwFrom(g, hw);
@@ -1690,13 +1744,14 @@ export default {
           await PUT(env, lk, {key, sig, at: Date.now()}, {expirationTtl: 3600}); }
         const base = {chat_id: g.id, message_thread_id: stu.thread};
         const r0 = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
-        if (!r0.ok) return out({error: "Telegram: " + r0.description}, 502);
+        if (!r0.ok) return out({error: "Telegram: " + r0.description}, 502); await rmMark(env, g.id, stu.thread, r0.result.message_id);
         for (const video of fd.getAll("video").slice(0, 4)) if (video && video.size > 1000) {
           if (video.size > 49e6) await say(env, g.id, "⚠️ Video juda katta bo'lgani uchun yuborilmadi (50 MB dan ortiq).", {message_thread_id: stu.thread});
           else { const vf = new FormData(); vf.append("chat_id", g.id); vf.append("message_thread_id", String(stu.thread)); vf.append("supports_streaming", "true");
             const ext = /mp4/.test(video.type) ? "mp4" : "webm"; vf.append("video", video, `speaking.${ext}`); vf.append("caption", `🎥 ${stu.name} — ${rv.metadata.title || "Speaking"}`);
             const rv2 = await tgForm(env, "sendVideo", vf);
-            if (!rv2.ok) { const df = new FormData(); df.append("chat_id", g.id); df.append("message_thread_id", String(stu.thread)); df.append("document", video, `speaking.${ext}`); await tgForm(env, "sendDocument", df); } }
+            if (!rv2.ok) { const df = new FormData(); df.append("chat_id", g.id); df.append("message_thread_id", String(stu.thread)); df.append("document", video, `speaking.${ext}`); const rv3 = await tgForm(env, "sendDocument", df);
+              if (!rv3.ok) { await say(env, g.id, `⚠️ Video yuborilmadi (${H(String(rv3.description || rv2.description || "Telegram xatosi").slice(0, 120))}).`, {message_thread_id: stu.thread}); await addLog(env, stu.id, [{t: "video_fail", msg: String(rv3.description || "").slice(0, 120), mb: Math.round(video.size / 1e5) / 10}]); } } }
         }
         const pages = fd.getAll("page").filter(f => f && f.size).slice(0, 20);
         for (let i = 0; i < pages.length; i += 10) {

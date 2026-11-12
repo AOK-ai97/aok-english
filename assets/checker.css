@@ -157,6 +157,9 @@ td.up{color:#1B5E20;font-weight:700}td.dn{color:#B71C1C;font-weight:700}
 .chks{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px}
 .ck-form .chks label.chk{display:flex;gap:6px;align-items:center;font-weight:400}
 .a4{position:fixed;left:-12000px;top:0;width:794px;padding:28px 34px;background:#fff;color:#102040;box-sizing:border-box}
+/* feedback rasmi har doim YORUG' (telefon qorong'i rejimda bo'lsa ham) */
+.a4,.a4 *{--bg:#F3F5F8;--surface:#FFFFFF;--raise:#FAFBFD;--ink:#141B27;--muted:#5A6476;--line:#DCE2EB;--navy:#1F3864;--green:#215E3C;--tint:#EDF1F7;--acc-ink:#1D3A10;--ok:#1E7A46;--okbg:#E2F3E8;--bad:#B3261E;--badbg:#FBE6E3;color-scheme:light}
+.a4 table,.a4 tr,.a4 td{background-color:transparent}.a4 th{background-color:#1F3864;color:#fff}
 .a4 .pb,.a4 .pbh{display:none}
 .a4-top{font-size:13px;color:#5b6b86;border-bottom:2px solid #1F3864;padding-bottom:6px;margin-bottom:14px}
 .rep-blk{break-inside:avoid}

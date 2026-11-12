@@ -234,7 +234,7 @@ async function sendTG(box,d,btn,auto){
   btn.disabled=true;btn.textContent=auto?"⏳ Guruhga avtomatik yuborilmoqda…":"⏳ Tayyorlanmoqda…";
   let job=null;
   try{const pages=await a4Pages(box,d);
-    job={key:d.key,code:ls.get("aok_code"),caption:tgCaption(d),pages,videos:d.kind==="speaking"?VSEG.slice():[],auto:!!auto,at:Date.now()};
+    job={key:d.key,code:ls.get("aok_code"),caption:tgCaption(d)+(d.kind==="speaking"&&!VSEG.length?"\n🎥 Video yozilmagan (kamera o'chiq yoki sahifa qayta ochilgan)":""),pages,videos:d.kind==="speaking"?VSEG.slice():[],auto:!!auto,at:Date.now()};
     await outboxPut(job);VSEG=[];               // navbatga yozildi — sahifa yopilsa ham yo'qolmaydi
     btn.textContent="⏳ Yuborilmoqda…";
     let ok=false,last="";
@@ -435,21 +435,21 @@ function startVideo(){
   if(!STREAM.getVideoTracks().length)return;const cam=$("#rCam");if(cam){cam.srcObject=STREAM;cam.hidden=false;cam.play().catch(()=>{})}
   const mt=["video/mp4;codecs=avc1,mp4a","video/mp4","video/webm;codecs=vp8,opus","video/webm"].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||"";
   try{VREC=new MediaRecorder(STREAM,{...(mt?{mimeType:mt}:{}),videoBitsPerSecond:160000,audioBitsPerSecond:32000});VCH=[];
-    VREC.ondataavailable=e=>e.data.size&&VCH.push(e.data);VREC.onstop=()=>{if(VCH.length)VSEG.push(new Blob(VCH,{type:VREC.mimeType||"video/webm"}));VCH=[]};VREC.start(1000)}catch(e){VREC=null}
+    VREC.ondataavailable=e=>e.data.size&&VCH.push(e.data);VREC.onstop=()=>{if(VCH.length){VSEG.push(new Blob(VCH,{type:VREC.mimeType||"video/webm"}));try{saveRun()}catch(e){}}VCH=[]};VREC.start(1000)}catch(e){VREC=null}
 }
 const stopVideo=()=>new Promise(r=>{if(!VREC||VREC.state==="inactive")return r();const o=VREC.onstop;VREC.onstop=()=>{o&&o();r()};VREC.stop()});
 const runKey=()=>"sp:"+ls.get("aok_code");
 function saveRun(){if(!RUN)return;idb.set(runKey(),{at:Date.now(),mode:RUN.mode,title:RUN.title,items:RUN.items,i:RUN.i||0,away:AWAY,
-  clips:CLIPS.map(c=>({part:c.part,question:c.question,blob:c.blob,empty:!!c.empty}))})}
+  clips:CLIPS.map(c=>({part:c.part,question:c.question,blob:c.blob,empty:!!c.empty})),vseg:VSEG.slice()})} // video ham saqlanadi — sahifa yopilsa yo'qolmaydi
 async function checkResume(){
   if(PAGE!=="speaking")return;const s=await idb.get(runKey());const box=$("#resumeBox");if(!box)return;
   if(!s||Date.now()-s.at>48*3600e3){box.hidden=true;if(s)idb.del(runKey());return}
   const total=buildSteps(s.items).length;
   if(s.clips.length>=total&&total){box.hidden=false;box.innerHTML=`🔄 <b>Tekshirilmay qolgan speaking:</b> ${esc(s.title||"")} — javoblar yozilgan, AI'ga avtomatik qayta yuborilmoqda…`;LOG.add("auto_resubmit",{page:"speaking"});
-    RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;AWAY=s.away||{n:0,s:0};setTimeout(()=>{box.hidden=true;step(4);submitSpeaking()},1500);return}
+    RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;VSEG=s.vseg||[];AWAY=s.away||{n:0,s:0};setTimeout(()=>{box.hidden=true;step(4);submitSpeaking()},1500);return}
   box.hidden=false;box.innerHTML=`🔄 <b>Tugallanmagan topshiriq:</b> ${esc(MODES[s.mode]||"")} · ${esc(s.title||"")} — ${s.clips.length}/${total} savol bajarilgan.
     <div class="rep-acts"><button type="button" class="ck-go" id="rsGo">▶ Davom ettirish</button><button type="button" class="ck-go alt" id="rsDel">🗑 Bekor qilish</button></div>`;
-  $("#rsGo").onclick=()=>{box.hidden=true;LOG.add("resume",{done:s.clips.length,of:total});RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;AWAY=s.away||{n:0,s:0};
+  $("#rsGo").onclick=()=>{box.hidden=true;LOG.add("resume",{done:s.clips.length,of:total});RUN={mode:s.mode,title:s.title,items:s.items};CLIPS=s.clips;VSEG=s.vseg||[];AWAY=s.away||{n:0,s:0};
     if(s.mode==="exam"&&s.clips.length<total){CLIPS.push({part:buildSteps(s.items)[s.clips.length].part,question:buildSteps(s.items)[s.clips.length].q,blob:new Blob([],{type:"audio/webm"}),empty:true});AWAY.n++}
     speakingRun(true)};
   $("#rsDel").onclick=()=>{idb.del(runKey());box.hidden=true}
