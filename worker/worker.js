@@ -406,6 +406,7 @@ async function impAdd(env, r, msg){
   if (d.mid && Date.now() - (d.mt || 0) < 60e3) await tg(env, "editMessageText", {chat_id: me, message_id: d.mid, text: t, parse_mode: "HTML", ...k});
   else { const x = await pm(env, me, t, k); if (x.ok) d.mid = x.result.message_id; }
   d.mt = Date.now(); await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400}); await PUT(env, impK(me), {id: d.id, mt: d.mt}, {expirationTtl: 2 * 86400});
+  if (env.__kvfull && d.mid) await tg(env, "editMessageText", {chat_id: me, message_id: d.mid, parse_mode: "HTML", text: "⏳ Bugun botning kunlik xotira limiti tugadi — vazifani saqlab bo'lmaydi.\nFaylni <b>ertalab 05:00 dan keyin</b> qayta yuboring."});
 }
 function impHeur(text){ // zaxira tahlil (AI bo'sh qaytarsa yoki kamroq topsa): lesson pack formati
   const L = String(text || "").split("\n").map(x => x.trim()).filter(Boolean), out = [];
@@ -1279,7 +1280,7 @@ async function onCallback(env, cq){
     t += "\n\n<i>Baho qo'shsangiz yoki o'zgartirsangiz, tugmani yana bosing — faqat o'zgarganlarga yuboriladi.</i>";
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: t, ...fbKb(g)}); }
   if (a === "imp" || a === "impg") { const id = c || ((await J(env, impK(r.uid), null)) || {}).id; const d = id ? await J(env, impD(id), null) : null;
-    if (!d) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "⏳ Fayl hali saqlanmoqda — 10–20 soniyadan keyin qayta bosing.", show_alert: true}); // xabar o'chmaydi, tugmalar qoladi
+    if (!d) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: Date.now() < KVFULL_UNTIL || env.__kvfull ? "⏳ Bugun botning kunlik xotira limiti tugadi. Faylni ertalab 05:00 dan keyin qayta yuboring." : "⏳ Fayl hali saqlanmoqda — 10–20 soniyadan keyin qayta bosing.", show_alert: true}); // xabar o'chmaydi, tugmalar qoladi
     if (d._del) return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "ℹ️ Bu qoralama yopilgan — faylni qayta yuboring."});
     if (a === "imp" && b === "del") { await PUT(env, impD(d.id), {_del: 1}, {expirationTtl: 2 * 86400}); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, text: "🗑 Bekor qilindi."}); }
     if (a === "imp" && b === "go") { if (d.q && (d.q.next || 0) > Date.now()) return tg(env, "answerCallbackQuery", {callback_query_id: cq.id, text: "⏳ Ajratilmoqda — kuting, xabar o'zi yangilanadi.", show_alert: true});
