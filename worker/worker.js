@@ -104,7 +104,7 @@ function fixTask(t){
 
 // Model eskirsa ("no longer available" / 404) — keyingi modelga o'tadi; ishlagan model eslab qolinadi
 const GOOD = {};
-const EXH = {}; // key|model → qachongacha band (limit tugagan)
+const EXH = {}, OVL = {}; // key|model → qachongacha band (limit tugagan)
 const gKeys = env => [...new Set([env.GEMINI_KEY, ...Array.from({length: 11}, (_, i) => env["GEMINI_KEY" + (i + 2)])].filter(Boolean).flatMap(k => String(k).split(/[,\s]+/)).filter(Boolean))];
 const USE = {c: {}, n: 0, t: Date.now()};
 function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqtov"],["end-of-lesson feedback","dars feedback"],["SHADOWING","shadowing"],["speaking examiner chatting","speaking suhbat"],["FINAL result of a speaking","speaking suhbat xulosa"],["extract CEFR","vazifa kiritish"],["homework post","homework o'qish"],["Target word","talaffuz"],["model answers","namuna tekshiruvi"],["pronunciation coach","talaffuz mashqi"]];
@@ -143,24 +143,26 @@ async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
   const main = [env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite"], light = [env.LITE_MODEL, "gemini-3.5-flash-lite", "gemini-2.5-flash-lite", env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash"];
   const models = [...new Set([GOOD[lite ? "l" : "m"], ...(lite ? light : main)].filter(Boolean))]; const keys = gKeys(env);
   let last = "", busy = false; const t0 = Date.now();
-  for (const model of models) for (const key of keys) {
+  MODELS: for (const model of models) { if ((OVL[model] || 0) > Date.now() && model !== models[models.length - 1]) { busy = true; continue; } // model Google tomonda band — boshqasiga
+  for (const key of keys) {
     const ek = key.slice(-6) + "|" + model; if ((EXH[ek] || 0) > Date.now()) { busy = true; continue; }
     for (let i = 0; i < 2; i++) {
       if (Date.now() - t0 > 22e3) { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; await aiErr(env, last); throw e; }
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      let r; try { r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { signal: AbortSignal.timeout(Math.max(3e3, 23e3 - (Date.now() - t0))),
         method:"POST", headers:{"content-type":"application/json","x-goog-api-key":key},
         body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
-          generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) });
+          generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) }); }
+      catch (e) { busy = true; last = `${model}: javob kelmadi (${e.name})`; OVL[model] = Date.now() + 45e3; continue MODELS; } // osilib qolgan so'rov — kutmaymiz
       const j = await r.json().catch(()=>({})); await aiCount(env, TAG, model, false, keys.indexOf(key) + 1, r.status);
       if (r.ok) { GOOD[lite ? "l" : "m"] = model; return JSON.parse(j.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("") || "{}"); }
       last = `${model}: ` + ((j.error && j.error.message) || ("Gemini " + r.status));
       if (r.status === 404 || /no longer available|not found|is not supported|deprecated/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
       if (r.status === 429) { busy = true; const daily = /per.?day|PerDay|daily/i.test(last); EXH[ek] = Date.now() + (daily ? 3 * 3600e3 : 60e3); break; } // limit — darhol keyingi kalit/model
-      if (r.status === 500 || r.status === 503) { busy = true; if (i === 0) { await new Promise(res => setTimeout(res, 2000)); continue; } break; }
+      if (r.status === 500 || r.status === 503) { busy = true; if (i === 0 && r.status === 500) { await new Promise(res => setTimeout(res, 1500)); continue; } OVL[model] = Date.now() + 45e3; continue MODELS; } // 503 "high demand" — model darajasida: boshqa kalit yordam bermaydi, keyingi modelga
       if (r.status === 400 && /API key/i.test(last)) { EXH[ek] = Date.now() + 864e5; break; }
       throw new Error(last);
     }
-  }
+  } }
   await aiErr(env, last);
   if (busy) { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; throw e; }
   throw new Error(last);
@@ -570,21 +572,22 @@ async function fbText(env, type, name, facts){
     if (r.text && r.text.length > 20) return r.text.slice(0, 700); } catch (e) {}
   return radarText(env, type, name, facts, true);
 }
-async function dayFeedback(env, g, d){
+async function dayFeedback(env, g, d, dl = Infinity){
   d = d || dayKey(); const day = await J(env, `gr:${g.id}:${d}`, {}); const studs = await getStudents(env);
-  const sk = `gs:${g.id}:${d}`; const sent = await J(env, sk, {}); const done = [], skip = [], again = [];
+  const sk = `gs:${g.id}:${d}`; const sent = await J(env, sk, {}); const done = [], skip = [], again = [], left = [];
   for (const [sid, rec] of Object.entries(day)) {
     const s = studs.find(x => x.id === sid); if (!s) continue;
     if (rec.st || !Object.keys(rec.it || {}).length) continue;
     if (sent[sid] === rec.v) { again.push(s.name); continue; }
     if (!s.thread) { skip.push(s.name); continue; }
+    if (Date.now() > dl) { left.push(s.name); continue; } // vaqt tugadi — qolganini cron davom ettiradi
     const items = Object.entries(rec.it); const ls = items.filter(([, v]) => v.l != null).map(([, v]) => Math.min(v.l, 5));
     const facts = items.map(([k, v]) => `${ITEM_UZ[k] || k}: ${v.l != null ? LV_NAME(v.l) : "topshirildi"}${v.n ? ` (izoh: ${v.n})` : ""}${rec.prev && rec.prev[k] != null ? ` (avval ${LV_NAME(rec.prev[k])} edi — qayta ishlab yaxshiladi)` : ""}`).join("; ");
     const a = avg(ls); const type = a === null ? "praise" : a >= 4 ? "praise" : a <= 2 ? "scold" : "encourage";
     await toTopic(env, g.id, s.thread, await fbText(env, type, s.name, facts)); sent[sid] = rec.v; done.push(s.name);
     await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
   }
-  return {done, skip, again};
+  return {done, skip, again, left};
 }
 const fbKb = g => kb([[{text: "📝 Hammaga feedback yuborish", callback_data: "fb:" + g.id}]]);
 /* ---------------- Results: darsdagi test natijalari ---------------- */
@@ -653,16 +656,19 @@ async function rpPreview(env, g, rp){
   t += "\n\n<i>15 daqiqada bosmasangiz, o'zi yuboriladi. Postni tahrirlasangiz, ro'yxat yangilanadi.</i>";
   return pm(env, rp.by, t, kb([[{text: "✅ Yuborish", callback_data: `rpok:${g.id}:${rp.mid}`}, {text: "🗑 Yubormaslik", callback_data: `rpno:${g.id}:${rp.mid}`}]]));
 }
-async function rpSend(env, g, rp){
-  if (rp.st !== "pending") return 0; rp.st = "sent"; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400});
-  const studs = await getStudents(env); let n = 0;
-  for (const x of await rpFacts(env, g, rp)) { if (!x.type) continue; const s = studs.find(y => y.id === x.sid); if (!s || !s.thread) continue;
-    await toTopic(env, g.id, s.thread, await radarText(env, x.type, s.name, x.facts, true)); n++; }
+async function rpSend(env, g, rp, dl = Infinity){ // qayta boshlansa — yuborilganlarga takror yozmaydi
+  if (!["pending", "sending"].includes(rp.st)) return {n: 0, left: 0}; rp.st = "sending"; rp.sentTo = rp.sentTo || []; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400});
+  const studs = await getStudents(env); let left = 0;
+  for (const x of await rpFacts(env, g, rp)) { if (!x.type) continue; const s = studs.find(y => y.id === x.sid); if (!s || !s.thread || rp.sentTo.includes(s.id)) continue;
+    if (Date.now() > dl) { left++; continue; }
+    await toTopic(env, g.id, s.thread, await radarText(env, x.type, s.name, x.facts, true)); rp.sentTo.push(s.id); await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400}); }
+  if (left) return {n: rp.sentTo.length, left};
+  const n = rp.sentTo.length; rp.st = "sent"; await PUT(env, rpKey(g.id, rp.mid), rp, {expirationTtl: 30 * 86400});
   const hist = await J(env, "rh:" + g.id, []); const sc = {}; rp.rows.forEach(x => sc[x.sid] = x.v.reduce((a, b) => a + b, 0));
   hist.push({mid: rp.mid, at: rp.at, kind: rp.kind, title: rp.title, max: rp.max, parts: rp.parts, sc, v: Object.fromEntries(rp.rows.map(x => [x.sid, x.v]))});
   await PUT(env, "rh:" + g.id, hist.slice(-80));
   await PUT(env, "rpl", (await J(env, "rpl", [])).filter(k => k !== rpKey(g.id, rp.mid)));
-  return n;
+  return {n, left: 0};
 }
 /* ---------------- Baholarni o'qish ---------------- */
 const LEVELS = [["super",6],["sal a'lo",4],["sal alo",4],["sal yaxshi",2.5],["sal chala",2],["a'lo",5],["alo",5],["zo'r",5],["zor",5],["yaxshi",3],["chala",1],["yodlamagan",0],["yomon",0],["qilmagan",0],["bajarmagan",0],["yo'q",0],["yoq",0]];
@@ -1194,10 +1200,12 @@ async function onCallback(env, cq){
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(g.title)}</b> — Homework nazoratga olindi.\n\n${hpTable(hp)}`}); }
   if (a === "fb") { const g = gs.find(x => x.id === b); if (!g || !canG(r, g)) return;
     await tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `⏳ <b>${H(g.title)}</b> — feedbacklar yozilmoqda…`});
-    const x = await dayFeedback(env, g);
+    const x = await dayFeedback(env, g, null, Date.now() + 18e3);
+    if (x.left.length) { const q = await J(env, "fbq", []); q.push({gid: g.id, d: dayKey(), by: r.uid, t: Date.now()}); await PUT(env, "fbq", q.slice(-20)); }
     let t = x.done.length ? `✅ <b>${H(g.title)}</b> — ${x.done.length} ta o'quvchiga dars bo'yicha bitta umumiy feedback yuborildi:\n${x.done.map(n => "• " + H(n)).join("\n")}` : `ℹ️ <b>${H(g.title)}</b> — yangi feedback yo'q.`;
     if (x.again.length) t += `\n\n↩️ Avval yuborilgan, yangi baho yo'q: ${x.again.map(H).join(", ")}`;
     if (x.skip.length) t += `\n\n⚠️ Topic ulanmagan: ${x.skip.map(H).join(", ")}`;
+    if (x.left.length) t += `\n\n⏳ Qolgan ${x.left.length} tasi (${x.left.map(H).join(", ")}) 5 daqiqa ichida yuboriladi — o'zim xabar beraman.`;
     t += "\n\n<i>Baho qo'shsangiz yoki o'zgartirsangiz, tugmani yana bosing — faqat o'zgarganlarga yuboriladi.</i>";
     return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: t, ...fbKb(g)}); }
   if (a === "imp" || a === "impg") { const d = await J(env, impK(r.uid), null);
@@ -1228,7 +1236,7 @@ Natijalar Results topic'idagi jadvalda yangilanib boradi.`}); }
     if (!rp || rp.st !== "pending") return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: "ℹ️ Bu natijalar allaqachon ko'rib chiqilgan."});
     if (a === "rpno") { rp.st = "cancel"; await PUT(env, rpKey(g.id, c), rp, {expirationTtl: 30 * 86400}); await PUT(env, "rpl", (await J(env, "rpl", [])).filter(k => k !== rpKey(g.id, c)));
       return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🗑 <b>${H(rp.title)}</b> — o'quvchilarga yuborilmaydi.`}); }
-    const n = await rpSend(env, g, rp); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `✅ <b>${H(rp.title)}</b> — ${n} ta o'quvchi topic'iga maqtov/tanbeh yuborildi.`}); }
+    const x = await rpSend(env, g, rp, Date.now() + 18e3); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: x.left ? `⏳ <b>${H(rp.title)}</b> — ${x.n} tasi yuborildi, qolgan ${x.left} tasi 5 daqiqa ichida yuboriladi (o'zim xabar beraman).` : `✅ <b>${H(rp.title)}</b> — ${x.n} ta o'quvchi topic'iga maqtov/tanbeh yuborildi.`}); }
   if (a === "hpdel" && g) { await env.KV.delete("hp:" + g.id); return tg(env, "editMessageText", {chat_id: chat, message_id: mid, parse_mode: "HTML", text: `🗑 <b>${H(g.title)}</b> — bu Homework nazorat qilinmaydi. Keyingi #Homework postini bot yana o'qiydi.`}); }
   if (a === "hped" && g) { await PUT(env, wizK(r.uid), {uid: r.uid, gid: g.id, step: "hpfix"}); return pm(env, r.uid, ASK.hpfix); }
   if (a === "skip") { const w = await J(env, wizK(r.uid), null); if (!w) return; const studs = await getStudents(env); const s = studs.find(x => x.id === w.sid); if (s) { s.thread = 0; await PUT(env, "students", studs); } return askNextLink(env, w); }
@@ -1424,9 +1432,13 @@ async function cron(env){
     if (ch) await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
   }
   // 1b) Results natijalari: 15 daqiqada tasdiqlanmasa — avtomatik yuborish
-  if (!quiet) for (const k of await J(env, "rpl", [])) { const rp = await J(env, k, null); if (!rp || rp.st !== "pending") { await PUT(env, "rpl", (await J(env, "rpl", [])).filter(x => x !== k)); continue; }
-    if (rp.due > now) continue; const g = gs.find(x => x.id === rp.gid); if (!g) continue;
-    const n = await rpSend(env, g, rp); await pm(env, rp.by, `✅ <b>${H(rp.title)}</b> — avtomatik yuborildi (${n} ta o'quvchi).`); }
+  if (!quiet) for (const k of await J(env, "rpl", [])) { const rp = await J(env, k, null); if (!rp || !["pending", "sending"].includes(rp.st)) { await PUT(env, "rpl", (await J(env, "rpl", [])).filter(x => x !== k)); continue; }
+    if (rp.st === "pending" && rp.due > now) continue; const g = gs.find(x => x.id === rp.gid); if (!g) continue; const was = rp.st;
+    const x = await rpSend(env, g, rp); await pm(env, rp.by, `✅ <b>${H(rp.title)}</b> — ${was === "sending" ? "qolganlari ham yuborildi" : "avtomatik yuborildi"} (${x.n} ta o'quvchi).`); }
+  // 1c) "Hammaga feedback" — vaqt yetmay qolganlari
+  if (!quiet) { const q = await J(env, "fbq", []); if (q.length) { await PUT(env, "fbq", []);
+    for (const j of q) { const g = gs.find(x => x.id === j.gid); if (!g) continue; const x = await dayFeedback(env, g, j.d);
+      if (x.done.length) await pm(env, j.by, `✅ <b>${H(g.title)}</b> — qolgan feedbacklar ham yuborildi:\n${x.done.map(n => "• " + H(n)).join("\n")}`); } } }
   // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
   const hpAct = {};
   for (const g of gs) {
