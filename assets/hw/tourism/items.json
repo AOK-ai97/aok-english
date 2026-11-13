@@ -1,0 +1,191 @@
+{
+ "title": "Tourism",
+ "items": [
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "1.1",
+   "q": [
+    "What is the most popular place for tourists in your region?"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "1.1",
+   "q": [
+    "How often do you travel to other cities?"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "1.1",
+   "q": [
+    "Do you prefer travelling in a group or alone?"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "1.2",
+   "q": [
+    "Tell me what you can see in these pictures.",
+    "What are the advantages of visiting quiet places over popular tourist places?",
+    "Do you prefer famous places or less-known places?"
+   ],
+   "imgs": [
+    "img1.jpg",
+    "img2.jpg"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "2",
+   "q": [
+    "Tell me about a historical place you visited.",
+    "What did you learn there?",
+    "Do you agree that every child should visit historical places?"
+   ],
+   "imgs": [
+    "img3.jpg"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "Tourism brings more benefits than problems to a country."
+   ],
+   "for": [
+    "Creates jobs for local people",
+    "Brings money to the country",
+    "People learn about other cultures"
+   ],
+   "against": [
+    "Prices go up",
+    "More pollution and rubbish",
+    "Old places get damaged"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "Everyone should learn to cook at school."
+   ],
+   "for": [
+    "Healthier food",
+    "Saves money",
+    "Useful life skill"
+   ],
+   "against": [
+    "No time in the timetable",
+    "Parents can teach it",
+    "Not everyone is interested"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "Cars should be banned from city centres."
+   ],
+   "for": [
+    "Cleaner air",
+    "Safer streets",
+    "Less noise"
+   ],
+   "against": [
+    "Hard for old people",
+    "Shops lose customers",
+    "Not enough buses"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "Young people should live with their parents until they marry."
+   ],
+   "for": [
+    "Saves money",
+    "Family support",
+    "Less loneliness"
+   ],
+   "against": [
+    "Less independence",
+    "Can't learn to make decisions",
+    "Small flats get crowded"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "A high salary is the most important thing in a job."
+   ],
+   "for": [
+    "Pays for family needs",
+    "Motivates workers",
+    "Better future"
+   ],
+   "against": [
+    "A lot of stress",
+    "Enjoying work matters more",
+    "Friendly colleagues matter too"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "Students should have part-time jobs."
+   ],
+   "for": [
+    "Earn their own money",
+    "Learn responsibility",
+    "Get work experience"
+   ],
+   "against": [
+    "Less time to study",
+    "Get tired",
+    "Marks may fall"
+   ]
+  },
+  {
+   "kind": "speaking",
+   "topic": "Tourism",
+   "part": "3",
+   "q": [
+    "Living in a big city is better than living in a village."
+   ],
+   "for": [
+    "More jobs",
+    "Better hospitals and universities",
+    "Lots of entertainment"
+   ],
+   "against": [
+    "Air pollution",
+    "Expensive housing",
+    "Noisy and stressful"
+   ]
+  },
+  {
+   "kind": "writing",
+   "topic": "Tourism",
+   "wtype": "T1",
+   "sender": "The city tourism office sent you an email.",
+   "email": "Dear residents,\nNext summer our city is going to hold a three-day festival to attract more tourists. There will be concerts, food markets and craft workshops. How do you feel about this plan? What do you think we should show visitors about our city?\nBest regards,\nThe City Tourism Office",
+   "t11": "Write a letter to your friend. Tell him/her how you feel about the festival and what visitors should see in your city. Write about 50 words.",
+   "t12": "Write a letter to the manager of the tourism office. Say how you feel about the plan and what the city should show visitors and why. Write 120–150 words."
+  }
+ ]
+}

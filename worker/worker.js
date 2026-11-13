@@ -485,6 +485,17 @@ async function impFail(env, r, d, mid, e){ // AI band — qayta urinish navbati 
   d.q.next = Date.now() + [60e3, 120e3, 180e3, 300e3][d.q.n - 1]; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400});
   return tg(env, "editMessageText", {chat_id: r.uid, message_id: mid, parse_mode: "HTML", text: `⏳ Google AI hozir band — ${d.q.n + 1}-urinish ${Math.round((d.q.next - Date.now()) / 60e3)} daqiqadan keyin. Hech narsa bosish shart emas, o'zim qayta urinaman.`});
 }
+// Bir martalik: o'qituvchi so'rovi bilan uyga vazifani (sayt repo'sidagi assets/hw/<nom>/) bazaga qo'shib guruhga berish
+async function hwSeedOnce(env, name, grpRe, dueAt){ const mk = "mig:hw-" + name; const st = await env.KV.get(mk); if (st) return;
+  await env.KV.put(mk, "run", {expirationTtl: 900}); if (env.__kvfull) return;
+  const base = `https://aok-ai97.github.io/aok-english/assets/hw/${name}/`; const j = await (await fetch(base + "items.json?" + Date.now())).json(); const items = [];
+  for (const it of j.items) { const x = {...it, id: uid(), created: Date.now()}; if (it.imgs) { x._img = []; for (const f of it.imgs) { const b = new Uint8Array(await (await fetch(base + f)).arrayBuffer()); x._img.push("data:image/jpeg;base64," + b64of(b)); } delete x.imgs; } items.push(x); }
+  const g = (await getGroups(env)).find(g => grpRe.test(g.title || "")); if (!g) { await pm(env, env.OWNER_ID, "⚠️ Uyga vazifa: guruh topilmadi."); return; }
+  const r = {admin: true, uid: String(env.OWNER_ID), name: "Bosh admin"};
+  const x = await impSave(env, r, {title: j.title, items, sel: [g.id]}, true); await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
+  const due = dueAt || nextLesson(g, dayKey()); if (dueAt) for (const k of ["writing", "speaking"]) { const hw = await J(env, `hw:${k}:${g.id}`, null); if (hw && hw.title === j.title) { hw.due = dueAt; await PUT(env, `hw:${k}:${g.id}`, hw); } }
+  await pm(env, env.OWNER_ID, `✅ <b>${H(j.title)}</b> uyga vazifasi saytga joylashtirildi — <b>${H(g.title)}</b>\n📚 Bazaga qo'shildi: ${x.added} ta${x.dup ? ` (oldin bor edi: ${x.dup})` : ""}\n${x.done.map(t => "📌 " + H(t)).join("\n")}\n⏰ Muddat: ${DAY_UZ[wdOf(dayKey(due))]} ${ddmm(due)} ${hhmm(due)}`);
+}
 async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari
   const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
   for (const j of q) { if (typeof j !== "object") { drop.push(j); continue; } const d = await J(env, impD(j.id), null);
@@ -1714,7 +1725,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 export default {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env)]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).catch(e => console.log("seed", e.message))]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
