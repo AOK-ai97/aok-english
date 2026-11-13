@@ -142,13 +142,13 @@ async function gemini(env, sys, parts, schema, temp=0.2, lite=false){
   const TAG = aiTag(sys);
   const main = [env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash", "gemini-2.5-flash-lite", "gemini-3.5-flash-lite"], light = [env.LITE_MODEL, "gemini-3.5-flash-lite", "gemini-2.5-flash-lite", env.MODEL, "gemini-2.5-flash", "gemini-3.5-flash"];
   const models = [...new Set([GOOD[lite ? "l" : "m"], ...(lite ? light : main)].filter(Boolean))]; const keys = gKeys(env);
-  let last = "", busy = false; const t0 = Date.now();
+  let last = "", busy = false; const t0 = Date.now(); const CAP = env.__aiTO || 22e3; // sayt tekshiruvi (vaqt chegarasi yo'q) — 110 s; Telegram (30 s) — 22 s
   MODELS: for (const model of models) { if ((OVL[model] || 0) > Date.now() && model !== models[models.length - 1]) { busy = true; continue; } // model Google tomonda band — boshqasiga
   for (const key of keys) {
     const ek = key.slice(-6) + "|" + model; if ((EXH[ek] || 0) > Date.now()) { busy = true; continue; }
     for (let i = 0; i < 2; i++) {
-      if (Date.now() - t0 > 22e3) { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; await aiErr(env, last); throw e; }
-      let r; try { r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { signal: AbortSignal.timeout(Math.max(3e3, 23e3 - (Date.now() - t0))),
+      if (Date.now() - t0 > CAP) { const e = new Error("BUSY: AI hozir band. " + last); e.busy = true; await aiErr(env, last); throw e; }
+      let r; try { r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { signal: AbortSignal.timeout(Math.max(3e3, CAP + 1e3 - (Date.now() - t0))),
         method:"POST", headers:{"content-type":"application/json","x-goog-api-key":key},
         body: JSON.stringify({ systemInstruction:{parts:[{text:sys}]}, contents:[{role:"user",parts}],
           generationConfig:{ temperature:temp, responseMimeType:"application/json", responseSchema:schema } }) }); }
@@ -1892,7 +1892,7 @@ export default {
     }
 
     let b; try { b = await req.json(); } catch { return out({error: "Noto'g'ri so'rov."}, 400); }
-    const kind = b.kind === "writing" ? "writing" : "speaking"; let IDK = null;
+    const kind = b.kind === "writing" ? "writing" : "speaking"; let IDK = null; env.__aiTO = 110e3; // uzun Speaking (Part 2/3) 30–120 s oladi
     try {
       /* ---------- O'QITUVCHI ---------- */
       if (path.startsWith("/teacher/")) {
