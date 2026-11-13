@@ -258,7 +258,9 @@ async function tg(env, method, body){
   } catch (e) { console.log("TG", method, e.message); return {ok:false, description:e.message}; }
 }
 async function tgForm(env, method, fd){
-  try { const r = await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/${method}`, {method:"POST", body: fd}); const j = await r.json(); if (!j.ok) console.log("TG", method, j.description); return j; }
+  try { const r = await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/${method}`, {method:"POST", body: fd}); const j = await r.json(); if (!j.ok) console.log("TG", method, j.description);
+    const th = +fd.get("message_thread_id"); if (j.ok && th > 1 && /^send/.test(method)) { const m = [].concat(j.result).pop(); if (m && m.message_id) await rmMark(env, String(fd.get("chat_id")), th, m.message_id); } // video/rasm tushdi — eslatma pastga ko'chadi
+    return j; }
   catch (e) { return {ok:false, description:e.message}; }
 }
 const say = (env, chat, text, extra = {}) => tg(env, "sendMessage", {chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra});
@@ -1712,6 +1714,8 @@ async function remindSend(env, g, s, text, opt, now, hour){
   if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, at: now, live: true, moved: false, done: !!opt.done}, {expirationTtl: 3 * 86400});
   return "post";
 }
+async function rmAllOnce(env){ if (await env.KV.get("mig:rmall1")) return; await env.KV.put("mig:rmall1", "1"); // bir martalik: hamma eslatmalar oxiriga qayta tushadi
+  for (const k of (await env.KV.list({prefix: "rmr:"})).keys) { const o = await J(env, k.name, null); if (o && o.mid && !o.moved) await PUT(env, k.name, {...o, moved: true}, {expirationTtl: 3 * 86400}); } }
 async function rmMark(env, gid, th, mid){ try { const k = `rmr:${gid}:${th}`; const o = await J(env, k, null); if (o && o.mid && !o.moved && mid > o.mid) await PUT(env, k, {...o, moved: true}, {expirationTtl: 3 * 86400}); } catch (e) {} }
 async function digestAll(env, gs, studs, hpAct, now, quiet){
   if (quiet || env.__kvfull) return;
@@ -1874,7 +1878,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 const WORKER = {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), rmAllOnce(env).catch(() => {}), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     if (path === "/night/next") { // GitHub render: navbatdagi tekshirilgan natija
@@ -1936,7 +1940,7 @@ const WORKER = {
         if (fd.get("extra") === "pron") { // talaffuz mashqi natijasi — qo'shimcha xabar (bir xili qayta yuborilmaydi)
           const cap = String(fd.get("caption") || "").slice(0, 3500); const hsh = String(cap.length) + ":" + [...cap].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
           if (rv.metadata.pronHash === hsh) return out({ok: true, dup: true});
-          const rr = await say(env, g.id, cap, {message_thread_id: stu.thread}); if (!rr.ok) return out({error: "Telegram: " + rr.description}, 502);
+          const rr = await toTopic(env, g.id, stu.thread, cap); if (!rr.ok) return out({error: "Telegram: " + rr.description}, 502);
           await env.KV.put(key, rv.value, {metadata: {...rv.metadata, pronHash: hsh}}); await env.KV.delete("pq:" + key.split(":").pop());
           await addLog(env, stu.id, [{t: "pron_sent", n: +(fd.get("n") || 0), avg: +(fd.get("avg") || 0)}]);
           return out({ok: true}); }
