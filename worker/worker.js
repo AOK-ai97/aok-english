@@ -1702,7 +1702,7 @@ async function remindSend(env, g, s, text, opt, now, hour){
   if (o && o.mid && !o.moved && !hourly) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: o.mid, text, parse_mode: "HTML", disable_web_page_preview: true});
     if (e.ok || /not modified/i.test(e.description || "")) return "edit"; }
   if (!day) return "wait"; // tunda yangi xabar tashlanmaydi (faqat tahrir)
-  if (opt.done && o && o.done) return "wait";
+  // yakunlaganlarniki ham doim oxirida turadi (pastga ko'chadi), faqat hourly yangidan tashlash yo'q
   await PUT(env, k, {...(o || {}), pend: now}, {expirationTtl: 3 * 86400}); if (env.__kvfull) return "kvfull";
   if (o && o.mid) await tg(env, "deleteMessage", {chat_id: g.id, message_id: o.mid});
   const r = await toTopic(env, g.id, s.thread, text, {_rm: 1});
