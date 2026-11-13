@@ -195,7 +195,7 @@ async function allBank(env, kind){ const ps = kind==="writing" ? WPARTS : SPARTS
 async function withImages(env, items){
   return Promise.all(items.map(async it => {
     if (!it.images || !it.images.length) return it;
-    const imgs = await Promise.all(it.images.map(async im => typeof im === "string" ? {url: im} : im.k ? ({data: await env.KV.get(im.k)}) : im));
+    const imgs = await Promise.all(it.images.map(async im => typeof im === "string" ? {url: im} : im.k ? (async () => { const v = await env.KV.get(im.k) || ""; return v.startsWith("data:") ? {url: v} : {data: v}; })() : im)); // import yo'li to'liq data-URI saqlaydi, panel — faqat base64
     return {...it, images: imgs};
   }));
 }
