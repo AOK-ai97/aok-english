@@ -480,7 +480,8 @@ async function vazifaText(env, r, text){
   if (!g) return pm(env, me, `❓ Guruh topilmadi: «${H(head)}». Birinchi qatorda shunday yozing:\n${gs.map(x => "<code>#VAZIFA " + H(x.title) + "</code>").join("\n")}`);
   let title = "Uyga vazifa", due = null, sec = null; const items = []; const now = Date.now(); let buf = [];
   const mkS = (part, q, extra = {}) => ({id: uid(), kind: "speaking", topic: title, created: now, part, q: q.map(x => clean(x, 600)).filter(Boolean).slice(0, 3), ...extra});
-  const flush = () => { const B = buf.filter(Boolean); buf = []; if (!sec || !B.length) return; const strip = x => x.replace(/^\d+[.)]\s*/, "").replace(/^[-•]\s*/, "");
+  const pics = []; // [Part 1.2]/[Part 2] ichidagi "Rasm: https://…" qatorlari
+  const flush = () => { let B = buf.filter(Boolean); buf = []; if (!sec || !B.length) return; const R0 = B.filter(x => /^(rasm|picture|image)\s*:\s*https?:\/\//i.test(x)).map(x => x.replace(/^[^:]+:\s*/, "")); B = B.filter(x => !/^(rasm|picture|image)\s*:/i.test(x)); if (R0.length && (sec === "1.2" || sec === "2")) pics.push({n: items.length, urls: R0}); if (!B.length) return; const strip = x => x.replace(/^\d+[.)]\s*/, "").replace(/^[-•]\s*/, "");
     if (sec === "1.1") B.forEach(q => items.push(mkS("1.1", [strip(q)])));
     else if (sec === "1.2" || sec === "2") items.push(mkS(sec, B.map(strip)));
     else if (sec === "3") { for (let i = 0; i < B.length; i++) { if (/^(for|against)\s*:/i.test(B[i])) continue; const sp = z => (z || "").replace(/^(for|against)\s*:\s*/i, "").split(/\s*[;·•]\s*/).filter(Boolean).slice(0, 3);
@@ -499,11 +500,12 @@ async function vazifaText(env, r, text){
       sec = /1\.1/.test(t) ? "1.1" : /1\.2/.test(t) ? "1.2" : /part 2|^2$/.test(t) ? "2" : /part 3|^3$/.test(t) ? "3" : /task 2|essay/.test(t) ? "T2" : /writing|task 1|email/.test(t) ? "T1" : null; continue; }
     buf.push(x); }
   flush();
+  for (const p of pics) { const it = items[p.n]; if (!it) continue; it._img = []; for (const u of p.urls.slice(0, it.part === "1.2" ? 2 : 1)) { try { const rs = await fetch(u); if (rs.ok) { const ct = rs.headers.get("content-type") || "image/jpeg"; it._img.push(`data:${ct.split(";")[0]};base64,` + b64of(new Uint8Array(await rs.arrayBuffer()))); } } catch (e) {} } }
   if (!items.length) return pm(env, me, "❓ Savol topilmadi. Bo'limlar [Part 1.1], [Part 1.2], [Part 2], [Part 3], [Writing], [Task 2] ko'rinishida bo'lsin.");
   const x = await impSave(env, r, {title, items, sel: [g.id]}, true);
   if (env.__kvfull) return pm(env, me, "⏳ Bugun botning kunlik xotira limiti tugadi — vazifa saqlanmadi. 05:00 dan keyin shu xabarni qayta yuboring.");
   const d0 = due || nextLesson(g, dayKey()); if (due) for (const k of ["writing", "speaking"]) { const hw = await J(env, `hw:${k}:${g.id}`, null); if (hw && hw.title === title) { hw.due = due; await PUT(env, `hw:${k}:${g.id}`, hw); } }
-  const cnt = {}; items.forEach(it => { const k = PART_UZ[it.kind === "writing" ? it.wtype : it.part]; cnt[k] = (cnt[k] || 0) + 1; });
+  const cnt = {}; items.forEach(it => { const k = PART_UZ[it.kind === "writing" ? it.wtype : it.part] + (it._img && it._img.length ? ` (🖼 ${it._img.length} rasm)` : ""); cnt[k] = (cnt[k] || 0) + 1; });
   return pm(env, me, `✅ <b>${H(title)}</b> — <b>${H(g.title)}</b> guruhiga uyga vazifa qilib berildi\n${Object.entries(cnt).map(([k, v]) => `• ${k}: ${v} ta`).join("\n")}\n📚 Bazaga yangi: ${x.added}${x.dup ? `, oldin bor: ${x.dup}` : ""}\n⏰ Muddat: ${DAY_UZ[wdOf(dayKey(d0))]} ${ddmm(d0)} ${hhmm(d0)}\n<i>O'quvchilar saytda «📌 Vazifa» bo'limida ko'radi.</i>`);
 }
 const PART_UZ = {"1.1": "🎤 Part 1.1", "1.2": "🎤 Part 1.2", "2": "🎤 Part 2", "3": "🎤 Part 3", T1: "✍️ Task 1", T2: "✍️ Task 2"};
@@ -537,6 +539,22 @@ async function hwP3Once(env, title, keep, grpRe){ // uyga vazifada Part 3 dan fa
   hw.ids = hw.ids.filter(id => !p3.has(id) || (keepIt && id === keepIt.id)); await PUT(env, k, hw); await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
   await pm(env, env.OWNER_ID, `✅ <b>${H(title)}</b> uyga vazifasida Part 3 dan bittasi qoldirildi: «${H(keep)}». Speaking savollari: ${hw.ids.length} ta.`);
 }
+async function fixC1Once(env){ // bir martalik: guruh jadvali (kunlar) + C guruh "Grammar Mix" vazifasiga rasm va to'g'ri muddat
+  const mk = "mig:fixC1"; if (await env.KV.get(mk)) return; await env.KV.put(mk, "run", {expirationTtl: 900}); if (env.__kvfull) return;
+  const gs = await getGroups(env); let ch = false;
+  for (const g of gs) { if (g.days && g.days.length) continue; if (/16\s*-\s*18/.test(g.title || "")) { g.days = [2, 4, 6]; ch = true; } else if (/15\s*-\s*17/.test(g.title || "")) { g.days = [1, 3, 5]; ch = true; } }
+  if (ch) await PUT(env, "groups", gs);
+  const g = gs.find(x => /15\s*-\s*17/.test(x.title || "")); const out = [];
+  if (g) for (const k of ["writing", "speaking"]) { const key = `hw:${k}:${g.id}`; const hw = await J(env, key, null); if (!hw || !/grammar mix/i.test(hw.title || "")) continue;
+    hw.due = nextLesson(g, dayKey(hw.at));
+    if (k === "speaking") { const arr = await getBank(env, "speaking", "1.2"); const base = "https://aok-ai97.github.io/aok-english/assets/hw/c-celebrations/"; const images = [];
+      for (const f of ["1.jpg", "2.jpg"]) { const rs = await fetch(base + f); if (rs.ok) { const ik = "img:" + uid(); await env.KV.put(ik, "data:image/jpeg;base64," + b64of(new Uint8Array(await rs.arrayBuffer()))); images.push({k: ik}); } }
+      const it = {id: uid(), kind: "speaking", topic: hw.title, created: Date.now(), part: "1.2", q: ["Tell me what you can see in these pictures."], images};
+      if (images.length) { arr.push(it); await putBank(env, "speaking", "1.2", arr); const ids12 = new Set(arr.filter(x => x.part === "1.2" || true).map(x => x.id)); hw.ids = hw.ids.filter(id => !ids12.has(id) || id === it.id); hw.ids.push(it.id); hw.ids = [...new Set(hw.ids)]; out.push(`🖼 Part 1.2 ga ${images.length} ta rasm`); } }
+    await PUT(env, key, hw); out.push(`${k === "writing" ? "✍️" : "🎤"} muddat: ${DAY_UZ[wdOf(dayKey(hw.due))]} ${ddmm(hw.due)} ${hhmm(hw.due)}`); }
+  await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
+  if (out.length) await pm(env, env.OWNER_ID, `✅ <b>${H(g.title)}</b> — Grammar Mix vazifasi tuzatildi:\n${out.join("\n")}`);
+}
 async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari
   const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
   for (const j of q) { if (typeof j !== "object") { drop.push(j); continue; } const d = await J(env, impD(j.id), null);
@@ -560,7 +578,8 @@ async function impSave(env, r, d, assign){
   const ids = {writing: [], speaking: []}; let added = 0, dup = 0;
   for (const it of d.items) {
     const part = it.kind === "writing" ? it.wtype : it.part; const arr = await getBank(env, it.kind, part); const key = norm(keyText(it));
-    const ex = arr.find(x => norm(keyText(x)) === key); if (ex) { ids[it.kind].push(ex.id); dup++; continue; }
+    const pic = it.kind === "speaking" && (part === "1.2" || part === "2"); // rasmli savol matni bir xil bo'lishi mumkin — mavzu ham mos kelsin
+    const ex = arr.find(x => norm(keyText(x)) === key && (!pic || norm(x.topic) === norm(it.topic))); if (ex) { ids[it.kind].push(ex.id); dup++; continue; }
     const clean_it = {...it}; delete clean_it._img;
     if (it._img && it._img.length) { clean_it.images = []; for (const im of it._img) { const ik = "img:" + uid(); await env.KV.put(ik, im); clean_it.images.push({k: ik}); } }
     arr.push(clean_it); await putBank(env, it.kind, part, arr); ids[it.kind].push(clean_it.id); added++;
@@ -842,8 +861,9 @@ const DAYS = [[0,/(^|[^a-z'])(sunday|yakshanba|sun)\b/],[1,/(^|[^a-z'])(monday|d
 const DAY_EN = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const DAY_UZ = ["yakshanba","dushanba","seshanba","chorshanba","payshanba","juma","shanba"];
 function parseDays(text){ const t = String(text || "").toLowerCase(); const d = DAYS.filter(([, re]) => re.test(t)).map(([i]) => i); return d.length >= 2 ? d : null; }
-function lessonStart(g){ const m = String(g.time || "").match(/(\d{1,2})[:.](\d{2})\s*[-–—]/); return m ? (+m[1]) * 60 + (+m[2]) : 16 * 60; }
-function lessonEnd(g){ const m = String(g.time || "").match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/); return m ? (+m[3]) * 60 + (+m[4]) : 18 * 60; }
+const titleHrs = g => { const m = String(g.title || "").match(/\b(\d{1,2})\s*[-–—]\s*(\d{1,2})\b/); return m && +m[1] < +m[2] && +m[2] <= 23 ? [+m[1], +m[2]] : null; }; // "15-17 GRAMMAR" → 15:00–17:00
+function lessonStart(g){ const m = String(g.time || "").match(/(\d{1,2})[:.](\d{2})\s*[-–—]/); const t = titleHrs(g); return m ? (+m[1]) * 60 + (+m[2]) : t ? t[0] * 60 : 16 * 60; }
+function lessonEnd(g){ const m = String(g.time || "").match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/); const t = titleHrs(g); return m ? (+m[3]) * 60 + (+m[4]) : t ? t[1] * 60 : 18 * 60; }
 const atLocal = (dk, mins) => Date.parse(dk + "T00:00:00Z") - TZ + mins * 60e3;      // dk = "YYYY-MM-DD" mahalliy
 const addDays = (dk, n) => new Date(Date.parse(dk + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const wdOf = dk => new Date(dk + "T00:00:00Z").getUTCDay();
@@ -1768,7 +1788,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 export default {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => fixC1Once(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
