@@ -1691,7 +1691,9 @@ function digestLine(x, now){
 // Eslatma xabari: o'zi yangilanadi (edit). Topic'da undan keyin yangi xabar bo'lsa — eskisi o'chiriladi va pastga qayta tashlanadi (≤ har 30 daqiqada)
 const pctOf = T => Math.round(T.reduce((a, x) => a + (x.ok ? 1 : Math.min(1, (x.n || 0) / (x.need || 1))), 0) / (T.length || 1) * 100);
 const sqOf = p => p >= 100 ? "🟩" : p >= 50 ? "🟨" : p > 0 ? "🟧" : "🟥";
-const pctLines = L0 => L0.slice().sort((a, b) => b.p - a.p).map(x => `${sqOf(x.p)} ${H(x.name)} — <b>${x.p}%</b>`).join("\n");
+const pctLines = L0 => L0.slice().sort((a, b) => b.p - a.p).map(x => `${sqOf(x.p)} ${H(x.name)} — <b>${x.p}%</b>${x.late ? " ⏰" : ""}`).join("\n");
+const kunTxt = (D, L0) => `📌 <b>KUN E'TIROZI — ${ddmmyyyy(D)} ${hhmm(D)}</b>\n` + pctLines(L0) + (L0.some(x => x.late) ? `\n<i>⏰ — kech topshirgan</i>` : "");
+const hsh = t => { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return h; };
 function remStart(g, created){ const dk = dayKey(created); const end = atLocal(dk, lessonEnd(g)) + 3600e3; return (g.days || []).includes(wdOf(dk)) && created < end ? end : created; } // dars tugaganidan 1 soat keyin
 // Har o'quvchida BITTA eslatma: joyida yangilanadi; topic'da undan keyin xabar bo'lsa — o'chib pastga qayta tushadi; umuman boshlamaganlarga har soatda yangidan (o'qilmagan bo'lib turadi)
 async function remindSend(env, g, s, text, opt, now, hour){
@@ -1738,11 +1740,16 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
       if (fresh) { ch = true; continue; }
       if (s.thread && !g.quiet) await remindSend(env, g, s, t, {zero, done: !pend.length}, now, hour);
     }
-    // KUN E'TIROZI: har bir muddat o'tganda — bitta sodda ro'yxat (% va rangli kvadrat)
+    // KUN E'TIROZI: muddat o'tishi bilan (3 soat ichida) BITTA ro'yxat; keyin kech topshirganlar bo'lsa — o'sha xabar joyida yangilanadi (o'quvchi topic'i bilan parallel)
+    st.lv = st.lv || {};
+    const kunL = D => rows.filter(r => r.T.some(x => x.due <= D)).map(r => { const due = r.T.filter(x => x.due <= D); return {name: r.s.name, p: pctOf(due), late: due.some(x => x.ok && x.late)}; });
     const dues = [...new Set(rows.flatMap(r => r.T.map(x => x.due)))].filter(d => d <= now && now - d < 864e5 && !st.kun[d]);
     if (dues.length && rows.length) { const D = Math.max(...dues); dues.forEach(d => st.kun[d] = now); ch = true;
-      const L0 = rows.map(r => { const due = r.T.filter(x => x.due <= now); return {name: r.s.name, p: pctOf(due.length ? due : r.T)}; });
-      if (g.kun && !fresh && !env.__kvfull) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(D)}</b>\n` + pctLines(L0)); }
+      if (g.kun && !fresh && !env.__kvfull && now - D < 3 * 3600e3) { const t = kunTxt(D, kunL(D)); const r = await toTopic(env, g.id, g.kun, t);
+        if (r && r.ok) st.lv["k" + D] = {mid: r.result.message_id, h: hsh(t), d: D, th: g.kun}; } } // muddatidan 3 soat o'tib ketgan bo'lsa — kechikib tashlanmaydi
+    for (const [lk, v] of Object.entries(st.lv)) { if (now - v.d > 2 * 864e5) { delete st.lv[lk]; ch = true; continue; }
+      if (lk[0] !== "k" || now - v.d > 864e5) continue; const t = kunTxt(v.d, kunL(v.d)); if (hsh(t) === v.h) continue;
+      const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: v.mid, text: t, parse_mode: "HTML"}); if (e.ok || /not modified/i.test(e.description || "")) { v.h = hsh(t); ch = true; } }
     // natijalar jadvali (saytdagi vazifa muddati o'tganda, Homework posti yo'q guruhlarda)
     if (!hp) for (const k of KINDS) { const hw = hws[k]; if (!hw || now - hw.at > 8 * 864e5) continue; const due = siteDue(g, hws, k), pk = k + ":" + hwFrom(g, hw);
       if (now >= due && now - due < 864e5 && !st.posted[pk]) { ch = true;
