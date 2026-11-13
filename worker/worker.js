@@ -1778,7 +1778,7 @@ const idemDone = (env, idem, key) => idem.k ? PUT(env, idem.k, {key, t: Date.now
 
 
 /* ---------------- Kechki tekshiruv navbati (sayt: Uyga vazifa + Baza; Telegram: shadowing) ---------------- */
-const NIGHT_KEY = crypto.randomUUID(); // shu jarayon ichidagi kechki so'rovlar uchun
+let NIGHT_KEY0 = null; const NIGHT_KEY_ = () => NIGHT_KEY0 || (NIGHT_KEY0 = crypto.randomUUID()); // shu jarayon ichidagi kechki so'rovlar uchun (global scope'da yaratib bo'lmaydi)
 const QMSG = k => `✅ Javoblaringiz qabul qilindi! ${k === "speaking" ? "Speaking" : "Writing"} kechasi (00:00–05:00) tekshiriladi — natija va feedback Telegram topic'ingizga tushadi. Hech narsani qayta yuborish shart emas.`;
 async function fpKey(kind, stu, chunks){ let src = kind + "|" + stu.id; for (const c of chunks) { const x = String(c || ""); src += "|" + x.length + ":" + x.slice(0, 4000) + x.slice(-4000); }
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(src)); return "gjf:" + [...new Uint8Array(d)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join(""); }
@@ -1807,7 +1807,7 @@ async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bi
     if (L(now).getUTCHours() >= 5 && job.at >= mid0) continue; // 05:00 dan keyin topshirilganlar — keyingi kechada
     job.st = "run"; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); if (env.__kvfull) return;
     let d = null, err = "";
-    try { const rs = await W.fetch(new Request("https://night/" + job.kind, {method: "POST", headers: {"content-type": "application/json", "x-night": NIGHT_KEY}, body: JSON.stringify(job.b)}), env, {waitUntil: () => {}}); d = await rs.json(); if (!rs.ok || d.error) err = d.error || ("HTTP " + rs.status); }
+    try { const rs = await W.fetch(new Request("https://night/" + job.kind, {method: "POST", headers: {"content-type": "application/json", "x-night": NIGHT_KEY_()}, body: JSON.stringify(job.b)}), env, {waitUntil: () => {}}); d = await rs.json(); if (!rs.ok || d.error) err = d.error || ("HTTP " + rs.status); }
     catch (e) { err = String(e.message || e); }
     if (d && d.key && !err) { job.st = "graded"; job.rkey = d.key; job.gt = Date.now(); delete job.b; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); drop.push(id);
       const rq = await J(env, "rnd", []); rq.push(id); await PUT(env, "rnd", rq.slice(-300)); }
@@ -1900,7 +1900,7 @@ const WORKER = {
       return new Response(JSON.stringify(o), {status: s, headers: {...cors, "content-type": "application/json; charset=utf-8"}}); };
     if (req.method === "OPTIONS") return new Response(null, {headers: cors});
     if (req.method !== "POST") return out({ok: true, service: "AOK checker + Radar", version: 8, kv: !!env.KV, bot: !!env.TG_TOKEN});
-    if (!allow.includes(origin) && req.headers.get("x-night") !== NIGHT_KEY && !(env.RENDER_TOKEN && url.searchParams.get("rt") === env.RENDER_TOKEN)) return out({error: "Ruxsat yo'q (origin)."}, 403); // kechki ichki tekshiruv / render
+    if (!allow.includes(origin) && (!NIGHT_KEY0 || req.headers.get("x-night") !== NIGHT_KEY0) && !(env.RENDER_TOKEN && url.searchParams.get("rt") === env.RENDER_TOKEN)) return out({error: "Ruxsat yo'q (origin)."}, 403); // kechki ichki tekshiruv / render
     if (!env.KV) return out({error: "KV ulanmagan (Cloudflare → Bindings → KV namespace, nomi: KV)."}, 500);
 
     /* ---------- 📤 Jo'nat (multipart: video + A4 sahifalar) ---------- */
