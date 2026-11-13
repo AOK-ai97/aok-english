@@ -555,6 +555,19 @@ async function fixC1Once(env){ // bir martalik: guruh jadvali (kunlar) + C guruh
   await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
   if (out.length) await pm(env, env.OWNER_ID, `✅ <b>${H(g.title)}</b> — Grammar Mix vazifasi tuzatildi:\n${out.join("\n")}`);
 }
+async function picC2(env){ // C guruh Grammar Mix: Part 1.2 savolida rasm bo'lmasa — qo'shamiz (muvaffaqiyatli bo'lgunicha har daqiqa urinadi)
+  if (await env.KV.get("mig:picC2")) return; const g = (await getGroups(env)).find(x => /15\s*-\s*17/.test(x.title || "")); if (!g) return;
+  const hw = await J(env, `hw:speaking:${g.id}`, null); if (!hw || !/grammar mix/i.test(hw.title || "")) return;
+  const arr = await getBank(env, "speaking", "1.2"); let it = arr.find(x => hw.ids.includes(x.id));
+  if (it && it.images && it.images.length) { await env.KV.put("mig:picC2", "1", {expirationTtl: 60 * 86400}); return; }
+  const base = "https://aok-ai97.github.io/aok-english/assets/hw/c-celebrations/"; const images = [];
+  for (const f of ["1.jpg", "2.jpg"]) { const rs = await fetch(base + f + "?v=2"); if (!rs.ok) return; const ik = "img:" + uid(); await env.KV.put(ik, "data:image/jpeg;base64," + b64of(new Uint8Array(await rs.arrayBuffer()))); images.push({k: ik}); }
+  if (env.__kvfull) return;
+  if (!it) { it = {id: uid(), kind: "speaking", topic: hw.title, created: Date.now(), part: "1.2", q: ["Tell me what you can see in these pictures."]}; arr.push(it); hw.ids.push(it.id); await PUT(env, `hw:speaking:${g.id}`, hw); }
+  else if (it.topic !== hw.title) { const oldId = it.id; it = {...it, id: uid(), topic: hw.title}; arr.push(it); hw.ids = hw.ids.map(id => id === oldId ? it.id : id); await PUT(env, `hw:speaking:${g.id}`, hw); } // boshqa mavzudagi umumiy savolga tegmaymiz — yangisini yaratamiz
+  it.images = images; await putBank(env, "speaking", "1.2", arr); await env.KV.put("mig:picC2", "1", {expirationTtl: 60 * 86400});
+  await pm(env, env.OWNER_ID, `🖼 <b>${H(g.title)}</b> — «${H(hw.title)}» Part 1.2 ga ${images.length} ta rasm qo'shildi. O'quvchilar saytdagi sahifani yangilasa, rasmlar chiqadi.`);
+}
 async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari
   const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
   for (const j of q) { if (typeof j !== "object") { drop.push(j); continue; } const d = await J(env, impD(j.id), null);
@@ -1788,7 +1801,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 export default {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => fixC1Once(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     /* ---------- Telegram webhook ---------- */
