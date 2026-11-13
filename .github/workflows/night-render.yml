@@ -1,0 +1,22 @@
+name: Night render (feedback pages)
+on:
+  schedule:
+    - cron: "*/15 19-23 * * *"   # 00:00–04:59 Toshkent
+    - cron: "*/15 0-2 * * *"     # 05:00–07:59 Toshkent (qolganlari)
+  workflow_dispatch:
+concurrency: { group: night-render, cancel-in-progress: false }
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm i --no-save playwright@1.47.2 && npx playwright install --with-deps chromium
+      - name: Render & post
+        env: { CF: "${{ secrets.CLOUDFLARE_API_TOKEN }}" }
+        run: |
+          export RT=$(printf '%s' "$CF:aok-render-v1" | sha256sum | cut -c1-40)
+          echo "::add-mask::$RT"
+          node render/render.mjs

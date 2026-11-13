@@ -287,7 +287,7 @@ function renderHome(){
   const hw=H.homework;
   $("#pHw").innerHTML=hw?`<div class="hw-t">${esc(hw.title)} <small>${dt(hw.at)}</small></div>
      ${hw.due?`<div class="hw-due ${hw.due<Date.now()?"late":""}">⏰ Muddat: <b>${dt(hw.due)}</b> · ${hw.due<Date.now()?"muddat o'tgan — baribir topshiring":left(hw.due)+" qoldi"}</div>`:""}
-     ${hw.done?`<div class="hw-done">✅ Siz bu vazifani topshirgansiz (${dt(hw.done.at)}) · ${fmt(hw.done.tot)} / ${hw.done.max}. Qayta topshirishingiz mumkin.</div>`:""}
+     ${hw.done?(hw.done.q?`<div class="hw-done">✅ Siz bu vazifani topshirgansiz (${dt(hw.done.at)}) · ⏳ kechasi tekshiriladi, natija Telegram topic'ingizga tushadi.</div>`:`<div class="hw-done">✅ Siz bu vazifani topshirgansiz (${dt(hw.done.at)}) · ${fmt(hw.done.tot)} / ${hw.done.max}. Qayta topshirishingiz mumkin.</div>`):""}
      ${hw.items.map(itemHTML).join("")}<button type="button" class="ck-go" data-start="hw">▶ Vazifani boshlash</button>`:`<div class="ck-msg">Hozircha uyga vazifa berilmagan.</div>`;
   $("#pBaza").innerHTML=`<p class="hint">Bir yoki bir nechta bo'limni tanlang — savollar bazadan tasodifiy olinadi va ketma-ket beriladi.</p>
     <div class="sec-pick">${parts.map(p=>`<label><input type="checkbox" value="${p}" ${H.counts[p]?"":"disabled"}><span>${PNAME[p]}<small>${H.counts[p]||0} ta savol</small></span></label>`).join("")}</div>
@@ -297,6 +297,12 @@ function renderHome(){
     ${H.exams.map((e,i)=>`<label class="ck-asg"><input type="radio" name="exam" value="${esc(e.id)}" ${i?"":"checked"}><div><b>${esc(e.name)}</b><small>${dt(e.at)}</small></div></label>`).join("")}
     <button type="button" class="ck-go" data-start="exam">▶ Imtihonni boshlash</button>`:`<div class="ck-msg">Hozircha faol imtihon yo'q.</div>`;
   const mt=$('.tabs button[data-t="me"]');if(mt)mt.hidden=!ME;
+  if(H.pron){ // talaffuz darvozasi: avval o'tgan Speaking'dagi talaffuz mashqi
+    const d=H.pron;d._pct=d._pct||{};const gate=`<div class="pgate"><div class="ck-msg" style="font-weight:700">🗣 Avval o'tgan Speaking'dagi («${esc(d.title||"")}») talaffuz mashqini bajaring — shundan keyin yangi vazifani boshlay olasiz.</div>${pronHTML(d,null)}<button type="button" class="ck-go" id="pgSend">📤 Talaffuz natijasini yuborish</button></div>`;
+    for(const id of ["#pHw","#pBaza"]){const el=$(id);el.innerHTML=gate+el.innerHTML;el.querySelectorAll("[data-start]").forEach(b=>{b.disabled=true;b.title="Avval talaffuz mashqini bajaring"});}
+    const box=$("#pHw");wirePron(box,d,null);const sb=box.querySelector("#pgSend");sb.onclick=async e=>{await sendPron(d,e.currentTarget);if(d._pronSig)refreshHome()};
+    const b2=$("#pBaza");b2.querySelector(".pgate").innerHTML=`<div class="ck-msg" style="font-weight:700">🗣 Avval «Uyga vazifa» bo'limida talaffuz mashqini bajaring — keyin Baza ochiladi.</div>`;
+    tab("hw");return}
   tab(hw&&!hw.done?"hw":"baza");
 }
 function tab(t){$$(".tabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===t));$$(".tabp").forEach(p=>p.hidden=p.dataset.t!==t);if(t==="me")loadMe()}
@@ -393,6 +399,8 @@ async function wSubmit(body,btn){
 async function wSubmit0(body,btn){
     const lab="AI xatingizni o'qiyapti, ismingiz va Task'larni aniqlayapti, ideal javobni tekshiryapti… (30–90 soniya)";loading(true,btn,lab);LOG.add("submit",{page:"writing",photos:body.images.length});LOG.flush();
     try{const d=await postRetry("/writing",body,lab);try{await idb.del("wpend:"+body.code)}catch(_){}
+      if(d.queued){clearInterval(wTimer);step(4);$("#ckResult").innerHTML=`<div class="ck-msg ok" style="font-size:1.05rem;line-height:1.5">${esc(d.msg)}</div><button data-act="again">🏠 Bosh oyna</button>`;$("#ckResult").hidden=false;msg("");
+        $('[data-act="again"]').onclick=()=>{$("#ckResult").hidden=true;msg("");refreshHome();step(2)};if(btn)btn._busy=false;loading(false,btn);return}
       clearInterval(wTimer);if(body.mode==="exam")ls.del("aok_wexam");step(4);showReport($("#ckResult"),d,null,`<button data-act="again">🏠 Bosh oyna</button>`);
       if(d.saved) msg("✅ Natija saqlandi"+(d.can_send?". «📤 Jo'nat» tugmasi bilan Telegram topic'ingizga yuboring.":"."));
       $('[data-act="again"]').onclick=()=>{$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
@@ -489,6 +497,10 @@ async function submitSpeaking(){
   try{const clips=[];for(const c of CLIPS) clips.push({part:c.part,question:c.question,audio:await b64(c.blob),mime:c.blob.type||"audio/webm",empty:!!c.empty||c.blob.size<2500});
     const d=await postRetry("/speaking",{code:ls.get("aok_code"),name:ls.get("aok_name"),mode:RUN.mode,title:RUN.title,clips,away:RUN.mode==="exam"?{n:AWAY.n,s:AWAY.s}:null},lab);
     idb.del(runKey());
+    if(d.queued){ // kechasi tekshiriladi — video hozir topic'ga
+      if(VSEG.length&&d.can_send&&!d.dup){await outboxPut({key:"gj:"+d.id,code:ls.get("aok_code"),caption:`🎥 ${ls.get("aok_name")||""} — ${RUN.title||"Speaking"}\n✅ Qabul qilindi — natija va feedback kechasi shu yerga tushadi`,pages:[],videos:VSEG.slice(),at:Date.now()});VSEG=[];outboxFlush()}
+      $("#ckResult").innerHTML=`<div class="ck-msg ok" style="font-size:1.05rem;line-height:1.5">${esc(d.msg)}</div><button data-act="again">🏠 Bosh oyna</button>`;$("#ckResult").hidden=false;msg("");
+      $('[data-act="again"]').onclick=()=>{$("#ckResult").hidden=true;msg("");refreshHome();step(2)};loading(false);return}
     showReport($("#ckResult"),d,CLIPS,`<button data-act="again">🏠 Bosh oyna</button>`);
     if(d.saved) msg("✅ Natija saqlandi"+(d.can_send?". «📤 Jo'nat» bilan video va feedbackni Telegram topic'ingizga yuboring.":"."));
     $('[data-act="again"]').onclick=()=>{if(VSEG.length&&d.can_send&&!d._sent&&!confirm("Video hali yuborilmadi. Chiqsangiz video o'chadi. Chiqasizmi?"))return;VSEG=[];$("#ckResult").hidden=true;msg("");refreshHome();step(2)}}
@@ -669,4 +681,5 @@ if(PAGE==="teacher"){
       d.can_send=false;showReport($("#ckResult"),d,clips)}
     if(b.dataset.x){if(!confirm("Natija o'chirilsinmi?"))return;await post("/teacher/delresult",{tcode:T(),key:b.dataset.x});b.closest("tr").remove()}});
 }
+window.__AOK={showReport,a4Pages,tgCaption}; // kechki render (GitHub Actions) uchun
 })();

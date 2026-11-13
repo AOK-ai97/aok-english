@@ -9,11 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Render token
+        id: rt
+        env: { CF: "${{ secrets.CLOUDFLARE_API_TOKEN }}" }
+        run: |
+          RT=$(printf '%s' "$CF:aok-render-v1" | sha256sum | cut -c1-40)
+          echo "::add-mask::$RT"
+          echo "RENDER_TOKEN=$RT" >> "$GITHUB_ENV"
       - name: Deploy to Cloudflare
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: 7b382a7a765cf7a6a9916d58182d1f4d
           workingDirectory: worker
+          secrets: |
+            RENDER_TOKEN
       - name: Check
         run: curl -s https://aok-checker.ozodbekadilov092.workers.dev/

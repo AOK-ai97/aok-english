@@ -309,8 +309,15 @@ async function radarText(env, type, name, facts, ai){
 /* ---------------- Shadowing navbati: har bir audio albatta tekshiriladi ---------------- */
 async function shadowJob(env, g, hp, s, msg){ // yozuvlarni tejash: avval darhol tekshiramiz, navbatga faqat kerak bo'lsa
   const jk = `shj:${g.id}:${msg.message_id}`, lk = "shl:" + s.id;
-  const mk = () => ({st: "run", t: Date.now(), c: Date.now(), gid: g.id, sid: s.id, n: 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat, forward_from: msg.forward_from, from: msg.from}});
-  const enq = async job => { await PUT(env, jk, job, {expirationTtl: 3 * 86400}); const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-60)); } };
+  const mk = () => ({st: "run", t: Date.now(), c: Date.now(), gid: g.id, sid: s.id, n: 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat, forward_from: msg.forward_from, from: msg.from, date: msg.date}});
+  const enq = async job => { await PUT(env, jk, job, {expirationTtl: 3 * 86400}); const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-250)); } };
+  if (L(Date.now()).getUTCHours() >= 5) { // kunduzi: faqat qabul qilamiz — kechasi (00:00–05:00) tekshirib, shu xabar o'rniga feedback yoziladi
+    if (await J(env, jk, null)) return;
+    const fu = (msg.voice || msg.audio || msg.document || {}).file_unique_id; // shu audio oldin yuborilganmi (navbatda yoki tekshirilgan)
+    if (fu) { for (const k of await J(env, "shq", [])) { if (!k.startsWith("shj:" + g.id + ":")) continue; const j = await J(env, k, null); const m = j && j.msg && (j.msg.voice || j.msg.audio || j.msg.document); if (j && j.sid === s.id && m && m.file_unique_id === fu) return; }
+      const it0 = hp.items.find(i => i.type === "shadowing"); const sub0 = it0 && await J(env, hsubKey(hp, s.id), null); if (sub0 && sub0.it[it0.id] && (sub0.it[it0.id].list || []).some(e => e.fu === fu)) return; }
+    const r = await toTopic(env, g.id, msg.message_thread_id || s.thread, "✅ Qabul qildim! Kechasi tekshirib, shu xabar o'rniga feedback yozaman.", {reply_to_message_id: msg.message_id, allow_sending_without_reply: true, _rm: 1});
+    const job = mk(); job.st = "night"; job.t = 0; job.am = r && r.ok ? r.result.message_id : null; job.msg.date = msg.date; return enq(job); }
   const lock = await J(env, lk, null);
   if (lock && lock.k !== jk && Date.now() - lock.t < 90e3 && !env.__kvfull) return enq(mk()); // shu o'quvchining boshqa audiosi tekshirilmoqda — navbat
   await PUT(env, lk, {k: jk, t: Date.now()}, {expirationTtl: 120});
@@ -321,9 +328,9 @@ async function runShadow(env, jk, job, g, hp, s){
   const lk = "shl:" + job.sid; const lock = await J(env, lk, null);
   if (lock && lock.k !== jk && Date.now() - lock.t < 90e3) return; // shu o'quvchining boshqa audiosi tekshirilmoqda — navbat (cron 1 daqiqada oladi)
   await PUT(env, lk, {k: jk, t: Date.now()}, {expirationTtl: 300}); if (env.__kvfull) return; // yozib bo'lmaydi — tekshirsak takror javob bo'ladi
-  try { await checkShadowing(env, g, hp, s, job.msg); job.st = "done"; await PUT(env, jk, job, {expirationTtl: 3 * 86400});
+  try { if (job.am) job.msg._am = job.am; await checkShadowing(env, g, hp, s, job.msg); job.st = "done"; await PUT(env, jk, job, {expirationTtl: 3 * 86400});
     await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
-  catch (e) { if (!e.busy) throw e; job.st = "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
+  catch (e) { if (!e.busy) throw e; job.st = job.am ? "night" : "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
 }
 async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
   if (!(await env.KV.get("mig:sh2"))) { await env.KV.put("mig:sh2", "1", {expirationTtl: 30 * 86400}); // kecha "AI band" bilan yopilgan audiolarni qayta navbatga qo'yish
@@ -345,9 +352,10 @@ async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugall
           if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
   const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env); let done = 0;
   for (const jk of q) { const job = await J(env, jk, null);
-    if (!job || job.st === "done" || job.n > 60 || Date.now() - (job.c || 0) > 20 * 3600e3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
+    if (!job || job.st === "done" || job.n > 60 || Date.now() - (job.c || 0) > (job.am !== undefined ? 50 : 20) * 3600e3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
+    if (job.st === "night" && L(Date.now()).getUTCHours() >= 8) continue; // kunduzi qabul qilinganlar — faqat kechasi (00:00–08:00)
     if (Date.now() - job.t < (job.n <= 3 ? 45e3 : job.n <= 10 ? 5 * 60e3 : 20 * 60e3)) continue;
-    if (isQuiet(Date.now()) && (job.t === 0 || Date.now() - (job.c || job.t) > 30 * 60e3)) continue; // tungi 00–06: eski audiolar ertalab tekshiriladi (o'quvchini uyg'otmaslik) // AI band bo'lsa — tobora siyrakroq qayta urinish
+    if (job.st !== "night" && job.am === undefined && isQuiet(Date.now()) && (job.t === 0 || Date.now() - (job.c || job.t) > 30 * 60e3)) continue; // tungi 00–06: eski audiolar ertalab tekshiriladi (o'quvchini uyg'otmaslik) // AI band bo'lsa — tobora siyrakroq qayta urinish
     const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid), hp = g && await J(env, "hp:" + g.id, null);
     if (!g || !s || !hp) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
     job.n++; job.t = Date.now(); await PUT(env, jk, job, {expirationTtl: 3 * 86400});
@@ -950,7 +958,7 @@ async function hpProgress(env, g, hp, s, prof){
   for (const it of hp.items.filter(i => SUBMIT(i.type))) {
     let n = 0, info = "", doneAt = null;
     if (it.type === "site_writing" || it.type === "site_speaking") { const k = it.type === "site_writing" ? "writing" : "speaking";
-      const e = (prof.h || []).filter(x => x.k === k && x.at >= hp.at).sort((a, b) => b.at - a.at); if (e[0]) info = `${fmtN(e[0].tot)}/${e[0].max}`;
+      const e = (prof.h || []).filter(x => x.k === k && x.at >= hp.at).sort((a, b) => b.at - a.at); if (e[0]) info = e[0].q ? "⏳ kechasi tekshiriladi" : `${fmtN(e[0].tot)}/${e[0].max}`;
       // bitta topshiriqda bir nechta Task/Part bo'lishi mumkin — har xil Task/Part soni hisoblanadi
       const asc = e.slice().sort((a, b) => a.at - b.at); const seen = new Set(); doneAt = null;
       for (const x of asc) { const u = String((k === "writing" ? x.tasks : x.parts) || "").split(",").map(z => z.trim()).filter(Boolean);
@@ -999,7 +1007,9 @@ async function tgFileB64(env, file_id, max = 15e6){
 const audioMime = (m, path) => (m && m.mime_type) || (/\.mp3$/i.test(path) ? "audio/mpeg" : /\.m4a$/i.test(path) ? "audio/mp4" : /\.wav$/i.test(path) ? "audio/wav" : "audio/ogg");
 async function checkShadowing(env, g, hp, s, msg, studs){
   const it = hp.items.find(i => i.type === "shadowing"); const media = msg.voice || msg.audio || msg.document;
-  const reply = (text) => toTopic(env, g.id, msg.message_thread_id || s.thread, text, {reply_to_message_id: msg.message_id, allow_sending_without_reply: true});
+  const reply = async (text) => { if (msg._am) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: msg._am, text, parse_mode: "HTML", disable_web_page_preview: true}); if (e.ok) return e; } // kechasi: "Qabul qildim" xabarining o'rniga
+    return toTopic(env, g.id, msg.message_thread_id || s.thread, text, {reply_to_message_id: msg.message_id, allow_sending_without_reply: true}); };
+  const T0 = msg._am && msg.date ? msg.date * 1000 : Date.now(); // topshirilgan vaqt hisoblanadi
   // forward ruxsat: ikkinchi telefondan yozib yuborish mumkin. Kanal/guruhdan olingan tayyor audio — shubhali.
   const fo = msg.forward_origin; const fromChannel = !!(fo && (fo.type === "channel" || fo.type === "chat")) || !!msg.forward_from_chat;
   { const sub0 = await J(env, hsubKey(hp, s.id), null); const x0 = sub0 && sub0.it[it.id]; if (media.file_unique_id && x0 && (x0.list || []).some(e => e.fu === media.file_unique_id)) return; } // shu audio allaqachon tekshirilgan — qayta javob yo'q
@@ -1022,8 +1032,8 @@ async function checkShadowing(env, g, hp, s, msg, studs){
     const d = +media.duration || 0; const free = refs.filter(z => !x.refs.includes(z.name));
     if (free.length) refName = free.sort((a, b) => Math.abs((+a.dur || 0) - d) - Math.abs((+b.dur || 0) - d))[0].name; }
   const key = refName || ("#" + (x.list.length + 1));
-  if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); }
-  x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: Date.now(), ref: key, cov, pron, flu, sus, fu: media.file_unique_id || ""}); x.list = x.list.slice(-10);
+  if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = T0; }
+  x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: T0, ref: key, cov, pron, flu, sus, fu: media.file_unique_id || ""}); x.list = x.list.slice(-10);
   await PUT(env, k, sub, {expirationTtl: 30 * 86400});
   if (msg.voice) { const studsAll = studs || await getStudents(env); const ss = studsAll.find(y => y.id === s.id); if (ss && !ss.vf) { ss.vf = msg.voice.file_id; await PUT(env, "students", studsAll); } }
   const bar = v => v >= 85 ? "🟢" : v >= 65 ? "🟡" : v >= 40 ? "🟠" : "🔴";
@@ -1089,7 +1099,7 @@ async function pinText(env, g){
 const WEEK = 7 * 864e5;
 const BAD_SP = e => e.k === "speaking" && e.at >= Date.UTC(2026, 10, 11, 19) && e.at < Date.UTC(2026, 10, 12, 7, 20); // 12.11.2026 12:20 gacha xato baholangan speakinglar — statistikaga kirmaydi
 function weekStats(prof, grades, from, to){
-  const h = (prof.h || []).filter(e => e.at >= from && e.at < to && !BAD_SP(e));
+  const h = (prof.h || []).filter(e => e.at >= from && e.at < to && !BAD_SP(e) && !e.q);
   const sp = h.filter(e => e.k === "speaking").map(e => e.tot / (e.max || 5) * 100);
   const wr = h.filter(e => e.k === "writing").map(e => e.tot / (e.max || 10) * 100);
   const days = grades.filter(([t]) => t >= from && t < to).map(([, r]) => r);
@@ -1581,7 +1591,8 @@ async function hpFinalize(env, g, hp){
   if (hp.st === "done") return;
   const studs = (await getStudents(env)).filter(s => s.gid === g.id); const items = hp.items.filter(i => SUBMIT(i.type));
   if (items.length) {
-    if (g.res) await toTopic(env, g.id, g.res, await hpSummary(env, g, hp, true));
+    const L0 = []; for (const s of studs) { const pr = await hpProgress(env, g, hp, s); L0.push({name: s.name, p: Math.round(items.reduce((a, it) => a + (pr[it.id].ok ? 1 : Math.min(1, pr[it.id].n / (pr[it.id].need || 1))), 0) / items.length * 100)}); }
+    if (g.res) await toTopic(env, g.id, g.res, `📊 <b>UYGA VAZIFA — ${ddmmyyyy(hp.at)}</b>\n` + pctLines(L0)); // sodda: % va rangli kvadrat
     for (const s of studs) { const pr = await hpProgress(env, g, hp, s); const p = await getProfile(env, s.id);
       p.hwc = [...(p.hwc || []).filter(e => e.id !== hp.id), {id: hp.id, at: hp.at, done: items.filter(it => pr[it.id].ok).length, total: items.length}].slice(-60); await PUT(env, "p:" + s.id, p); }
   }
@@ -1658,34 +1669,42 @@ function lessonAfter(g, t){ const days = g.days || []; if (!days.length) return 
   for (let i = 0; i <= 8; i++) { const dk = addDays(d0, i); if (days.includes(wdOf(dk))) { const x = atLocal(dk, lessonStart(g)); if (x > t) return x; } } return null; }
 function siteDue(g, hws, k){ const hw = hws[k]; if (hw.due) return hw.due; const o = hws[k === "writing" ? "speaking" : "writing"];
   if (o && o.due && Math.abs(o.at - hw.at) < 864e5) return o.due; return nextLesson(g, dayKey(hw.at)); }
-async function digestTasks(env, g, s, hp, hws, now){
+async function digestTasks(env, g, s, hp, hws, now, pend){
   const T = []; const prof = await getProfile(env, s.id);
   if (hp) { const pr = await hpProgress(env, g, hp, s, prof);
     for (const it of hp.items.filter(i => SUBMIT(i.type) && i.due)) { const x = pr[it.id];
+      const P = it.type === "shadowing" ? (pend || []).filter(t => t >= hp.at).sort((a, b) => a - b) : []; // kunduzi qabul qilingan, kechasi tekshiriladigan audiolar
+      if (P.length && !x.ok) { const need = it.count - x.n; x.n = Math.min(it.count, x.n + P.length); x.ok = x.n >= it.count; if (x.ok) { const dAt = P[Math.min(need, P.length) - 1]; x.late = !!(it.due && dAt > it.due); } x.info = "⏳ kechasi tekshiriladi"; }
       T.push({key: "h" + hp.id + ":" + it.id, icon: HP_ICON[it.type], title: it.title, due: it.due, ok: x.ok, late: x.late, n: x.n, need: x.need, info: x.info, created: hp.at, ls: hpLessonStart(g, hp)}); } }
   for (const k of KINDS) { const hw = hws[k]; if (!hw || now - hw.at > 8 * 864e5) continue;
     if (hp && hp.items.some(i => i.type === "site_" + k)) continue; // Homework postida bor — o'sha hisoblaydi
     const due = siteDue(g, hws, k); if (now - due > 864e5) continue;
     const e = subOf(prof, k, hw, g);
-    T.push({key: "w" + k + ":" + hwFrom(g, hw), icon: k === "writing" ? "✍️" : "🎤", title: (k === "writing" ? "Writing" : "Speaking") + (hw.title ? " — " + hw.title : ""), due, ok: !!e, late: !!(e && e.at > due), n: e ? 1 : 0, need: 1, info: e ? `${fmtN(e.tot)}/${e.max}` : "", created: hw.at, ls: lessonAfter(g, due), site: k}); }
+    T.push({key: "w" + k + ":" + hwFrom(g, hw), icon: k === "writing" ? "✍️" : "🎤", title: (k === "writing" ? "Writing" : "Speaking") + (hw.title ? " — " + hw.title : ""), due, ok: !!e, late: !!(e && e.at > due), n: e ? 1 : 0, need: 1, info: e ? (e.q ? "⏳ kechasi tekshiriladi" : `${fmtN(e.tot)}/${e.max}`) : "", created: hw.at, ls: lessonAfter(g, due), site: k}); }
   return T;
 }
 function digestLine(x, now){
   const cnt = x.need > 1 ? ` — ${x.n}/${x.need}` : "";
   if (x.ok) return `${x.late ? "⏰" : "✅"} ${x.icon} ${H(x.title)}${cnt}${x.info ? ` (${H(x.info)})` : ""}`;
-  return `${x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${cnt} · ${x.due > now ? "⏰ " + DAY_UZ[wdOf(dayKey(x.due))] + " " + hhmm(x.due) : "muddati o'tdi"}`;
+  return `${x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${cnt} · ${x.due > now ? "⏳ <b>" + fmtLeft(Math.round((x.due - now) / 300e3) * 300e3 || 60e3) + "</b> (" + DAY_UZ[wdOf(dayKey(x.due))] + " " + hhmm(x.due) + ")" : "⌛ muddati o'tdi"}`;
 }
 // Eslatma xabari: o'zi yangilanadi (edit). Topic'da undan keyin yangi xabar bo'lsa — eskisi o'chiriladi va pastga qayta tashlanadi (≤ har 30 daqiqada)
-async function remindSend(env, g, s, text, live, now, hour){ // har o'quvchida BITTA aylanuvchi xabar: tahrirlanadi; topic'da yangi xabar bo'lsa — eskisi o'chib pastga qayta tushadi
-  if (env.__kvfull) return "kvfull"; const k = `rmr:${g.id}:${s.thread}`; const o = await J(env, k, null);
-  const fresh = o && o.mid && now - (o.at || 0) < 12 * 3600e3; // 12 soatdan eski xabarni tahrirlamaymiz (yuqorida ko'rinmaydi)
-  if (fresh && !o.moved) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: o.mid, text, parse_mode: "HTML", disable_web_page_preview: true});
+const pctOf = T => Math.round(T.reduce((a, x) => a + (x.ok ? 1 : Math.min(1, (x.n || 0) / (x.need || 1))), 0) / (T.length || 1) * 100);
+const sqOf = p => p >= 100 ? "🟩" : p >= 50 ? "🟨" : p > 0 ? "🟧" : "🟥";
+const pctLines = L0 => L0.slice().sort((a, b) => b.p - a.p).map(x => `${sqOf(x.p)} ${H(x.name)} — <b>${x.p}%</b>`).join("\n");
+function remStart(g, created){ const dk = dayKey(created); const end = atLocal(dk, lessonEnd(g)) + 3600e3; return (g.days || []).includes(wdOf(dk)) && created < end ? end : created; } // dars tugaganidan 1 soat keyin
+// Har o'quvchida BITTA eslatma: joyida yangilanadi; topic'da undan keyin xabar bo'lsa — o'chib pastga qayta tushadi; umuman boshlamaganlarga har soatda yangidan (o'qilmagan bo'lib turadi)
+async function remindSend(env, g, s, text, opt, now, hour){
+  if (env.__kvfull) return "kvfull"; const k = `rmr:${g.id}:${s.thread}`; const o = await J(env, k, null); const day = hour >= 7 && hour < 23;
+  const hourly = opt.zero && o && o.mid && now - (o.at || 0) >= 60 * 60e3 && day;
+  if (o && o.mid && !o.moved && !hourly) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: o.mid, text, parse_mode: "HTML", disable_web_page_preview: true});
     if (e.ok || /not modified/i.test(e.description || "")) return "edit"; }
-  if (live && (hour < 8 || (fresh && now - (o.at || 0) < 30 * 60e3))) return "wait"; // oddiy eslatma: erta tong yoki yaqinda tashlangan — keyinroq
+  if (!day) return "wait"; // tunda yangi xabar tashlanmaydi (faqat tahrir)
+  if (opt.done && o && o.done) return "wait";
   await PUT(env, k, {...(o || {}), pend: now}, {expirationTtl: 3 * 86400}); if (env.__kvfull) return "kvfull";
   if (o && o.mid) await tg(env, "deleteMessage", {chat_id: g.id, message_id: o.mid});
   const r = await toTopic(env, g.id, s.thread, text, {_rm: 1});
-  if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, at: now, live: true, moved: false}, {expirationTtl: 3 * 86400});
+  if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, at: now, live: true, moved: false, done: !!opt.done}, {expirationTtl: 3 * 86400});
   return "post";
 }
 async function rmMark(env, gid, th, mid){ try { const k = `rmr:${gid}:${th}`; const o = await J(env, k, null); if (o && o.mid && !o.moved && mid > o.mid) await PUT(env, k, {...o, moved: true}, {expirationTtl: 3 * 86400}); } catch (e) {} }
@@ -1702,49 +1721,34 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
     const sk = "rst:" + g.id; const st0 = await J(env, sk, null); const fresh = !st0; const st = st0 || {s: {}, posted: {}}; let ch = false; // fresh: birinchi ishga tushish — eski tizim yuborganlarini jim belgilab qo'yamiz
     const kun = [], lateK = [];
     const ic = hp ? hp.items.filter(i => i.type === "in_class") : []; // darsda so'raladigan (yodlash) vazifalar
+    const pendSh = {}; for (const jk of await J(env, "shq", [])) { if (!jk.startsWith("shj:" + g.id + ":")) continue; const j = await J(env, jk, null); if (j && j.st === "night") (pendSh[j.sid] = pendSh[j.sid] || []).push((j.msg && j.msg.date || 0) * 1000); }
     { const dk0 = dayKey(now); if ((g.days || []).includes(wdOf(dk0)) && now >= atLocal(dk0, lessonStart(g)) - 10 * 60e3 && now <= atLocal(dk0, lessonEnd(g))) continue; } // dars paytida eslatma yo'q
+    st.kun = st.kun || {}; const rows = []; // KUN E'TIROZI uchun: har o'quvchining bajarilganlik %
     for (const s of studs.filter(x => x.gid === g.id)) {
-      const T = await digestTasks(env, g, s, hp, hws, now); const P = pq[s.id] || [];
-      if (!T.length && !P.length) continue;
-      const S = st.s[s.id] = st.s[s.id] || {late: {}, lr: {}, ok: {}, all: {}};
-      const pend = T.filter(x => !x.ok); let type = null, tl = "", live = false;
-      const newly = T.filter(x => x.ok && !S.ok[x.key]); newly.forEach(x => S.ok[x.key] = now); if (newly.length) ch = true;
-      const allSig = T.map(x => x.key).join("|");
-      if (T.length && !pend.length && !S.all[allSig]) { S.all[allSig] = now; ch = true; type = "done"; }
-      const fut = pend.filter(x => x.due > now);
-      // eslatma faqat muddatga ≤3 soat qolganda; bitta xabar har 5 daqiqada YANGILANADI (qolgan vaqt bilan)
-      if (!type && fut.length) { const left = Math.min(...fut.map(x => x.due)) - now; if (left <= 3 * 3600e3 + 3 * 60e3) { type = "rem"; live = true; tl = fmtLeft(Math.max(60e3, Math.round(left / 300e3) * 300e3)); } }
-      const over = pend.filter(x => x.due <= now && now - x.due < 864e5 && x.due > x.created + 30 * 60e3);
-      const newLate = over.filter(x => !S.late[x.key]);
-      if (newLate.length) { newLate.forEach(x => S.late[x.key] = now); ch = true; kun.push({s, items: newLate}); type = "late"; live = false; }
-      if (!type) { const lr = over.filter(x => S.late[x.key] && !S.lr[x.key] && x.ls && now < x.ls && x.ls - now <= 3600e3);
-        if (lr.length) { lr.forEach(x => S.lr[x.key] = now); ch = true; type = "lrem"; tl = fmtLeft(Math.min(...lr.map(x => x.ls)) - now); } }
-      const lateDone = newly.filter(x => x.late); if (lateDone.length) { lateK.push({s, items: lateDone}); if (!type) type = "late_ok"; }
-      const pOld = P.filter(p => now - p.at > 3 * 3600e3);
-      if (!type && pOld.length) type = "pron";
-      if (!type) continue;
-      // xabar
-      const nm = "<b>" + H(first(s.name)) + "</b>"; let t;
-      if (type === "done") t = (T.some(x => x.late) ? `🏁 ${nm}, kech bo'lsa ham uy vazifasini yakunladingiz! 👍` : pick([`🏁 ${nm}, siz uy vazifasini yakunladingiz! 👏`, `🎉 ${nm}, barakalla — uy vazifasi to'liq bajarildi!`, `✅ ${nm}, hammasi topshirildi — zo'r ish!`])) + "\n\n" + T.map(x => digestLine(x, now)).join("\n")
+      const T = await digestTasks(env, g, s, hp, hws, now, pendSh[s.id]);
+      if (!T.length) continue;
+      rows.push({s, T});
+      const start = Math.min(...T.map(x => remStart(g, x.created))), endAt = Math.max(...T.map(x => x.ls || x.due + 6 * 3600e3));
+      if (now < start || now > endAt) continue; // eslatma: dars tugaganidan 1 soat keyin → keyingi dars boshlanguncha
+      const pend = T.filter(x => !x.ok), zero = T.every(x => !x.ok && !x.n), nm = "<b>" + H(first(s.name)) + "</b>";
+      let t;
+      if (!pend.length) t = (T.some(x => x.late) ? `🏁 ${nm}, kech bo'lsa ham uy vazifasini yakunladingiz! 👍` : `🏁 ${nm}, siz uy vazifasini yakunladingiz! 👏`) + "\n\n" + T.map(x => digestLine(x, now)).join("\n")
         + (ic.length ? `\n\n📚 Endi yodlaydigan vazifalaringizga e'tiborli bo'ling — darsda so'raladi:\n${ic.map(i => "• " + H(i.title)).join("\n")}` : `\n\n📚 Yodlaydigan vazifalaringizga ham e'tiborli bo'ling!`);
-      else { const hdr = (type === "late_ok" ? pick(TPL.late_ok) : type === "rem" ? "⏳ {n}, muddatgacha <b>{t}</b> qoldi!" : pick(DG[type])).replace("{n}", nm).replace("{t}", tl);
-        t = hdr + (T.length ? "\n\n" + T.map(x => digestLine(x, now)).join("\n") : "");
-        if (type === "late" || type === "lrem") t += `\n\n<i>Kech bo'lsa ham topshiring — hisobga olinadi.</i>`;
-        else if (type === "rem") t += `\n\n<i>✅ — topshirilgan. Bu xabar o'zi yangilanib turadi · ${hhmm(now)}</i>`; }
-      if (P.length && type !== "rem") { const w = [...new Set(P.flatMap(p => p.words))].slice(0, 10); P.forEach(p => usedPq.add(p.k));
-        t += `\n🗣 Talaffuz mashqi qilinmadi: ${w.map(x => "<b>" + H(x) + "</b>").join(", ")}\n<i>Feedbackdagi 🔊 To'g'ri → 🎤 Ayting tugmalari bilan mashq qilib, «📤 Talaffuz natijasini yuborish» ni bosing.</i>`; }
+      else t = `📋 ${nm}, uyga vazifalaringiz — ${pctOf(T)}% bajarildi\n\n` + T.map(x => digestLine(x, now)).join("\n") + `\n\n<i>✅ o'z vaqtida · ⏰ kech · ⏳ qolgan vaqt — xabar o'zi yangilanadi (${hhmm(now)})</i>`;
       if (fresh) { ch = true; continue; }
-      if (s.thread && !g.quiet) await remindSend(env, g, s, t, live, now, hour);
-      if (P.length && type !== "rem") await addLog(env, s.id, [{t: "pron_missed", n: P.reduce((a, p) => a + p.words.length, 0)}]);
+      if (s.thread && !g.quiet) await remindSend(env, g, s, t, {zero, done: !pend.length}, now, hour);
     }
+    // KUN E'TIROZI: har bir muddat o'tganda — bitta sodda ro'yxat (% va rangli kvadrat)
+    const dues = [...new Set(rows.flatMap(r => r.T.map(x => x.due)))].filter(d => d <= now && now - d < 864e5 && !st.kun[d]);
+    if (dues.length && rows.length) { const D = Math.max(...dues); dues.forEach(d => st.kun[d] = now); ch = true;
+      const L0 = rows.map(r => { const due = r.T.filter(x => x.due <= now); return {name: r.s.name, p: pctOf(due.length ? due : r.T)}; });
+      if (g.kun && !fresh && !env.__kvfull) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(D)}</b>\n` + pctLines(L0)); }
     // natijalar jadvali (saytdagi vazifa muddati o'tganda, Homework posti yo'q guruhlarda)
     if (!hp) for (const k of KINDS) { const hw = hws[k]; if (!hw || now - hw.at > 8 * 864e5) continue; const due = siteDue(g, hws, k), pk = k + ":" + hwFrom(g, hw);
       if (now >= due && now - due < 864e5 && !st.posted[pk]) { ch = true;
         for (const k2 of KINDS) if (hws[k2] && now >= siteDue(g, hws, k2)) st.posted[k2 + ":" + hwFrom(g, hws[k2])] = now; // bitta jadval — ikkala tur uchun
-        if (g.res && !fresh) await toTopic(env, g.id, g.res, await resultsText(env, g)); break; } }
-    if (fresh || env.__kvfull) { kun.length = 0; lateK.length = 0; ch = true; }
-    if (kun.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\nUy vazifasi muddatida bajarilmadi:\n\n` + kun.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${it.icon} ${H(it.title)}`).join(", ")}`).join("\n"));
-    if (lateK.length && g.kun) await toTopic(env, g.id, g.kun, `📌 <b>KUN E'TIROZI — ${ddmmyyyy(now)}</b>\n⏰ Kech, ammo topshirdi:\n\n` + lateK.map((x, i) => `${i + 1}. ${H(x.s.name)} — ${x.items.map(it => `${it.icon} ${H(it.title)}`).join(", ")}`).join("\n"));
+        if (g.res && !fresh && rows.length) await toTopic(env, g.id, g.res, `📊 <b>UYGA VAZIFA — ${ddmmyyyy(due)}</b>\n` + pctLines(rows.map(r => ({name: r.s.name, p: pctOf(r.T)})))); break; } }
+    for (const [k, v] of Object.entries(st.kun)) if (v < now - 14 * 864e5) delete st.kun[k];
     // eski yozuvlarni tozalash (14 kun)
     const old = now - 14 * 864e5;
     for (const S of Object.values(st.s)) for (const m of ["rs", "late", "lr", "ok", "all"]) for (const [k, v] of Object.entries(S[m] || {})) if ((m === "rs" ? +k : v) < old) { delete S[m][k]; ch = true; }
@@ -1771,6 +1775,50 @@ async function idemStart(env, kind, stu, chunks){
   return {k}; // (yozuvlarni tejash: "ishlayapti" belgisi yozilmaydi — faqat tayyor natija)
 }
 const idemDone = (env, idem, key) => idem.k ? PUT(env, idem.k, {key, t: Date.now()}, {expirationTtl: 6 * 3600}) : null;
+
+
+/* ---------------- Kechki tekshiruv navbati (sayt: Uyga vazifa + Baza; Telegram: shadowing) ---------------- */
+const NIGHT_KEY = crypto.randomUUID(); // shu jarayon ichidagi kechki so'rovlar uchun
+const QMSG = k => `✅ Javoblaringiz qabul qilindi! ${k === "speaking" ? "Speaking" : "Writing"} kechasi (00:00–05:00) tekshiriladi — natija va feedback Telegram topic'ingizga tushadi. Hech narsani qayta yuborish shart emas.`;
+async function fpKey(kind, stu, chunks){ let src = kind + "|" + stu.id; for (const c of chunks) { const x = String(c || ""); src += "|" + x.length + ":" + x.slice(0, 4000) + x.slice(-4000); }
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(src)); return "gjf:" + [...new Uint8Array(d)].slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join(""); }
+const nightOK = now => { const h = L(now).getUTCHours(); return h < 8; }; // 00:00–05:00 asosiy oyna; qolganlari 08:00 gacha tugatiladi
+async function nightPosted(env, id){ const job = await J(env, "gj:" + id, null); if (job) { job.st = "posted"; job.pt = Date.now(); await PUT(env, "gj:" + id, job, {expirationTtl: 5 * 86400}); }
+  await PUT(env, "rnd", (await J(env, "rnd", [])).filter(x => x !== id)); }
+function capOf(r){ // zaxira matn (render bo'lmasa): har Task/Part bitta qatorda
+  const L0 = [`${r.kind === "speaking" ? "🎤 Speaking" : "✍️ Writing"} · ${r.mode === "hw" ? "Uyga vazifa" : "Baza"}${r.title ? " — " + H(r.title) : ""}`, `👤 ${H(r.student_name || "")}`];
+  if (r.kind === "speaking") { L0.push(`📊 Umumiy: <b>${fmtN(r.overall)}</b> / 5`); (r.parts || []).forEach(p => L0.push(`• Part ${p.part} — <b>${fmtN(p.overall)}</b> / 5`)); }
+  else { L0.push(`📊 Umumiy: <b>${fmtN(r.total)}</b> / ${r.max}`); (r.tasks || []).forEach(t => L0.push(`• Task ${t.task} — ${t.missing ? "❌ yozilmagan (0)" : `<b>${fmtN(t.overall)}</b> / 5`}`)); }
+  if (r.late) L0.push("⏰ Muddatdan kech topshirildi"); L0.push("<i>To'liq feedback — saytda «Natijalarim» bo'limida.</i>"); return L0.join("\n"); }
+async function nightFallback(env){ // 08:00 gacha render bo'lmagan natijalar — matn ko'rinishida
+  if (L(Date.now()).getUTCHours() < 7 || env.__kvfull) return; const q = await J(env, "rnd", []); if (!q.length) return;
+  const studs = await getStudents(env); const gs = await getGroups(env);
+  for (const id of q.slice(0, 15)) { const job = await J(env, "gj:" + id, null); if (!job || job.st !== "graded") { await nightPosted(env, id); continue; }
+    const r = JSON.parse(await env.KV.get(job.rkey) || "null"); const s0 = studs.find(x => x.id === job.sid); const g = s0 && gs.find(x => x.id === s0.gid);
+    if (r && s0 && s0.thread && g) await say(env, g.id, capOf(r), {message_thread_id: s0.thread, ...(job.vmid ? {reply_to_message_id: job.vmid, allow_sending_without_reply: true} : {})});
+    await nightPosted(env, id); } }
+async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bittadan tekshiradi
+  const now = Date.now(); if (!nightOK(now) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 100e3) return;
+  const q = await J(env, "gjl", []); if (!q.length) return; await PUT(env, "gjrun", {t: now}, {expirationTtl: 300});
+  const mid0 = atLocal(dayKey(now), 0); const t0 = Date.now(); const drop = [];
+  for (const id of q) { if (Date.now() - t0 > 50e3) break;
+    const job = await J(env, "gj:" + id, null); if (!job) { drop.push(id); continue; }
+    if (job.st !== "q" || (job.next || 0) > Date.now()) { if (job.st !== "q") drop.push(id); continue; }
+    if (L(now).getUTCHours() >= 5 && job.at >= mid0) continue; // 05:00 dan keyin topshirilganlar — keyingi kechada
+    job.st = "run"; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); if (env.__kvfull) return;
+    let d = null, err = "";
+    try { const rs = await W.fetch(new Request("https://night/" + job.kind, {method: "POST", headers: {"content-type": "application/json", "x-night": NIGHT_KEY}, body: JSON.stringify(job.b)}), env, {waitUntil: () => {}}); d = await rs.json(); if (!rs.ok || d.error) err = d.error || ("HTTP " + rs.status); }
+    catch (e) { err = String(e.message || e); }
+    if (d && d.key && !err) { job.st = "graded"; job.rkey = d.key; job.gt = Date.now(); delete job.b; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); drop.push(id);
+      const rq = await J(env, "rnd", []); rq.push(id); await PUT(env, "rnd", rq.slice(-300)); }
+    else { job.n = (job.n || 0) + 1; job.err = err.slice(0, 200);
+      if (job.n >= 6 || /422|topilmadi|Rasm yuklang|Audio yo'q/i.test(err)) { job.st = "fail"; drop.push(id); await pm(env, env.OWNER_ID, `⚠️ Kechki tekshiruv: ${H(id)} — ${H(job.err)}`); }
+      else { job.st = "q"; job.next = Date.now() + 5 * 60e3; }
+      await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); }
+  }
+  if (drop.length) await PUT(env, "gjl", (await J(env, "gjl", [])).filter(x => !drop.includes(x)));
+  await PUT(env, "gjrun", {t: 0}, {expirationTtl: 300});
+}
 
 /* ---------------- Faoliyat jurnali (o'qituvchi uchun) ---------------- */
 async function addLog(env, sid, evs){
@@ -1800,7 +1848,7 @@ function markRepeats(errLists, counts){
   let n = 0; for (const errs of errLists) for (const e of (errs || [])) { const r = String(e.rule || "").toLowerCase().trim(); if (r && counts[r]) { e.repeat = counts[r] + 1; n++; } } return n;
 }
 async function saveProfile(env, stu, entry){
-  const p = await getProfile(env, stu.id); p.name = stu.name; p.h = [...(p.h || []), entry].slice(-200); await PUT(env, "p:" + stu.id, p); return p;
+  const p = await getProfile(env, stu.id); p.name = stu.name; p.h = [...(p.h || []).filter(e => !(e.q && e.k === entry.k && e.at === entry.at)), entry].slice(-200); await PUT(env, "p:" + stu.id, p); return p; // kechasi tekshirilgan natija vaqtinchalik "qabul qilindi" yozuvining o'rniga
 }
 const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sort((a, b) => c[b] - c[a]).slice(0, 30); };
 
@@ -1815,10 +1863,16 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     if (p === "put" || p === "delete") return async (...a) => { if (e.__kvfull) return; try { return await f.apply(t, a); } catch (x) { if (/limit exceeded|429|Too Many/i.test(String(x && x.message))) { e.__kvfull = true; const d = new Date(); KVFULL_UNTIL = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); console.log("KV FULL"); return; } throw x; } };
     return f.bind(t); }});
   return e; }
-export default {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+const WORKER = {
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
+    if (path === "/night/next") { // GitHub render: navbatdagi tekshirilgan natija
+      if (!env.RENDER_TOKEN || url.searchParams.get("rt") !== env.RENDER_TOKEN) return new Response("no", {status: 403});
+      for (const id of await J(env, "rnd", [])) { const job = await J(env, "gj:" + id, null); if (!job || job.st !== "graded") { await nightPosted(env, id); continue; }
+        const r = await env.KV.get(job.rkey); if (!r) { await nightPosted(env, id); continue; }
+        return new Response(JSON.stringify({id, sid: job.sid, r: JSON.parse(r)}), {headers: {"content-type": "application/json"}}); }
+      return new Response("{}", {headers: {"content-type": "application/json"}}); }
     /* ---------- Telegram webhook ---------- */
     if (path === "/tg" && req.method === "POST") {
       if (!env.TG_TOKEN || req.headers.get("x-telegram-bot-api-secret-token") !== await secretOf(env)) return new Response("no", {status: 403});
@@ -1846,17 +1900,27 @@ export default {
       return new Response(JSON.stringify(o), {status: s, headers: {...cors, "content-type": "application/json; charset=utf-8"}}); };
     if (req.method === "OPTIONS") return new Response(null, {headers: cors});
     if (req.method !== "POST") return out({ok: true, service: "AOK checker + Radar", version: 8, kv: !!env.KV, bot: !!env.TG_TOKEN});
-    if (!allow.includes(origin)) return out({error: "Ruxsat yo'q (origin)."}, 403);
+    if (!allow.includes(origin) && req.headers.get("x-night") !== NIGHT_KEY && !(env.RENDER_TOKEN && url.searchParams.get("rt") === env.RENDER_TOKEN)) return out({error: "Ruxsat yo'q (origin)."}, 403); // kechki ichki tekshiruv / render
     if (!env.KV) return out({error: "KV ulanmagan (Cloudflare → Bindings → KV namespace, nomi: KV)."}, 500);
 
     /* ---------- 📤 Jo'nat (multipart: video + A4 sahifalar) ---------- */
     if (path === "/send") {
       try {
-        const fd = await req.formData(); const stu = await studentByPin(env, fd.get("code"));
+        const fd = await req.formData(); let stu = await studentByPin(env, fd.get("code"));
+        if (!stu && env.RENDER_TOKEN && fd.get("rt") === env.RENDER_TOKEN) stu = (await getStudents(env)).find(x => x.id === fd.get("sid")); // kechki render (GitHub) — o'quvchi nomidan
         if (!stu) return out({error: "PIN noto'g'ri."}, 401);
         const g = (await getGroups(env)).find(x => x.id === stu.gid);
         if (!g || !stu.thread) return out({error: "Sizning topic'ingiz hali ulanmagan — o'qituvchiga ayting."}, 400);
-        const key = String(fd.get("key") || ""); const rv = await env.KV.getWithMetadata(key);
+        const key = String(fd.get("key") || "");
+        if (key.startsWith("gj:")) { // navbatdagi Speaking — video darhol topic'ga, natija kechasi
+          const job = await J(env, key, null); if (!job || job.sid !== stu.id) return out({error: "Topilmadi."}, 404); if (job.vsent) return out({ok: true, dup: true});
+          let vmid = null;
+          for (const video of fd.getAll("video").slice(0, 4)) if (video && video.size > 1000 && video.size <= 49e6) { const vf = new FormData(); vf.append("chat_id", g.id); vf.append("message_thread_id", String(stu.thread)); vf.append("supports_streaming", "true");
+            const ext = /mp4/.test(video.type) ? "mp4" : "webm"; vf.append("video", video, `speaking.${ext}`); vf.append("caption", String(fd.get("caption") || "").slice(0, 1000));
+            let rv2 = await tgForm(env, "sendVideo", vf); if (!rv2.ok) { const df = new FormData(); df.append("chat_id", g.id); df.append("message_thread_id", String(stu.thread)); df.append("document", video, `speaking.${ext}`); df.append("caption", String(fd.get("caption") || "").slice(0, 1000)); rv2 = await tgForm(env, "sendDocument", df); }
+            if (rv2.ok && !vmid) vmid = rv2.result.message_id; }
+          job.vsent = Date.now(); if (vmid) job.vmid = vmid; await PUT(env, key, job, {expirationTtl: 10 * 86400}); return out({ok: true}); }
+        const rv = await env.KV.getWithMetadata(key);
         if (key.startsWith("r:") && !rv.value && fd.get("title")) { rv.value = "{}"; rv.metadata = {sid: stu.id, title: String(fd.get("title")).slice(0, 100), total: +fd.get("total") || 0, max: +fd.get("max") || 0, nokv: 1}; } // kunlik KV limiti tugagan kunda saqlanmagan natija — o'quvchining o'zidagi nusxa yuboriladi
         if (!key.startsWith("r:") || !rv.metadata || rv.metadata.sid !== stu.id) return out({error: "Natija topilmadi."}, 404);
         if (fd.get("extra") === "pron") { // talaffuz mashqi natijasi — qo'shimcha xabar (bir xili qayta yuborilmaydi)
@@ -1869,7 +1933,8 @@ export default {
         if (rv.metadata.sent) return out({ok: true, dup: true}); // allaqachon yuborilgan — qayta tashlanmaydi
         // (takroriy yuborish: bir xil ish idempotent kalit bilan bitta natijaga tushadi — alohida yozuv kerak emas)
         const base = {chat_id: g.id, message_thread_id: stu.thread};
-        const r0 = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread});
+        const nj = fd.get("nid") ? await J(env, "gj:" + fd.get("nid"), null) : null; // kechki natija — qabul qilingan videoga javob sifatida
+        const r0 = await say(env, g.id, String(fd.get("caption") || "").slice(0, 3500), {message_thread_id: stu.thread, ...(nj && nj.vmid ? {reply_to_message_id: nj.vmid, allow_sending_without_reply: true} : {})});
         if (!r0.ok) return out({error: "Telegram: " + r0.description}, 502); await rmMark(env, g.id, stu.thread, r0.result.message_id);
         for (const video of fd.getAll("video").slice(0, 4)) if (video && video.size > 1000) {
           if (video.size > 49e6) await say(env, g.id, "⚠️ Video juda katta bo'lgani uchun yuborilmadi (50 MB dan ortiq).", {message_thread_id: stu.thread});
@@ -1886,6 +1951,7 @@ export default {
           else { pf.append("media", JSON.stringify(ch.map((_, j) => ({type: "photo", media: `attach://p${j}`})))); ch.forEach((f, j) => pf.append(`p${j}`, f, `p${j}.png`)); await tgForm(env, "sendMediaGroup", pf); }
         }
         await env.KV.put(key, rv.value, {metadata: {...rv.metadata, sent: Date.now()}});
+        if (fd.get("nid")) await nightPosted(env, String(fd.get("nid")));
         await addLog(env, stu.id, [{t: "sent", kind: key.split(":")[1], videos: fd.getAll("video").length, pages: pages.length, auto: fd.get("auto") ? 1 : 0}]);
         return out({ok: true});
       } catch (e) { return out({error: "Yuborilmadi: " + e.message}, 500); }
@@ -2016,15 +2082,19 @@ export default {
         let homework = null;
         if (hw && hw.ids && hw.ids.length) {
           homework = {title: hw.title, at: hw.at, due: hw.due || null, items: await withImages(env, await findItems(env, kind, hw.ids))};
-          if (stu) { const e = subOf(await getProfile(env, stu.id), kind, hw, (await getGroups(env)).find(x => x.id === stu.gid)); if (e) homework.done = {at: e.at, tot: e.tot, max: e.max}; }
+          if (stu) { const e = subOf(await getProfile(env, stu.id), kind, hw, (await getGroups(env)).find(x => x.id === stu.gid)); if (e) homework.done = {at: e.at, tot: e.tot, max: e.max, q: !!e.q}; }
         }
-        return out({homework, exams, counts, topics, me: stu ? {name: stu.name, group: await gName(), linked: !!stu.thread} : null});
+        // Talaffuz darvozasi: oxirgi tekshirilgan Speaking'dagi talaffuz mashqi bajarilmagan bo'lsa — avval o'sha
+        let pron = null;
+        if (stu) { const P = await getProfile(env, stu.id); const last = (P.h || []).filter(e => e.k === "speaking" && !e.q && ["hw", "baza"].includes(e.m) && Date.now() - e.at < 7 * 864e5).slice(-1)[0];
+          if (last) { const rv = await env.KV.getWithMetadata("r:speaking:" + last.at); if (rv.value && !(rv.metadata && rv.metadata.pronHash)) { const r = JSON.parse(rv.value); if ((r.pron || []).length) pron = {key: r.key, at: r.at, title: r.title, student_name: r.student_name, pron: r.pron, kind: "speaking"}; } } }
+        return out({homework, exams, counts, topics, pron, me: stu ? {name: stu.name, group: await gName(), linked: !!stu.thread} : null});
       }
       if (path === "/me") {
         if (!stu) return out({error: "Natijalaringizni ko'rish uchun shaxsiy PIN kod bilan kiring."}, 401);
         const p = await getProfile(env, stu.id); const days = [];
         for (let i = 0; i < 28; i++) { const t = Date.now() - i * 864e5; const d = await env.KV.get(`gr:${stu.gid}:${dayKey(t)}`); if (d) { const r = JSON.parse(d)[stu.id]; if (r) days.push({d: dayKey(t), m: dayMark(r), it: Object.fromEntries(Object.entries(r.it || {}).map(([k, v]) => [ITEM_UZ[k] || k, v.l != null ? LV_NAME(v.l) : "bor"]))}); } }
-        return out({name: stu.name, group: await gName(), h: (p.h || []).filter(e => !BAD_SP(e)), days, rules: ruleCounts(p)});
+        return out({name: stu.name, group: await gName(), h: (p.h || []).filter(e => !BAD_SP(e) && !e.q), days, rules: ruleCounts(p)});
       }
       if (path === "/start") {
         const bank = await allBank(env, kind);
@@ -2045,11 +2115,28 @@ export default {
 
       // vazifa bo'yicha topshirishmi? (muddat, kechikish)
       const hwInfo = async () => { if (b.mode !== "hw") return null; const hw = stu ? await hwOf(env, kind, stu.gid) : JSON.parse(await env.KV.get("hw:" + kind) || "null"); if (!hw) return null;
-        return {at: hw.at, late: !!(hw.due && Date.now() > hw.due)}; };
+        return {at: hw.at, late: !!(hw.due && (b.__night || Date.now()) > hw.due)}; }; // kechasi tekshirilsa — topshirilgan vaqti
       const away = b.away && typeof b.away === "object" ? {n: Math.min(99, +b.away.n || 0), s: Math.min(99999, Math.round(+b.away.s || 0))} : null;
       const prof = stu ? await getProfile(env, stu.id) : {h: []};
       const tagLine = () => { const t = prevTags(prof); return t.length ? `\nTags already used for this student's earlier mistakes (reuse EXACTLY the same tag text when a mistake is of the same kind): ${t.join(" | ")}` : ""; };
 
+      // Uyga vazifa va Baza — kechasi (00:00–05:00) tekshiriladi: hozir faqat qabul qilinadi
+      if ((path === "/writing" || path === "/speaking") && ["hw", "baza"].includes(b.mode) && !b.__night) {
+        if (!stu) return out({error: "Avval kodingiz bilan kiring."}, 401); const kind = path === "/writing" ? "writing" : "speaking";
+        if (L(Date.now()).getUTCHours() < 5) return out({error: "⏰ Ertaroq topshirish kerak edi — endi 05:00 dan keyin topshirasiz.", pause: true}, 423);
+        if (path === "/writing" && !(b.images || []).length && !b.text) return out({error: "Rasm yuklang."}, 400);
+        const clips = path === "/speaking" ? (b.clips || []).filter(c => c.audio) : []; if (path === "/speaking" && !clips.length) return out({error: "Audio yo'q."}, 400);
+        const fp = await fpKey(kind, stu, path === "/writing" ? [...(b.images || []).map(i => i.data), b.text || "", (b.ids || []).join(",")] : clips.map(c => c.audio));
+        const old = await J(env, fp, null); if (old && old.id) return out({queued: true, id: old.id, dup: true, msg: QMSG(kind)});
+        const at = Date.now(), id = `${kind}:${stu.id}:${at}`; const hi = await hwInfo();
+        let exp = ""; if (kind === "writing") { const its = await findItems(env, "writing", b.ids || []); exp = [...new Set(its.flatMap(it => it.wtype === "T1" ? ["1.1", "1.2"] : ["2"]))].join(","); } else exp = [...new Set(clips.map(c => c.part))].join(",");
+        await env.KV.put("gj:" + id, JSON.stringify({id, kind, sid: stu.id, gid: stu.gid, at, late: !!(hi && hi.late), st: "q", n: 0, b: {...b, __night: at}}), {expirationTtl: 10 * 86400});
+        if (env.__kvfull) return out({error: "Hozir qabul qilib bo'lmadi — bir daqiqadan keyin qayta yuboring."}, 503);
+        const q = await J(env, "gjl", []); q.push(id); await PUT(env, "gjl", q.slice(-300)); await PUT(env, fp, {id}, {expirationTtl: 3 * 86400});
+        await saveProfile(env, stu, {at, k: kind, m: b.mode, t: clean(b.title, 120), tot: 0, max: kind === "writing" ? 0 : 5, q: 1, hw: hi ? hi.at : undefined, [kind === "writing" ? "tasks" : "parts"]: exp});
+        await addLog(env, stu.id, [{t: "queued", kind, mode: b.mode, title: clean(b.title, 80)}]);
+        return out({queued: true, id, kind, at, msg: QMSG(kind), can_send: !!stu.thread});
+      }
       if (path === "/writing") {
         const items = await findItems(env, "writing", b.ids || []);
         const ctx = items.map(it => it.wtype === "T1"
@@ -2074,9 +2161,9 @@ export default {
         v.forEach((x, i) => { r.tasks[i].ideal = x.text; r.tasks[i].ideal_verified = !!x.verified; });
         r.total = r.tasks.reduce((a, t) => a + t.overall, 0); r.max = r.tasks.length * 5;
         if (stu) { r.student_name = stu.name; r.repeats = markRepeats(r.tasks.map(t => t.errors), ruleCounts(prof)); }
-        r.kind = "writing"; r.mode = clean(b.mode, 10); r.title = clean(b.title, 120); r.at = Date.now(); r.away = away;
+        r.kind = "writing"; r.mode = clean(b.mode, 10); r.title = clean(b.title, 120); r.at = +b.__night || Date.now(); r.away = away;
         const hi = await hwInfo(); if (hi) r.late = hi.late;
-        const prevW = (prof.h || []).filter(e => e.k === "writing").slice(-1)[0]; if (prevW) r.prev = {tot: prevW.tot, max: prevW.max, at: prevW.at};
+        const prevW = (prof.h || []).filter(e => e.k === "writing" && !e.q && e.at < r.at).slice(-1)[0]; if (prevW) r.prev = {tot: prevW.tot, max: prevW.max, at: prevW.at};
         const sc = {}; r.tasks.forEach(t => sc["t" + t.task.replace(".", "")] = t.overall);
         r.key = `r:writing:${r.at}`;
         await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.total, max: r.max, off: r.tasks.some(t => t.on_topic === false), miss: r.tasks.some(t => t.missing), late: !!r.late, away, at: r.at, ...sc}});
@@ -2116,17 +2203,17 @@ export default {
         const v = await verifyIdeals(env, (r.parts || []).map((p, i) => ({id: String(i), label: "Part " + p.part, context: p.question, text: p.overall > 0 ? p.ideal : ""})), S_CRIT.replace(/"Pronunciation"[^,]*,/, ""));
         v.forEach((x, i) => { r.parts[i].ideal = x.text; r.parts[i].ideal_verified = !!x.verified; });
         r.overall = half((r.parts || []).reduce((a, p) => a + p.overall, 0) / ((r.parts || []).length || 1));
-        r.kind = "speaking"; r.student_name = stu ? stu.name : (clean(b.name, 80) || "Noma'lum"); r.mode = clean(b.mode, 10); r.title = clean(b.title, 120); r.at = Date.now(); r.away = away;
+        r.kind = "speaking"; r.student_name = stu ? stu.name : (clean(b.name, 80) || "Noma'lum"); r.mode = clean(b.mode, 10); r.title = clean(b.title, 120); r.at = +b.__night || Date.now(); r.away = away;
         if (stu) r.repeats = markRepeats(r.parts.map(p => p.errors), ruleCounts(prof));
         const hi = await hwInfo(); if (hi) r.late = hi.late;
-        const prevS = (prof.h || []).filter(e => e.k === "speaking" && !BAD_SP(e)).slice(-1)[0]; if (prevS) r.prev = {tot: prevS.tot, max: prevS.max, at: prevS.at};
+        const prevS = (prof.h || []).filter(e => e.k === "speaking" && !BAD_SP(e) && !e.q && e.at < r.at).slice(-1)[0]; if (prevS) r.prev = {tot: prevS.tot, max: prevS.max, at: prevS.at};
         r.audio_key = `aud:${r.at}`; r.audio_until = r.at + 86400000; r.key = `r:speaking:${r.at}`;
         await env.KV.put(r.audio_key, JSON.stringify(clips.map(c => ({mime: c.mime, audio: c.audio}))), {expirationTtl: 86400});
         await env.KV.put(r.key, JSON.stringify(r), {metadata: {name: r.student_name, sid: stu ? stu.id : null, gid: stu ? stu.gid : null, grp: await gName(), mode: r.mode, title: r.title, total: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), miss: (r.parts || []).some(p => (p.unanswered || []).length), late: !!r.late, away, at: r.at}});
         if (stu) await saveProfile(env, stu, {at: r.at, k: "speaking", m: r.mode, t: r.title, tot: r.overall, max: 5, parts: (r.parts || []).map(p => p.part).join(","), cr: critAvg(r.parts), rules: [...new Set(r.parts.flatMap(p => (p.errors || []).map(e => String(e.rule || "").toLowerCase().trim()).filter(Boolean)))].slice(0, 20), ...(hi ? {hw: hi.at, late: hi.late} : {})});
         r.saved = true; r.can_send = !!(stu && stu.thread); await idemDone(env, idem, r.key); IDK = null;
         if (stu) { await addLog(env, stu.id, [{t: "graded", kind: "speaking", mode: r.mode, title: r.title, score: r.overall, max: 5, pron: (r.pron || []).length}]);
-          if (stu.thread && ["hw", "exam"].includes(r.mode) && (r.pron || []).length) await PUT(env, "pq:" + r.at, {sid: stu.id, gid: stu.gid, words: r.pron.map(p => p.word)}, {expirationTtl: 2 * 86400}); }
+          if (stu.thread && r.mode === "exam" && (r.pron || []).length) await PUT(env, "pq:" + r.at, {sid: stu.id, gid: stu.gid, words: r.pron.map(p => p.word)}, {expirationTtl: 2 * 86400}); }
         return out(r);
       }
 
@@ -2144,3 +2231,4 @@ export default {
       return out({error: (e.busy ? "BUSY: " : "AI xatosi: ") + e.message.replace(/^BUSY: /, ""), busy: !!e.busy}, e.busy ? 503 : 502); }
   }
 };
+export default WORKER;
