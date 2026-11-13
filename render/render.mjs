@@ -8,7 +8,8 @@ async function pageFor(kind){ if (pages[kind]) return pages[kind]; const p = awa
   await p.goto(SITE + (kind === "writing" ? "writing.html" : "speaking.html") + "?v=" + Date.now(), {waitUntil: "networkidle"}); await p.waitForTimeout(5000); // sahifa o'zini bir marta yangilashi mumkin
   await p.waitForFunction(() => window.__AOK, null, {timeout: 30000}); return (pages[kind] = p); }
 while (Date.now() - t0 < 20 * 60e3) {
-  const j = await (await fetch(`${W}/night/next?rt=${encodeURIComponent(RT)}`)).json(); if (!j.id) break;
+  const rs0 = await fetch(`${W}/night/next?rt=${encodeURIComponent(RT)}`); if (rs0.status === 403) { console.log("❌ token mos emas"); process.exit(1); }
+  const j = await rs0.json(); if (!j.id) break;
   const d = j.r; const p = await pageFor(d.kind);
   const out = await p.evaluate(async d => { const box = document.createElement("div"); box.style.cssText = "position:fixed;left:-20000px;top:0;width:900px"; document.body.appendChild(box);
     window.__AOK.showReport(box, d, null, ""); const pg = await window.__AOK.a4Pages(box, d); const b64 = [];
