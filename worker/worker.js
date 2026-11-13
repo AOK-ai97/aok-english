@@ -111,10 +111,13 @@ function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqto
   const low = sys.toLowerCase(); for (const [k, v] of m) if (low.includes(k.toLowerCase())) return v; return /writing/i.test(sys.slice(0, 400)) ? "writing tekshiruv" : /speaking/i.test(sys.slice(0, 400)) ? "speaking tekshiruv" : /pronunc/i.test(sys.slice(0, 400)) ? "talaffuz" : "boshqa"; }
 async function aiCount(env, tag, model, force, ki, status){
   if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); const inc = x => USE.c[x] = (USE.c[x] || 0) + 1;
-    if (!status || status === 200) inc(k); inc(`#k${ki || 0}|${model}|${status === 200 ? "ok" : status === 429 ? "limit" : "err"}`); USE.n++; }
-  if (!USE.n || (!force && USE.n < 40 && Date.now() - USE.t < 30 * 60e3)) return; // yozuvlarni tejash
+    if (!status || status === 200) inc(k); inc(`#k${ki || 0}|${model}|${status === 200 ? "ok" : status === 429 ? "limit" : "err"}`); USE.n++;
+    if (/writing|speaking tekshiruv|shadowing|vazifa kiritish|homework/.test(tag)) USE.h = 1; }
+  // /limit real bo'lsin: asosiy tekshiruvlar (writing, speaking, shadowing) darhol yoziladi; mayda so'rovlar (talaffuz, suhbat) — 8 tadan yoki 3 daqiqada
+  if (!USE.n || (!force && !USE.h && USE.n < 8 && Date.now() - USE.t < 3 * 60e3)) return;
+  if (env.__kvfull) return;
   const dk = "aiu:" + qDay(); const o = await J(env, dk, {}); for (const [k, v] of Object.entries(USE.c)) o[k] = (o[k] || 0) + v;
-  USE.c = {}; USE.n = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
+  USE.c = {}; USE.n = 0; USE.h = 0; USE.t = Date.now(); await PUT(env, dk, o, {expirationTtl: 30 * 86400});
 }
 // Taxminiy bepul limit (1 kalit = 1 Google loyiha, kuniga). Google o'zgartirsa — Cloudflare'da AI_LIMITS='{"flash":250,"lite":1000}' bilan yangilanadi
 function aiLimits(env){ let o = {flash: 250, lite: 1000}; try { if (env.AI_LIMITS) o = {...o, ...JSON.parse(env.AI_LIMITS)}; } catch (e) {} return o; }
