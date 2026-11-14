@@ -339,22 +339,34 @@ async function runShadow(env, jk, job, g, hp, s){
     await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
   catch (e) { if (!e.busy) throw e; job.st = job.am ? "night" : "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
 }
-async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 2 tadan)
-  const st = await J(env, "mig:shrg1", null); if (st && st.done) return; const S = st || {seen: []}; let n = 0;
-  const gs = await getGroups(env), studs = await getStudents(env); let cur;
-  do { const L = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L.list_complete ? null : L.cursor;
-    for (const kk of L.keys) { if (S.seen.includes(kk.name)) continue; if (n >= 2) { await PUT(env, "mig:shrg1", S, {expirationTtl: 7 * 86400}); return; }
-      S.seen.push(kk.name); const job = await J(env, kk.name, null); if (!job || job.st !== "done" || !job.msg) continue;
-      const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid); const hp = g && await J(env, "hp:" + g.id, null); if (!hp || !s) continue;
-      const it = hp.items.find(i => i.type === "shadowing"); if (!it || (hp.refs || []).length >= (it.count || 1)) continue;
-      const media = job.msg.voice || job.msg.audio || job.msg.document; if (!media) continue;
-      const k = hsubKey(hp, s.id); const sub = await J(env, k, null); const x = sub && sub.it[it.id]; if (!x) continue;
-      const e = (x.list || []).find(z => z.fu === media.file_unique_id); if (!e || e.cov > 0) continue;
-      x.list = x.list.filter(z => z !== e); await PUT(env, k, sub, {expirationTtl: 30 * 86400}); n++;
-      if (job.am) job.msg._am = job.am; job.msg._notified = true; job.msg._rg = 1;
-      try { await checkShadowing(env, g, hp, s, job.msg, studs); } catch (err) { S.seen = S.seen.filter(z => z !== kk.name); x.list.push(e); await PUT(env, k, sub, {expirationTtl: 30 * 86400}); } } }
-  while (cur);
-  S.done = 1; await PUT(env, "mig:shrg1", S, {expirationTtl: 7 * 86400});
+async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 1 tadan, qulf bilan)
+  const st = await J(env, "mig:shrg2", null); if (st && st.done) return; if (await env.KV.get("shrg:lk")) return;
+  await env.KV.put("shrg:lk", "1", {expirationTtl: 120}); const S = st || {seen: []};
+  try { const gs = await getGroups(env), studs = await getStudents(env); let cur;
+    do { const L = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L.list_complete ? null : L.cursor;
+      for (const kk of L.keys) { if (S.seen.includes(kk.name)) continue;
+        S.seen.push(kk.name); const job = await J(env, kk.name, null); if (!job || job.st !== "done" || !job.msg) continue;
+        const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid); const hp = g && await J(env, "hp:" + g.id, null); if (!hp || !s) continue;
+        const it = hp.items.find(i => i.type === "shadowing"); if (!it || (hp.refs || []).length >= (it.count || 1)) continue;
+        const media = job.msg.voice || job.msg.audio || job.msg.document; if (!media) continue;
+        const k = hsubKey(hp, s.id); const sub = await J(env, k, null); const x = sub && sub.it[it.id]; if (!x) continue;
+        const e = (x.list || []).find(z => z.fu === media.file_unique_id); if (e && e.cov > 0) continue;
+        if (e) { x.list = x.list.filter(z => z !== e); await PUT(env, k, sub, {expirationTtl: 30 * 86400}); }
+        await PUT(env, "mig:shrg2", S, {expirationTtl: 7 * 86400}); // avval belgilab qo'yamiz — ikki marta tekshirilmaydi
+        if (job.am) job.msg._am = job.am; job.msg._notified = true; job.msg._rg = 1;
+        try { await checkShadowing(env, g, hp, s, job.msg, studs); } catch (err) { console.log("shrg", err.message); }
+        return; } }
+    while (cur);
+    // yakuniy qayta sanash: har audio o'z kaliti bilan
+    for (const g of gs) { const hp = await J(env, "hp:" + g.id, null); const it = hp && hp.items.find(i => i.type === "shadowing"); if (!it) continue;
+      for (const s of studs.filter(x => x.gid === g.id)) { const k = hsubKey(hp, s.id); const sub = await J(env, k, null); const x = sub && sub.it[it.id]; if (!x) continue;
+        const best = {}; for (const e of x.list || []) if (e.fu && (!best[e.fu] || e.cov > best[e.fu].cov)) best[e.fu] = e; x.list = (x.list || []).filter(e => !e.fu || best[e.fu] === e);
+        for (const e of x.list) if (String(e.ref).startsWith("#") && e.fu) e.ref = "#" + e.fu.slice(-5);
+        const refs = [...new Set(x.list.filter(e => e.cov >= 40).map(e => e.ref))]; const before = x.n || 0;
+        x.refs = refs; x.n = refs.length; if (x.n >= it.count && !x.doneAt) { const ds = x.list.filter(e => e.cov >= 40).map(e => e.at).sort((a, b) => a - b); x.doneAt = ds[Math.min(it.count, ds.length) - 1] || Date.now(); }
+        await PUT(env, k, sub, {expirationTtl: 30 * 86400}); } }
+    S.done = 1; await PUT(env, "mig:shrg2", S, {expirationTtl: 7 * 86400});
+  } finally { await env.KV.delete("shrg:lk"); }
 }
 async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
   if (!(await env.KV.get("mig:sh2"))) { await env.KV.put("mig:sh2", "1", {expirationTtl: 30 * 86400}); // kecha "AI band" bilan yopilgan audiolarni qayta navbatga qo'yish
@@ -1056,7 +1068,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   if (counted && refName && x.refs.includes(refName) && refs.length > 1) { // AI allaqachon hisoblangan mashqni tanladi — davomiyligi eng yaqin, hali hisoblanmagan mashqqa o'tkazamiz
     const d = +media.duration || 0; const free = refs.filter(z => !x.refs.includes(z.name));
     if (free.length) refName = free.sort((a, b) => Math.abs((+a.dur || 0) - d) - Math.abs((+b.dur || 0) - d))[0].name; }
-  const key = refName || ("#" + (x.list.length + 1));
+  const key = refName || ("#" + ((media.file_unique_id || "").slice(-5) || (x.list.length + 1))); // har audio uchun o'z kaliti
   if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = T0; }
   x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: T0, ref: key, cov, pron, flu, sus, fu: media.file_unique_id || ""}); x.list = x.list.slice(-10);
   await PUT(env, k, sub, {expirationTtl: 30 * 86400});
