@@ -348,6 +348,8 @@ async function hpRefs(env, gid, hp){ // Homework audiolari: hp.refs + har bir au
 async function fbFixOnce(env){ if (await env.KV.get("mig:fbn1")) return; await env.KV.put("mig:fbn1", "1", {expirationTtl: 30 * 86400});
   const k = "gs:-1004306427312:2026-11-14"; const o = await J(env, k, null); if (o && o["mwb183i8k1f9"]) { delete o["mwb183i8k1f9"]; await PUT(env, k, o, {expirationTtl: 7 * 86400}); }
   const q = await J(env, "fbq", []); q.push({gid: "-1004306427312", d: "2026-11-14", by: null, t: Date.now()}); await PUT(env, "fbq", q.slice(-20)); }
+async function nightFailOnce(env){ if (await env.KV.get("mig:nfn1")) return; await env.KV.put("mig:nfn1", "1", {expirationTtl: 30 * 86400});
+  for (const k of (await env.KV.list({prefix: "gj:"})).keys) { const j = await J(env, k.name, null); if (j && j.st === "fail" && Date.now() - (j.at || 0) < 3 * 864e5) await nightFailNote(env, j).catch(() => {}); } }
 async function pronSkipOnce(env){ if (await env.KV.get("mig:pron1")) return; await env.KV.put("mig:pron1", "1", {expirationTtl: 30 * 86400});
   for (const k of ["r:speaking:1794497439466"]) { const rv = await env.KV.getWithMetadata(k); if (rv.value && rv.metadata && !rv.metadata.pronHash) await env.KV.put(k, rv.value, {metadata: {...rv.metadata, pronHash: "skip"}}); } } // Sirojiddin: urinishlari eski versiyada tugagan
 async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 1 tadan, qulf bilan)
@@ -1854,6 +1856,12 @@ async function idemStart(env, kind, stu, chunks){
 const idemDone = (env, idem, key) => idem.k ? PUT(env, idem.k, {key, t: Date.now()}, {expirationTtl: 6 * 3600}) : null;
 
 
+async function nightFailNote(env, job){ // o'qituvchiga tushunarli xabar + (writing bo'lsa) o'quvchi yuborgan rasm
+  const s = (await getStudents(env)).find(x => x.id === job.sid); const g = s && (await getGroups(env)).find(x => x.id === s.gid);
+  await pm(env, env.OWNER_ID, `⚠️ <b>Kechki tekshiruv o'tmadi</b>\n👤 ${H(s ? s.name : job.sid)}${g ? ` (${H(g.title)})` : ""}\n${job.kind === "writing" ? "✍️ Writing" : "🎤 Speaking"} · topshirgan vaqti: ${ddmm(job.at)} ${hhmm(job.at)}\n❗ ${H(job.err || "")}\n\n<i>O'quvchiga bot hech narsa yozmadi — kerak bo'lsa o'zingiz ayting.</i>`);
+  for (const im of ((job.b && job.b.images) || []).slice(0, 3)) { const raw = String(im.data || im || ""); const m = raw.match(/^data:([^;]+);base64,(.*)$/); const b64 = m ? m[2] : raw; if (!b64) continue;
+    const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0)); const fd = new FormData(); fd.append("chat_id", String(env.OWNER_ID)); fd.append("photo", new Blob([bin], {type: (m && m[1]) || im.mime || "image/jpeg"}), "page.jpg");
+    await tgForm(env, "sendPhoto", fd); } }
 /* ---------------- Kechki tekshiruv navbati (sayt: Uyga vazifa + Baza; Telegram: shadowing) ---------------- */
 let NIGHT_KEY0 = null; const NIGHT_KEY_ = () => NIGHT_KEY0 || (NIGHT_KEY0 = crypto.randomUUID()); // shu jarayon ichidagi kechki so'rovlar uchun (global scope'da yaratib bo'lmaydi)
 const QMSG = k => `✅ Javoblaringiz qabul qilindi! ${k === "speaking" ? "Speaking" : "Writing"} kechasi (00:00–05:00) tekshiriladi — natija va feedback Telegram topic'ingizga tushadi. Hech narsani qayta yuborish shart emas.`;
@@ -1889,7 +1897,7 @@ async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bi
     if (d && d.key && !err) { job.st = "graded"; job.rkey = d.key; job.gt = Date.now(); delete job.b; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); drop.push(id);
       const rq = await J(env, "rnd", []); rq.push(id); await PUT(env, "rnd", rq.slice(-300)); }
     else { job.n = (job.n || 0) + 1; job.err = err.slice(0, 200);
-      if (job.n >= 6 || /422|topilmadi|Rasm yuklang|Audio yo'q/i.test(err)) { job.st = "fail"; drop.push(id); await pm(env, env.OWNER_ID, `⚠️ Kechki tekshiruv: ${H(id)} — ${H(job.err)}`); }
+      if (job.n >= 6 || /422|topilmadi|Rasm yuklang|Audio yo'q/i.test(err)) { job.st = "fail"; drop.push(id); await nightFailNote(env, job).catch(e => console.log("nfn", e.message)); }
       else { job.st = "q"; job.next = Date.now() + 5 * 60e3; }
       await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); }
   }
@@ -1941,7 +1949,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 const WORKER = {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([fbFixOnce(env).catch(() => {}), pronSkipOnce(env).catch(() => {}), shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([nightFailOnce(env).catch(() => {}), fbFixOnce(env).catch(() => {}), pronSkipOnce(env).catch(() => {}), shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     if (path === "/diag") { // diagnostika (faqat GitHub Actions token bilan; natija shifrlanib chiqariladi)
