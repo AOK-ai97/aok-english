@@ -1918,7 +1918,9 @@ const WORKER = {
     if (path === "/diag") { // diagnostika (faqat GitHub Actions token bilan; natija shifrlanib chiqariladi)
       if (!env.RENDER_TOKEN || url.searchParams.get("rt") !== env.RENDER_TOKEN) return new Response("no", {status: 403});
       const out0 = {now: Date.now(), kvfullUntil: KVFULL_UNTIL}; const keys = String(url.searchParams.get("k") || "").split(",").map(x => x.trim()).filter(Boolean).slice(0, 40);
-      for (const k of keys) { if (k.endsWith("*")) { const L0 = await env.KV.list({prefix: k.slice(0, -1), limit: 60}); out0[k] = {}; for (const x of L0.keys) out0[k][x.name] = String(await env.KV.get(x.name) || "").slice(0, 4000); } else out0[k] = String(await env.KV.get(k) || "").slice(0, 20000); }
+      try { await env.KV.put("diag:w", String(Date.now()), {expirationTtl: 600}); out0.write = env.__kvfull ? "KV FULL" : "ok"; } catch (e) { out0.write = String(e.message || e); }
+      for (const k of keys) { if (k.startsWith("meta:")) { const rv = await env.KV.getWithMetadata(k.slice(5)); out0[k] = {meta: rv.metadata, len: (rv.value || "").length}; continue; }
+        if (k.endsWith("*")) { const L0 = await env.KV.list({prefix: k.slice(0, -1), limit: 60}); out0[k] = {}; for (const x of L0.keys) out0[k][x.name] = String(await env.KV.get(x.name) || "").slice(0, 4000); } else out0[k] = String(await env.KV.get(k) || "").slice(0, 20000); }
       return new Response(JSON.stringify(out0), {headers: {"content-type": "application/json"}}); }
     if (path === "/night/next") { // GitHub render: navbatdagi tekshirilgan natija
       if (!env.RENDER_TOKEN || url.searchParams.get("rt") !== env.RENDER_TOKEN) return new Response("no", {status: 403});
