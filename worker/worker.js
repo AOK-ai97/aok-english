@@ -784,11 +784,7 @@ async function fbText(env, type, name, facts){
 async function dayFeedback(env, g, d, dl = Infinity){
   d = d || dayKey(); const day = await J(env, `gr:${g.id}:${d}`, {}); const studs = await getStudents(env);
   const now = Date.now(); const hpC = await J(env, "hp:" + g.id, null); const hwsC = await latestHw(env, g.id); // uyga vazifalar holati ham feedbackka
-  const hwOf = async s => { let T = []; try { T = (await digestTasks(env, g, s, hpC, hwsC, now, [])).filter(x => x.due && x.due <= now + 30 * 60e3); } catch (_) {}
-    if (!T.length) { const p = await getProfile(env, s.id); const h = (p.hwc || []).slice(-1)[0]; if (h && now - h.at < 5 * 864e5) return {line: `📋 Uyga vazifa: ${h.done}/${h.total} bajarilgan`, fact: `Uyga vazifa: ${h.total} tadan ${h.done} tasi bajarilgan`, sc: [h.total ? 1 + 4 * h.done / h.total : 3]}; return null; }
-    const st = x => x.ok ? (x.late ? "kech topshirildi" : "o'z vaqtida bajarildi") : x.n ? `qisman (${x.n}/${x.need})` : "bajarilmagan";
-    return {line: "📋 <b>Uyga vazifa:</b>\n" + T.map(x => `${x.ok ? (x.late ? "⏰" : "✅") : x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${x.need > 1 ? ` — ${x.n}/${x.need}` : ""}`).join("\n"),
-      fact: "Uyga vazifa: " + T.map(x => `${x.title} — ${st(x)}`).join("; "), sc: T.map(x => x.ok ? (x.late ? 3 : 5) : x.n ? 2 : 1)}; };
+  const hwOf = s => hwStatus(env, g, s, hpC, hwsC, now);
   const sk = `gs:${g.id}:${d}`; const sent = await J(env, sk, {}); const done = [], skip = [], again = [], left = [];
   for (const [sid, rec] of Object.entries(day)) {
     const s = studs.find(x => x.id === sid); if (!s) continue;
@@ -923,10 +919,16 @@ function parseGrades(text){
   }
   return out;
 }
-function dayMark(rec){
+async function hwStatus(env, g, s, hpC, hwsC, now){ // shu darsgacha muddati tugagan uyga vazifalar holati
+  let T = []; try { T = (await digestTasks(env, g, s, hpC, hwsC, now, [])).filter(x => x.due && x.due <= now + 30 * 60e3); } catch (_) {}
+  if (!T.length) { const p = await getProfile(env, s.id); const h = (p.hwc || []).slice(-1)[0]; if (h && now - h.at < 5 * 864e5 && h.total) return {line: `📋 Uyga vazifa: ${h.done}/${h.total} bajarilgan`, fact: `Uyga vazifa: ${h.total} tadan ${h.done} tasi bajarilgan`, sc: [5 * h.done / h.total]}; return null; }
+  const st = x => x.ok ? (x.late ? "kech topshirildi" : "o'z vaqtida bajarildi") : x.n ? `qisman (${x.n}/${x.need})` : "bajarilmagan";
+  return {line: "📋 <b>Uyga vazifa:</b>\n" + T.map(x => `${x.ok ? (x.late ? "⏰" : "✅") : x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${x.need > 1 ? ` — ${x.n}/${x.need}` : ""}`).join("\n"),
+    fact: "Uyga vazifa: " + T.map(x => `${x.title} — ${st(x)}`).join("; "), sc: T.map(x => x.ok ? (x.late ? 3 : 5) : x.n ? 2 : 0)}; } // 5 o'z vaqtida · 3 kech · 2 qisman · 0 qilinmagan
+function dayMark(rec, hwSc){
   if (!rec) return "✅";
   if (rec.st === "absent") return "❌ 🟤"; if (rec.st === "pause") return "❌ ⚪️"; if (rec.st === "sick") return "❌ 🟣";
-  const ls = Object.values(rec.it || {}).filter(x => x.l !== null && x.l !== undefined).map(x => x.l);
+  const ls = [...Object.values(rec.it || {}).filter(x => x.l !== null && x.l !== undefined).map(x => x.l), ...Object.values(rec.res || {}).map(x => x.ty === "praise" ? 5 : x.ty === "scold" ? 1.5 : 3), ...(hwSc || [])]; // darsdagi baholar + test natijalari + uyga vazifa
   if (!ls.length) return "✅";
   if (ls.includes(6) && ls.every(l => l >= 5)) return "✅ 🟦";
   return "✅ " + LV_COLOR(avg(ls.map(l => Math.min(l, 5))));
@@ -1134,7 +1136,9 @@ async function davomatText(env, g){
   const studs = (await getStudents(env)).filter(s => s.gid === g.id);
   const day = await J(env, `gr:${g.id}:${dayKey()}`, {});
   let present = 0;
-  const lines = studs.map((s, i) => { const m = dayMark(day[s.id]); if (m.startsWith("✅")) present++; return `${i + 1}. ${H(s.name)} ${m}`; });
+  const now = Date.now(), hpC = await J(env, "hp:" + g.id, null), hwsC = await latestHw(env, g.id); const lines = [];
+  for (const [i, s] of studs.entries()) { const rec = day[s.id]; const hw = rec && rec.st ? null : await hwStatus(env, g, s, hpC, hwsC, now);
+    const m = dayMark(rec, hw ? hw.sc : null); if (m.startsWith("✅")) present++; lines.push(`${i + 1}. ${H(s.name)} ${m}`); }
   const pct = studs.length ? Math.round(present / studs.length * 100) : 0;
   return `#attendance\n👨‍🏫 Teacher: ${H(g.teacher || "A. Ozodbek")}\n🕘 Time: ${H(g.time || "16:00-18:00")}\n📅 Date: ${ddmmyyyy(Date.now())}${g.days && g.days.length ? "\n" + g.days.map(d => DAY_EN[d]).join("-") : ""}\n\n${lines.join("\n")}\n\n${pct}%`;
 }
