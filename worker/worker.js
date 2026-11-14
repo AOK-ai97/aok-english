@@ -1132,13 +1132,17 @@ async function resultsText(env, g){
   return t + `\n📌 To'liq topshirdi: <b>${done}/${studs.length}</b>\n✅ vaqtida · ⏰ kech, ammo topshirdi · ❌ topshirmadi`;
 }
 const fmtN = x => String(Math.round((+x || 0) * 2) / 2);
-async function davomatText(env, g){
+async function davomatText(env, g, why){
   const studs = (await getStudents(env)).filter(s => s.gid === g.id);
   const day = await J(env, `gr:${g.id}:${dayKey()}`, {});
   let present = 0;
   const now = Date.now(), hpC = await J(env, "hp:" + g.id, null), hwsC = await latestHw(env, g.id); const lines = [];
   for (const [i, s] of studs.entries()) { const rec = day[s.id]; const hw = rec && rec.st ? null : await hwStatus(env, g, s, hpC, hwsC, now);
-    const m = dayMark(rec, hw ? hw.sc : null); if (m.startsWith("✅")) present++; lines.push(`${i + 1}. ${H(s.name)} ${m}`); }
+    const m = dayMark(rec, hw ? hw.sc : null); if (m.startsWith("✅")) present++; lines.push(`${i + 1}. ${H(s.name)} ${m}`);
+    if (why) { const parts = []; if (rec && !rec.st) { for (const [k, v] of Object.entries(rec.it || {})) if (v.l != null) parts.push(`${ITEM_UZ[k] || k}: ${LV_NAME(v.l)}`);
+        for (const x of Object.values(rec.res || {})) parts.push(`${String(x.f || "test").split(":")[0].slice(0, 30)}: ${x.ty === "praise" ? "a'lo" : x.ty === "scold" ? "past" : "o'rtacha"}`); }
+      if (hw) parts.push("vazifa: " + hw.line.replace(/<[^>]+>/g, "").replace(/^📋 Uyga vazifa:\s*/, "").split("\n").filter(Boolean).map(z => z.split(" ")[0]).join("")); 
+      why.push(`${m.split(" ").pop()} <b>${H(first(s.name))}</b> — ${rec && rec.st ? "kelmagan" : parts.length ? H(parts.join(" · ")) : "baho yo'q"}`); } }
   const pct = studs.length ? Math.round(present / studs.length * 100) : 0;
   return `#attendance\n👨‍🏫 Teacher: ${H(g.teacher || "A. Ozodbek")}\n🕘 Time: ${H(g.time || "16:00-18:00")}\n📅 Date: ${ddmmyyyy(Date.now())}${g.days && g.days.length ? "\n" + g.days.map(d => DAY_EN[d]).join("-") : ""}\n\n${lines.join("\n")}\n\n${pct}%`;
 }
@@ -1392,7 +1396,8 @@ async function onPrivate(env, msg){
 async function cbAction(env, r, a, g){
   const uid = r.uid;
   if (a === "res") { const t = await resultsText(env, g); if (g.res) await toTopic(env, g.id, g.res, t); return pm(env, uid, (g.res ? "✅ Results topic'ga yuborildi:\n\n" : "⚠️ Results topic ulanmagan (⚙️ Sozlamalar). Natija:\n\n") + t); }
-  if (a === "dav") { const t = await davomatText(env, g); if (g.dav) await toTopic(env, g.id, g.dav, t); return pm(env, uid, (g.dav ? "✅ Davomat topic'ga yuborildi:\n\n" : "⚠️ Davomat topic ulanmagan (⚙️ Sozlamalar).\n\n") + t); }
+  if (a === "dav") { const why = []; const t = await davomatText(env, g, why); if (g.dav) await toTopic(env, g.id, g.dav, t); await pm(env, uid, (g.dav ? "✅ Davomat topic'ga yuborildi:\n\n" : "⚠️ Davomat topic ulanmagan (⚙️ Sozlamalar).\n\n") + t);
+    return pm(env, uid, `🔎 <b>Ranglar nimaga qarab qo'yildi</b> (faqat sizga):\n\n${why.join("\n")}\n\n<i>Rang = darsdagi baholar + test natijalari + uyga vazifa (✅ o'z vaqtida = A'lo · ⏰ kech = yaxshi · 🟡 qisman = sal chala · ❌ qilinmagan = yomon) o'rtachasi.</i>`); }
   if (a === "hol") return pm(env, uid, await holatText(env, g));
   if (a === "pin") return pm(env, uid, await pinText(env, g));
   if (a === "wk") { if (!g.res) return pm(env, uid, "⚠️ Results topic ulanmagan."); await weeklyReport(env, g); return pm(env, uid, "✅ Haftalik hisobot Results topic'ga yuborildi."); }
