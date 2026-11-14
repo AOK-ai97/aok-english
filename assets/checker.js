@@ -257,8 +257,8 @@ async function sendPron(d,btn){
   const cap=`🗣 <b>Talaffuz mashqi</b> — ${e(d.student_name)}\n`+(pc.length?pc.map(([w,v])=>`${v>=80?"🟢":v>=55?"🟡":"🔴"} ${e(w)} — <b>${v}%</b>`).join("\n")+`\n\nO'rtacha: <b>${Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length)}%</b> · ${pc.length}/${(d.pron||[]).length} so'z mashq qilindi`:`${(d.pron||[]).map(p=>e(p.word)).join(", ")} — urinishlar tugadi (natija olinmadi)`);
   try{const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("extra","pron");fd.append("caption",cap);fd.append("n",pc.length);fd.append("avg",pc.length?Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length):0);
     const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));if(!r.ok||j.error) throw new Error(j.error||("Server xatosi "+r.status));
-    d._pronSig=sig;msg("✅ Talaffuz natijalari topic'ingizga yuborildi.");btn.textContent="✅ Talaffuz yuborildi · yana mashq qilsangiz qayta bosing";btn.disabled=false}
-  catch(err){btn.disabled=false;msg("❌ "+err.message,true)}
+    d._pronSig=sig;try{ls.set("aok_pd:"+d.key,"1")}catch(_){}msg("✅ Talaffuz natijalari topic'ingizga yuborildi.");btn.textContent="✅ Talaffuz yuborildi · yana mashq qilsangiz qayta bosing";btn.disabled=false}
+  catch(err){btn.disabled=false;if(allOut){try{ls.set("aok_pd:"+d.key,"1")}catch(_){}d._pronSig=sig;msg("✅ Mashq yakunlandi — endi vazifani boshlashingiz mumkin.");return}msg("❌ "+err.message,true)}
 }
 async function saveA4(box,d,btn){btn.disabled=true;try{const pages=await a4Pages(box,d);pages.forEach((p,i)=>{const a=document.createElement("a");a.download=`${(d.student_name||"oquvchi").replace(/\s+/g,"_")}_${d.kind}_${i+1}.png`;a.href=URL.createObjectURL(p);a.click()})}catch(e){alert("Saqlanmadi: "+e.message)}btn.disabled=false}
 function showReport(box,d,clips,acts){
@@ -298,6 +298,7 @@ function renderHome(){
     ${H.exams.map((e,i)=>`<label class="ck-asg"><input type="radio" name="exam" value="${esc(e.id)}" ${i?"":"checked"}><div><b>${esc(e.name)}</b><small>${dt(e.at)}</small></div></label>`).join("")}
     <button type="button" class="ck-go" data-start="exam">▶ Imtihonni boshlash</button>`:`<div class="ck-msg">Hozircha faol imtihon yo'q.</div>`;
   const mt=$('.tabs button[data-t="me"]');if(mt)mt.hidden=!ME;
+  {let pd=null;try{pd=H.pron&&ls.get("aok_pd:"+H.pron.key)}catch(_){}if(pd)H.pron=null;} // shu qurilmada allaqachon yuborilgan — darvoza ochiq
   if(H.pron){ // talaffuz darvozasi: avval o'tgan Speaking'dagi talaffuz mashqi
     const d=H.pron;d._pct=d._pct||{};const gate=`<div class="pgate"><div class="ck-msg" style="font-weight:700">🗣 Avval o'tgan Speaking'dagi («${esc(d.title||"")}») talaffuz mashqini bajaring — shundan keyin yangi vazifani boshlay olasiz.</div>${pronHTML(d,null)}<button type="button" class="ck-go" id="pgSend">📤 Talaffuz natijasini yuborish</button></div>`;
     for(const id of ["#pHw","#pBaza"]){const el=$(id);el.innerHTML=gate+el.innerHTML;el.querySelectorAll("[data-start]").forEach(b=>{b.disabled=true;b.title="Avval talaffuz mashqini bajaring"});}
