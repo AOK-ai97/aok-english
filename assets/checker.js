@@ -25,7 +25,7 @@ async function post(path,body){
   if(!API) throw new Error("Checker hali ulanmagan.");
   let r;try{r=await fetch(API+path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)})}catch(e){const er=new Error("Internet aloqasi yo'q yoki uzildi.");er.net=true;throw er}
   let j={};try{j=await r.json()}catch(e){}
-  if(!r.ok||j.error){const er=new Error(String(j.error||("Server xatosi "+r.status)).replace(/^BUSY: /,""));er.busy=!!j.busy||r.status===503||r.status===429;er.status=r.status;throw er}
+  if(!r.ok||j.error){const er=new Error(String(j.error||("Server xatosi "+r.status)).replace(/^BUSY: /,""));er.busy=!!j.busy||r.status===503||r.status===429;er.status=r.status;er.data=j;throw er}
   return j;
 }
 /* AI band bo'lsa — navbatda kutib, o'zi qayta yuboradi */
@@ -145,7 +145,7 @@ function wirePron(box,d,clips){
     tr.querySelector('[data-a="right"]').onclick=()=>sayWord(p.word);
     const rb=tr.querySelector('[data-a="rec"]');let rec=null;const lk="aok_pl:"+(d.key||"")+":"+p.word,lf=tr.querySelector("[data-l]");
     const showLeft=n=>{try{ls.set(lk,String(n))}catch(_){}lf.textContent=n>0?`🎯 ${n} ta urinish qoldi`:"⛔ urinishlar tugadi";lf.style.color=n>1?"":n===1?"#b07a00":"#b3261e";if(n<=0){rb.disabled=true;rb.title="3 ta urinish tugadi"}};
-    {let n=3;try{const v=ls.get(lk);if(v!=null&&v!=="")n=+v}catch(_){}showLeft(n)}
+    {let n=3;try{const v=ls.get(lk);if(v!=null&&v!=="")n=+v}catch(_){}if(d.left&&d.left[p.word]!=null)n=d.left[p.word];showLeft(n);if(d._pct[p.word]!=null){pc.textContent=d._pct[p.word]+"%";pc.style.background=`hsl(${Math.round(d._pct[p.word]*1.2)},72%,${d._pct[p.word]>55?38:45}%)`;pc.style.color="#fff"}}
     rb.onclick=async()=>{if(rec&&rec.state==="recording"){rec.stop();return}if(rb.disabled)return;
       try{const st=await navigator.mediaDevices.getUserMedia({audio:true});const mt=["audio/webm;codecs=opus","audio/mp4","audio/webm"].find(m=>window.MediaRecorder&&MediaRecorder.isTypeSupported(m))||"";
         rec=new MediaRecorder(st,mt?{mimeType:mt}:{});const ch=[];rec.ondataavailable=e=>e.data.size&&ch.push(e.data);
@@ -154,7 +154,7 @@ function wirePron(box,d,clips){
           try{const r=await post("/pron",{code:ls.get("aok_code"),rk:d.key||"",word:p.word,audio:await b64(bl),mime:bl.type});if(r.left!=null)showLeft(r.left);
             LOG.add("pron_try",{word:p.word,score:r.score});pc.textContent=r.score+"%";pc.style.background=`hsl(${Math.round(r.score*1.2)},72%,${r.score>55?38:45}%)`;pc.title=r.tip||"";pc.style.color="#fff";d._pct[p.word]=r.score;
             let t=tr.querySelector(".ptip");if(!t){t=document.createElement("small");t.className="ptip";pc.after(t)}t.textContent=(r.heard?`«${r.heard}» · `:"")+(r.tip||"")}
-          catch(err){if(err.status===403){showLeft(0);pc.textContent=d._pct[p.word]!=null?d._pct[p.word]+"%":"⛔"}else{pc.textContent="⚠";pc.title=err.message}}};
+          catch(err){if(err.status===403){showLeft(0);if(err.data&&err.data.best!=null)d._pct[p.word]=err.data.best;pc.textContent=d._pct[p.word]!=null?d._pct[p.word]+"%":"⛔"}else{pc.textContent="⚠";pc.title=err.message}}};
         rec.start();rb.classList.add("on");setTimeout(()=>{if(rec.state==="recording")rec.stop()},3000)}catch(e){alert("Mikrofonga ruxsat bering")}};
   });
 }
@@ -250,11 +250,12 @@ async function sendTG(box,d,btn,auto){
     else{btn.disabled=false;btn.textContent="📤 Jo'nat";msg("❌ "+e.message,true)}}
 }
 async function sendPron(d,btn){
-  const pc=Object.entries(d._pct||{});if(!pc.length) return msg("Avval kamida bitta so'zni 🎤 Ayting tugmasi bilan mashq qiling.",true);
+  const pc=Object.entries(d._pct||{});const allOut=(d.pron||[]).length&&(d.pron||[]).every(p=>{try{return d.left&&d.left[p.word]===0||ls.get("aok_pl:"+(d.key||"")+":"+p.word)==="0"}catch(_){return false}});
+  if(!pc.length&&!allOut) return msg("Avval kamida bitta so'zni 🎤 Ayting tugmasi bilan mashq qiling.",true);
   const sig=JSON.stringify(pc);if(d._pronSig===sig){msg("✅ Bu talaffuz natijasi allaqachon yuborilgan. Yana mashq qilsangiz, yangi natijani yuborishingiz mumkin.");return}
   btn.disabled=true;const e=s=>esc(s).replace(/&quot;/g,'"');
-  const cap=`🗣 <b>Talaffuz mashqi</b> — ${e(d.student_name)}\n`+pc.map(([w,v])=>`${v>=80?"🟢":v>=55?"🟡":"🔴"} ${e(w)} — <b>${v}%</b>`).join("\n")+`\n\nO'rtacha: <b>${Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length)}%</b> · ${pc.length}/${(d.pron||[]).length} so'z mashq qilindi`;
-  try{const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("extra","pron");fd.append("caption",cap);fd.append("n",pc.length);fd.append("avg",Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length));
+  const cap=`🗣 <b>Talaffuz mashqi</b> — ${e(d.student_name)}\n`+(pc.length?pc.map(([w,v])=>`${v>=80?"🟢":v>=55?"🟡":"🔴"} ${e(w)} — <b>${v}%</b>`).join("\n")+`\n\nO'rtacha: <b>${Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length)}%</b> · ${pc.length}/${(d.pron||[]).length} so'z mashq qilindi`:`${(d.pron||[]).map(p=>e(p.word)).join(", ")} — urinishlar tugadi (natija olinmadi)`);
+  try{const fd=new FormData();fd.append("code",ls.get("aok_code"));fd.append("key",d.key);fd.append("extra","pron");fd.append("caption",cap);fd.append("n",pc.length);fd.append("avg",pc.length?Math.round(pc.reduce((a,[,v])=>a+v,0)/pc.length):0);
     const r=await fetch(API+"/send",{method:"POST",body:fd});const j=await r.json().catch(()=>({}));if(!r.ok||j.error) throw new Error(j.error||("Server xatosi "+r.status));
     d._pronSig=sig;msg("✅ Talaffuz natijalari topic'ingizga yuborildi.");btn.textContent="✅ Talaffuz yuborildi · yana mashq qilsangiz qayta bosing";btn.disabled=false}
   catch(err){btn.disabled=false;msg("❌ "+err.message,true)}

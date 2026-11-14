@@ -2140,7 +2140,8 @@ const WORKER = {
         // Talaffuz darvozasi: oxirgi tekshirilgan Speaking'dagi talaffuz mashqi bajarilmagan bo'lsa — avval o'sha
         let pron = null;
         if (stu) { const P = await getProfile(env, stu.id); const last = (P.h || []).filter(e => e.k === "speaking" && !e.q && ["hw", "baza"].includes(e.m) && Date.now() - e.at < 7 * 864e5).slice(-1)[0];
-          if (last) { const rv = await env.KV.getWithMetadata("r:speaking:" + last.at); if (rv.value && !(rv.metadata && rv.metadata.pronHash)) { const r = JSON.parse(rv.value); if ((r.pron || []).length) pron = {key: r.key, at: r.at, title: r.title, student_name: r.student_name, pron: r.pron, kind: "speaking"}; } } }
+          if (last) { const rv = await env.KV.getWithMetadata("r:speaking:" + last.at); if (rv.value && !(rv.metadata && rv.metadata.pronHash)) { const r = JSON.parse(rv.value); if ((r.pron || []).length) pron = {key: r.key, at: r.at, title: r.title, student_name: r.student_name, pron: r.pron, kind: "speaking"};
+            const pct = {}, left = {}; for (const p of r.pron.slice(0, 30)) { const v = String(await env.KV.get(`pa:${clean(r.key || "", 80)}:${norm(p.word).slice(0, 40)}`) || "0").split("|"); left[p.word] = Math.max(0, 3 - (+v[0] || 0)); if (v[1] !== undefined && v[1] !== "") pct[p.word] = +v[1]; } pron.pct = pct; pron.left = left; } } }
         return out({homework, exams, counts, topics, pron, me: stu ? {name: stu.name, group: await gName(), linked: !!stu.thread} : null});
       }
       if (path === "/me") {
@@ -2272,11 +2273,11 @@ const WORKER = {
 
       if (path === "/pron") {
         if (!b.audio || !b.word) return out({error: "So'z yoki audio yo'q."}, 400);
-        const pk = `pa:${clean(b.rk || ((stu ? stu.id : "x") + ":" + dayKey()), 80)}:${norm(b.word).slice(0, 40)}`; const used = +(await env.KV.get(pk) || 0);
-        if (used >= 3) return out({error: "Bu so'z uchun 3 ta urinish tugadi.", left: 0, limit: true}, 403);
-        await env.KV.put(pk, String(used + 1), {expirationTtl: 7 * 86400});
-        const r = await gemini(env, PRON_SYS, [{text: `Target word: "${clean(b.word, 60)}"`}, {inline_data: {mime_type: (b.mime || "audio/webm").split(";")[0], data: b.audio}}], P_SCHEMA, 0.1, true);
-        r.score = Math.max(0, Math.min(100, Math.round(+r.score || 0))); r.left = 2 - used;
+        const pk = `pa:${clean(b.rk || ((stu ? stu.id : "x") + ":" + dayKey()), 80)}:${norm(b.word).slice(0, 40)}`; const pv = String(await env.KV.get(pk) || "0").split("|"); const used = +pv[0] || 0, best = pv[1] !== undefined && pv[1] !== "" ? +pv[1] : null;
+        if (used >= 3) return out({error: "Bu so'z uchun 3 ta urinish tugadi.", left: 0, limit: true, best}, 403);
+        const r = await gemini(env, PRON_SYS, [{text: `Target word: "${clean(b.word, 60)}"`}, {inline_data: {mime_type: (b.mime || "audio/webm").split(";")[0], data: b.audio}}], P_SCHEMA, 0.1, true); // AI xato bersa — urinish sarflanmaydi
+        r.score = Math.max(0, Math.min(100, Math.round(+r.score || 0))); r.left = 2 - used; const nb = best == null ? r.score : Math.max(best, r.score);
+        await env.KV.put(pk, (used + 1) + "|" + nb, {expirationTtl: 7 * 86400}); r.best = nb;
         return out(r);
       }
       return out({error: "Noma'lum manzil."}, 404);
