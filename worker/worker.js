@@ -250,11 +250,13 @@ async function studentByPin(env, pin){
 }
 
 /* ---------------- Telegram ---------------- */
+const sleep = ms => new Promise(z => setTimeout(z, ms));
 async function tg(env, method, body){
   if (!env.TG_TOKEN) return {ok:false, description:"TG_TOKEN yo'q"};
   try {
-    const r = await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/${method}`, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body)});
-    const j = await r.json(); if (!j.ok) console.log("TG", method, j.description); return j;
+    let j; for (let a = 0; a < 3; a++) { const r = await fetch(`https://api.telegram.org/bot${env.TG_TOKEN}/${method}`, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body)});
+      j = await r.json(); const ra = j && j.parameters && j.parameters.retry_after; if (j.ok || j.error_code !== 429 || !ra || ra > 8) break; await new Promise(z => setTimeout(z, ra * 1000 + 300)); } // Telegram "Too Many Requests" — kutib qayta urinadi
+    if (!j.ok) console.log("TG", method, j.description); return j;
   } catch (e) { console.log("TG", method, e.message); return {ok:false, description:e.message}; }
 }
 async function tgForm(env, method, fd){
@@ -336,6 +338,23 @@ async function runShadow(env, jk, job, g, hp, s){
   try { if (job.am) job.msg._am = job.am; await checkShadowing(env, g, hp, s, job.msg); job.st = "done"; await PUT(env, jk, job, {expirationTtl: 3 * 86400});
     await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
   catch (e) { if (!e.busy) throw e; job.st = job.am ? "night" : "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
+}
+async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 2 tadan)
+  const st = await J(env, "mig:shrg1", null); if (st && st.done) return; const S = st || {seen: []}; let n = 0;
+  const gs = await getGroups(env), studs = await getStudents(env); let cur;
+  do { const L = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L.list_complete ? null : L.cursor;
+    for (const kk of L.keys) { if (S.seen.includes(kk.name)) continue; if (n >= 2) { await PUT(env, "mig:shrg1", S, {expirationTtl: 7 * 86400}); return; }
+      S.seen.push(kk.name); const job = await J(env, kk.name, null); if (!job || job.st !== "done" || !job.msg) continue;
+      const g = gs.find(x => x.id === job.gid), s = studs.find(x => x.id === job.sid); const hp = g && await J(env, "hp:" + g.id, null); if (!hp || !s) continue;
+      const it = hp.items.find(i => i.type === "shadowing"); if (!it || (hp.refs || []).length >= (it.count || 1)) continue;
+      const media = job.msg.voice || job.msg.audio || job.msg.document; if (!media) continue;
+      const k = hsubKey(hp, s.id); const sub = await J(env, k, null); const x = sub && sub.it[it.id]; if (!x) continue;
+      const e = (x.list || []).find(z => z.fu === media.file_unique_id); if (!e || e.cov > 0) continue;
+      x.list = x.list.filter(z => z !== e); await PUT(env, k, sub, {expirationTtl: 30 * 86400}); n++;
+      if (job.am) job.msg._am = job.am; job.msg._notified = true; job.msg._rg = 1;
+      try { await checkShadowing(env, g, hp, s, job.msg, studs); } catch (err) { S.seen = S.seen.filter(z => z !== kk.name); x.list.push(e); await PUT(env, k, sub, {expirationTtl: 30 * 86400}); } } }
+  while (cur);
+  S.done = 1; await PUT(env, "mig:shrg1", S, {expirationTtl: 7 * 86400});
 }
 async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugallanmagan yoki navbatda qolgan audiolar
   if (!(await env.KV.get("mig:sh2"))) { await env.KV.put("mig:sh2", "1", {expirationTtl: 30 * 86400}); // kecha "AI band" bilan yopilgan audiolarni qayta navbatga qo'yish
@@ -1014,13 +1033,14 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   const it = hp.items.find(i => i.type === "shadowing"); const media = msg.voice || msg.audio || msg.document;
   const reply = async (text) => { if (msg._am) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: msg._am, text, parse_mode: "HTML", disable_web_page_preview: true}); if (e.ok) return e; } // kechasi: "Qabul qildim" xabarining o'rniga
     return toTopic(env, g.id, msg.message_thread_id || s.thread, text, {reply_to_message_id: msg.message_id, allow_sending_without_reply: true}); };
-  const T0 = msg._am && msg.date ? msg.date * 1000 : Date.now(); // topshirilgan vaqt hisoblanadi
+  const T0 = (msg._am || msg._rg) && msg.date ? msg.date * 1000 : Date.now(); // topshirilgan vaqt hisoblanadi
   // forward ruxsat: ikkinchi telefondan yozib yuborish mumkin. Kanal/guruhdan olingan tayyor audio — shubhali.
   const fo = msg.forward_origin; const fromChannel = !!(fo && (fo.type === "channel" || fo.type === "chat")) || !!msg.forward_from_chat;
   { const sub0 = await J(env, hsubKey(hp, s.id), null); const x0 = sub0 && sub0.it[it.id]; if (media.file_unique_id && x0 && (x0.list || []).some(e => e.fu === media.file_unique_id)) return; } // shu audio allaqachon tekshirilgan — qayta javob yo'q
   const mine = await tgFileB64(env, media.file_id); if (!mine) return reply("⚠️ Audio juda katta yoki yuklab bo'lmadi. Iltimos, qisqaroq ovozli xabar yuboring.");
   const parts = []; const refs = (hp.refs || []).slice(0, 4);
   for (const [i, r] of refs.entries()) { const a = await tgFileB64(env, r.file_id); if (a) { parts.push({text: `ORIGINAL ${i + 1} — "${r.name}":`}); parts.push({inline_data: {mime_type: r.mime || audioMime(null, a.path), data: a.data}}); } }
+  if (parts.length && it && refs.length < (it.count || 1)) parts.push({text: `NOTE: the teacher assigned ${it.count} audios but only ${refs.length} original(s) are given above. If the STUDENT clearly repeats an English text that is NOT one of these originals, it is one of the MISSING assigned audios: set ref=0, rate pron and fluency honestly, and set coverage = how complete and natural the reading sounds (NOT 0 just because the original is missing). Say nothing about using the wrong audio.`});
   if (!parts.length) parts.push({text: "(No original audio is available — judge only pronunciation and fluency; ref=0, coverage = estimate of how complete and natural the passage sounds.)"});
   if (s.vf && s.vf !== media.file_id) { const old = await tgFileB64(env, s.vf, 4e6); if (old) { parts.push({text: "EARLIER recording of the same student (voice comparison only):"}); parts.push({inline_data: {mime_type: "audio/ogg", data: old.data}}); } }
   parts.push({text: `STUDENT recording${msg.caption ? ` (caption: "${clean(msg.caption, 80)}")` : ""}:`}); parts.push({inline_data: {mime_type: audioMime(media, mine.path), data: mine.data}});
@@ -1703,19 +1723,21 @@ function remStart(g, created){ const dk = dayKey(created); const end = atLocal(d
 // Har o'quvchida BITTA eslatma: joyida yangilanadi; topic'da undan keyin xabar bo'lsa — o'chib pastga qayta tushadi; umuman boshlamaganlarga har soatda yangidan (o'qilmagan bo'lib turadi)
 async function remindSend(env, g, s, text, opt, now, hour){
   if (env.__kvfull) return "kvfull"; const k = `rmr:${g.id}:${s.thread}`; const o = await J(env, k, null); const day = hour >= 7 && hour < 23;
+  const del = async ids => { const left = []; for (const m of ids) { const d = await tg(env, "deleteMessage", {chat_id: g.id, message_id: m}); if (!d.ok && !/not found|can't be deleted|MESSAGE_ID_INVALID/i.test(d.description || "")) left.push(m); await sleep(250); } return left; };
+  let pend = o && o.del || []; if (pend.length) { const left = await del(pend); if (left.length !== pend.length) { await PUT(env, k, {...o, del: left}, {expirationTtl: 3 * 86400}); o.del = left; } pend = left; }
+  if (o && o.pend && !o.mid2 && now - o.pend < 4 * 60e3) return "busy"; // boshqa jarayon hozir shu eslatmani tashlayapti
   const hourly = opt.zero && o && o.mid && now - (o.at || 0) >= 60 * 60e3 && day;
   if (o && o.mid && !o.moved && !hourly) { const e = await tg(env, "editMessageText", {chat_id: g.id, message_id: o.mid, text, parse_mode: "HTML", disable_web_page_preview: true});
-    if (e.ok || /not modified/i.test(e.description || "")) return "edit"; }
+    if (e.ok || /not modified/i.test(e.description || "")) return "edit";
+    if (!/not found|can't be edited|MESSAGE_ID_INVALID/i.test(e.description || "")) return "wait"; } // vaqtinchalik xato (limit) — yangi xabar tashlamaymiz, keyingi safar tahrirlaymiz
   if (!day) return "wait"; // tunda yangi xabar tashlanmaydi (faqat tahrir)
-  // yakunlaganlarniki ham doim oxirida turadi (pastga ko'chadi), faqat hourly yangidan tashlash yo'q
-  await PUT(env, k, {...(o || {}), pend: now}, {expirationTtl: 3 * 86400}); if (env.__kvfull) return "kvfull";
-  if (o && o.mid) await tg(env, "deleteMessage", {chat_id: g.id, message_id: o.mid});
+  const olds = [...pend, ...(o && o.mid ? [o.mid] : [])];
+  await PUT(env, k, {...(o || {}), pend: now, mid2: 0}, {expirationTtl: 3 * 86400}); if (env.__kvfull) return "kvfull";
+  const left = await del(olds);
   const r = await toTopic(env, g.id, s.thread, text, {_rm: 1});
-  if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, at: now, live: true, moved: false, done: !!opt.done}, {expirationTtl: 3 * 86400});
+  if (r && r.ok) await PUT(env, k, {mid: r.result.message_id, mid2: 1, at: now, live: true, moved: false, done: !!opt.done, del: left}, {expirationTtl: 3 * 86400});
   return "post";
 }
-async function rmAllOnce(env){ if (await env.KV.get("mig:rmall1")) return; await env.KV.put("mig:rmall1", "1"); // bir martalik: hamma eslatmalar oxiriga qayta tushadi
-  for (const k of (await env.KV.list({prefix: "rmr:"})).keys) { const o = await J(env, k.name, null); if (o && o.mid && !o.moved) await PUT(env, k.name, {...o, moved: true}, {expirationTtl: 3 * 86400}); } }
 async function rmMark(env, gid, th, mid){ try { const k = `rmr:${gid}:${th}`; const o = await J(env, k, null); if (o && o.mid && !o.moved && mid > o.mid) await PUT(env, k, {...o, moved: true}, {expirationTtl: 3 * 86400}); } catch (e) {} }
 async function digestAll(env, gs, studs, hpAct, now, quiet){
   if (quiet || env.__kvfull) return;
@@ -1745,7 +1767,7 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
         + (ic.length ? `\n\n📚 Endi yodlaydigan vazifalaringizga e'tiborli bo'ling — darsda so'raladi:\n${ic.map(i => "• " + H(i.title)).join("\n")}` : `\n\n📚 Yodlaydigan vazifalaringizga ham e'tiborli bo'ling!`);
       else t = `📋 ${nm}, uyga vazifalaringiz — ${pctOf(T)}% bajarildi\n\n` + T.map(x => digestLine(x, now)).join("\n") + `\n\n<i>✅ o'z vaqtida · ⏰ kech · ⏳ qolgan vaqt — xabar o'zi yangilanadi (${hhmm(now)})</i>`;
       if (fresh) { ch = true; continue; }
-      if (s.thread && !g.quiet) await remindSend(env, g, s, t, {zero, done: !pend.length}, now, hour);
+      if (s.thread && !g.quiet) { await remindSend(env, g, s, t, {zero, done: !pend.length}, now, hour); await sleep(400); }
     }
     // KUN E'TIROZI: muddat o'tishi bilan (3 soat ichida) BITTA ro'yxat; keyin kech topshirganlar bo'lsa — o'sha xabar joyida yangilanadi (o'quvchi topic'i bilan parallel)
     st.lv = st.lv || {};
@@ -1878,7 +1900,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 const WORKER = {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), rmAllOnce(env).catch(() => {}), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     if (path === "/diag") { // diagnostika (faqat GitHub Actions token bilan; natija shifrlanib chiqariladi)
