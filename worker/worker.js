@@ -265,7 +265,9 @@ async function tgForm(env, method, fd){
     return j; }
   catch (e) { return {ok:false, description:e.message}; }
 }
-const say = (env, chat, text, extra = {}) => tg(env, "sendMessage", {chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra});
+const say = async (env, chat, text, extra = {}) => { const r = await tg(env, "sendMessage", {chat_id: chat, text, parse_mode: "HTML", disable_web_page_preview: true, ...extra});
+  if (r && !r.ok && /parse entities|can't parse/i.test(r.description || "")) return tg(env, "sendMessage", {chat_id: chat, text: String(text).replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"), disable_web_page_preview: true, ...extra}); // HTML xato bo'lsa — oddiy matn
+  return r; };
 const toTopic = async (env, gid, thread, text, extra = {}) => { const {_rm, ...ex} = extra; const r = await say(env, gid, text, thread && thread > 1 ? {message_thread_id: thread, ...ex} : ex);
   if (!_rm && thread > 1 && r && r.ok && r.result) await rmMark(env, gid, thread, r.result.message_id); return r; }; // eslatmadan keyin topic'ga yozildi — eslatma pastga ko'chiriladi
 const owner = (env, text, extra) => say(env, env.OWNER_ID, text, extra);
@@ -282,7 +284,7 @@ Tone by type: "praise" = warm, specific (mention what exactly was good); "encour
 Use ONLY the facts given. No markdown. Answer ONLY with JSON {"text": "..."}.`;
 const FB_SYS = `You are "AOK Radar 📡", assistant of an English teacher (CEFR Multilevel prep, Uzbekistan). After the lesson, write ONE end-of-lesson feedback message in UZBEK (Latin script) to the student, addressed by first name.
 It must cover ALL graded parts from Facts, but stay short and lively: 2–4 sentences, max 420 characters, 2–3 fitting emoji. No bullet lists, no headings, no "Hurmatli".
-Structure: 1) quick overall verdict for today; 2) name the strongest part(s) specifically; 3) name the weakest part(s) with ONE concrete, doable tip for next lesson (e.g. how many words to repeat, what to re-record). If a part was improved after a redo, praise the effort.
+Structure: 1) quick overall verdict for today; 2) name the strongest part(s) specifically; 3) name the weakest part(s) with ONE concrete, doable tip for next lesson (e.g. how many words to repeat, what to re-record). If a part was improved after a redo, praise the effort. If Facts include "Uyga vazifa", also say in one short clause whether the homework was done on time, late or not done (a list of it is shown under your text, so do not list items).
 Tone by Type: praise = warm and proud; encourage = friendly, motivating; scold = honest and firm but caring, never insulting. Every message must be worded differently — avoid clichés and templates; vary openings. Use the grade names as given (A'lo, yaxshi, chala…). Output JSON {"text": "..."}.`;
 const FALLBACK = {
   praise: ["🔥 {n}, zo'r natija! Shu tempda davom eting 💪", "🏆 {n}, bugun a'lo ishladingiz! Radar faxrlanadi 📡", "👏 {n}, juda yaxshi! Keyingi darsda ham shunday 🚀"],
@@ -343,6 +345,9 @@ async function hpRefs(env, gid, hp){ // Homework audiolari: hp.refs + har bir au
   const out0 = [...(hp.refs || [])]; try { const L = await env.KV.list({prefix: `hpr:${gid}:${hp.id}:`});
     for (const k of L.keys) { const r = await J(env, k.name, null); if (r && !out0.some(x => x.fu && x.fu === r.fu)) out0.push({...r, name: r.name || `Audio ${out0.length + 1}`}); } } catch (_) {}
   return out0.slice(0, 6); }
+async function fbFixOnce(env){ if (await env.KV.get("mig:fbn1")) return; await env.KV.put("mig:fbn1", "1", {expirationTtl: 30 * 86400});
+  const k = "gs:-1004306427312:2026-11-14"; const o = await J(env, k, null); if (o && o["mwb183i8k1f9"]) { delete o["mwb183i8k1f9"]; await PUT(env, k, o, {expirationTtl: 7 * 86400}); }
+  const q = await J(env, "fbq", []); q.push({gid: "-1004306427312", d: "2026-11-14", by: null, t: Date.now()}); await PUT(env, "fbq", q.slice(-20)); }
 async function pronSkipOnce(env){ if (await env.KV.get("mig:pron1")) return; await env.KV.put("mig:pron1", "1", {expirationTtl: 30 * 86400});
   for (const k of ["r:speaking:1794497439466"]) { const rv = await env.KV.getWithMetadata(k); if (rv.value && rv.metadata && !rv.metadata.pronHash) await env.KV.put(k, rv.value, {metadata: {...rv.metadata, pronHash: "skip"}}); } } // Sirojiddin: urinishlari eski versiyada tugagan
 async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 1 tadan, qulf bilan)
@@ -778,6 +783,12 @@ async function fbText(env, type, name, facts){
 }
 async function dayFeedback(env, g, d, dl = Infinity){
   d = d || dayKey(); const day = await J(env, `gr:${g.id}:${d}`, {}); const studs = await getStudents(env);
+  const now = Date.now(); const hpC = await J(env, "hp:" + g.id, null); const hwsC = await latestHw(env, g.id); // uyga vazifalar holati ham feedbackka
+  const hwOf = async s => { let T = []; try { T = (await digestTasks(env, g, s, hpC, hwsC, now, [])).filter(x => x.due && x.due <= now + 30 * 60e3); } catch (_) {}
+    if (!T.length) { const p = await getProfile(env, s.id); const h = (p.hwc || []).slice(-1)[0]; if (h && now - h.at < 5 * 864e5) return {line: `📋 Uyga vazifa: ${h.done}/${h.total} bajarilgan`, fact: `Uyga vazifa: ${h.total} tadan ${h.done} tasi bajarilgan`, sc: [h.total ? 1 + 4 * h.done / h.total : 3]}; return null; }
+    const st = x => x.ok ? (x.late ? "kech topshirildi" : "o'z vaqtida bajarildi") : x.n ? `qisman (${x.n}/${x.need})` : "bajarilmagan";
+    return {line: "📋 <b>Uyga vazifa:</b>\n" + T.map(x => `${x.ok ? (x.late ? "⏰" : "✅") : x.n ? "🟡" : "❌"} ${x.icon} ${H(x.title)}${x.need > 1 ? ` — ${x.n}/${x.need}` : ""}`).join("\n"),
+      fact: "Uyga vazifa: " + T.map(x => `${x.title} — ${st(x)}`).join("; "), sc: T.map(x => x.ok ? (x.late ? 3 : 5) : x.n ? 2 : 1)}; };
   const sk = `gs:${g.id}:${d}`; const sent = await J(env, sk, {}); const done = [], skip = [], again = [], left = [];
   for (const [sid, rec] of Object.entries(day)) {
     const s = studs.find(x => x.id === sid); if (!s) continue;
@@ -788,8 +799,11 @@ async function dayFeedback(env, g, d, dl = Infinity){
     const items = Object.entries(rec.it); const ls = items.filter(([, v]) => v.l != null).map(([, v]) => Math.min(v.l, 5));
     const facts = items.map(([k, v]) => `${ITEM_UZ[k] || k}: ${v.l != null ? LV_NAME(v.l) : "topshirildi"}${v.n ? ` (izoh: ${v.n})` : ""}${rec.prev && rec.prev[k] != null ? ` (avval ${LV_NAME(rec.prev[k])} edi — qayta ishlab yaxshiladi)` : ""}`).join("; ");
     const R = Object.values(rec.res || {}); const facts2 = [facts, ...R.map(x => x.f)].filter(Boolean).join("; "); // Results topic'idagi testlar ham shu bitta xabarga
-    const rs = R.map(x => x.ty === "praise" ? 5 : x.ty === "scold" ? 1.5 : 3); const a = avg([...ls, ...rs]); const type = a === null ? "praise" : a >= 4 ? "praise" : a <= 2 ? "scold" : "encourage";
-    await toTopic(env, g.id, s.thread, await fbText(env, type, s.name, facts2)); sent[sid] = rec.v; done.push(s.name);
+    const hw = await hwOf(s); const facts3 = [facts2, hw && hw.fact].filter(Boolean).join("; ");
+    const rs = R.map(x => x.ty === "praise" ? 5 : x.ty === "scold" ? 1.5 : 3); const a = avg([...ls, ...rs, ...(hw ? hw.sc : [])]); const type = a === null ? "praise" : a >= 4 ? "praise" : a <= 2 ? "scold" : "encourage";
+    const ft = await fbText(env, type, s.name, facts3); const rr = await toTopic(env, g.id, s.thread, H(ft).replace(/&lt;(\/?)b&gt;/g, "<$1b>") + (hw ? "\n\n" + hw.line : ""));
+    if (!rr || !rr.ok) { left.push(s.name); continue; } // yuborilmadi — keyinroq qayta urinadi
+    sent[sid] = rec.v; done.push(s.name);
     await PUT(env, sk, sent, {expirationTtl: 7 * 86400});
   }
   return {done, skip, again, left};
@@ -1668,7 +1682,7 @@ async function cron(env){
   // 1c) "Hammaga feedback" — vaqt yetmay qolganlari
   if (!quiet) { const q = await J(env, "fbq", []); if (q.length) { await PUT(env, "fbq", []);
     for (const j of q) { const g = gs.find(x => x.id === j.gid); if (!g) continue; const x = await dayFeedback(env, g, j.d);
-      if (x.done.length) await pm(env, j.by, `✅ <b>${H(g.title)}</b> — qolgan feedbacklar ham yuborildi:\n${x.done.map(n => "• " + H(n)).join("\n")}`); } } }
+      if (x.done.length && j.by) await pm(env, j.by, `✅ <b>${H(g.title)}</b> — qolgan feedbacklar ham yuborildi:\n${x.done.map(n => "• " + H(n)).join("\n")}`); } } }
   // 2) #Homework posti: tasdiq, eslatma, maqtov, kechikish, yakun
   const hpAct = {};
   for (const g of gs) {
@@ -1918,7 +1932,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 const WORKER = {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([pronSkipOnce(env).catch(() => {}), shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([fbFixOnce(env).catch(() => {}), pronSkipOnce(env).catch(() => {}), shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     if (path === "/diag") { // diagnostika (faqat GitHub Actions token bilan; natija shifrlanib chiqariladi)
