@@ -361,7 +361,7 @@ async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mash
     for (const g of gs) { const hp = await J(env, "hp:" + g.id, null); const it = hp && hp.items.find(i => i.type === "shadowing"); if (!it) continue;
       for (const s of studs.filter(x => x.gid === g.id)) { const k = hsubKey(hp, s.id); const sub = await J(env, k, null); const x = sub && sub.it[it.id]; if (!x) continue;
         const best = {}; for (const e of x.list || []) if (e.fu && (!best[e.fu] || e.cov > best[e.fu].cov)) best[e.fu] = e; x.list = (x.list || []).filter(e => !e.fu || best[e.fu] === e);
-        for (const e of x.list) if (String(e.ref).startsWith("#") && e.fu) e.ref = "#" + e.fu.slice(-5);
+        for (const e of x.list) if (String(e.ref).startsWith("#") && e.fu) e.ref = "#" + e.fu;
         const refs = [...new Set(x.list.filter(e => e.cov >= 40).map(e => e.ref))]; const before = x.n || 0;
         x.refs = refs; x.n = refs.length; if (x.n >= it.count && !x.doneAt) { const ds = x.list.filter(e => e.cov >= 40).map(e => e.at).sort((a, b) => a - b); x.doneAt = ds[Math.min(it.count, ds.length) - 1] || Date.now(); }
         await PUT(env, k, sub, {expirationTtl: 30 * 86400}); } }
@@ -1068,7 +1068,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   if (counted && refName && x.refs.includes(refName) && refs.length > 1) { // AI allaqachon hisoblangan mashqni tanladi — davomiyligi eng yaqin, hali hisoblanmagan mashqqa o'tkazamiz
     const d = +media.duration || 0; const free = refs.filter(z => !x.refs.includes(z.name));
     if (free.length) refName = free.sort((a, b) => Math.abs((+a.dur || 0) - d) - Math.abs((+b.dur || 0) - d))[0].name; }
-  const key = refName || ("#" + ((media.file_unique_id || "").slice(-5) || (x.list.length + 1))); // har audio uchun o'z kaliti
+  const key = refName || ("#" + (media.file_unique_id || (x.list.length + 1))); // har audio uchun o'z kaliti
   if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = T0; }
   x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: T0, ref: key, cov, pron, flu, sus, fu: media.file_unique_id || ""}); x.list = x.list.slice(-10);
   await PUT(env, k, sub, {expirationTtl: 30 * 86400});
