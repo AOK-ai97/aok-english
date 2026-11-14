@@ -339,6 +339,10 @@ async function runShadow(env, jk, job, g, hp, s){
     await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); }
   catch (e) { if (!e.busy) throw e; job.st = job.am ? "night" : "run"; job.t = Date.now(); job.msg._notified = true; await PUT(env, jk, job, {expirationTtl: 3 * 86400}); }
 }
+async function hpRefs(env, gid, hp){ // Homework audiolari: hp.refs + har bir audio alohida kalitda (parallel tashlanganda yo'qolmasin)
+  const out0 = [...(hp.refs || [])]; try { const L = await env.KV.list({prefix: `hpr:${gid}:${hp.id}:`});
+    for (const k of L.keys) { const r = await J(env, k.name, null); if (r && !out0.some(x => x.fu && x.fu === r.fu)) out0.push({...r, name: r.name || `Audio ${out0.length + 1}`}); } } catch (_) {}
+  return out0.slice(0, 6); }
 async function pronSkipOnce(env){ if (await env.KV.get("mig:pron1")) return; await env.KV.put("mig:pron1", "1", {expirationTtl: 30 * 86400});
   for (const k of ["r:speaking:1794497439466"]) { const rv = await env.KV.getWithMetadata(k); if (rv.value && rv.metadata && !rv.metadata.pronHash) await env.KV.put(k, rv.value, {metadata: {...rv.metadata, pronHash: "skip"}}); } } // Sirojiddin: urinishlari eski versiyada tugagan
 async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 1 tadan, qulf bilan)
@@ -1052,7 +1056,7 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   const fo = msg.forward_origin; const fromChannel = !!(fo && (fo.type === "channel" || fo.type === "chat")) || !!msg.forward_from_chat;
   { const sub0 = await J(env, hsubKey(hp, s.id), null); const x0 = sub0 && sub0.it[it.id]; if (media.file_unique_id && x0 && (x0.list || []).some(e => e.fu === media.file_unique_id)) return; } // shu audio allaqachon tekshirilgan — qayta javob yo'q
   const mine = await tgFileB64(env, media.file_id); if (!mine) return reply("⚠️ Audio juda katta yoki yuklab bo'lmadi. Iltimos, qisqaroq ovozli xabar yuboring.");
-  const parts = []; const refs = (hp.refs || []).slice(0, 4);
+  hp.refs = await hpRefs(env, g.id, hp); const parts = []; const refs = (hp.refs || []).slice(0, 4);
   for (const [i, r] of refs.entries()) { const a = await tgFileB64(env, r.file_id); if (a) { parts.push({text: `ORIGINAL ${i + 1} — "${r.name}":`}); parts.push({inline_data: {mime_type: r.mime || audioMime(null, a.path), data: a.data}}); } }
   if (parts.length && it && refs.length < (it.count || 1)) parts.push({text: `NOTE: the teacher assigned ${it.count} audios but only ${refs.length} original(s) are given above. If the STUDENT clearly repeats an English text that is NOT one of these originals, it is one of the MISSING assigned audios: set ref=0, rate pron and fluency honestly, and set coverage = how complete and natural the reading sounds (NOT 0 just because the original is missing). Say nothing about using the wrong audio.`});
   if (!parts.length) parts.push({text: "(No original audio is available — judge only pronunciation and fluency; ref=0, coverage = estimate of how complete and natural the passage sounds.)"});
@@ -1550,7 +1554,7 @@ async function onGroupMessage(env, msg){
     if (au && th && (th === g.hwt)) {
       const hp = await J(env, "hp:" + gid, null);
       if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || "", fu: au.file_unique_id || "", dur: au.duration || 0}].slice(0, 6);
-        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); await react(env, gid, msg.message_id, "👌"); }
+        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); await PUT(env, `hpr:${gid}:${hp.id}:${String(msg.message_id).padStart(9, "0")}`, {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || "").replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || "", fu: au.file_unique_id || "", dur: au.duration || 0}, {expirationTtl: 30 * 86400}); await react(env, gid, msg.message_id, "👌"); } // bir vaqtda bir nechta audio tashlansa ham hech biri yo'qolmaydi
       return;
     }
     if (!th) { await trace(env, gid, {th: 0, why: "topic'siz xabar"}); return; }
@@ -1583,7 +1587,7 @@ async function onGroupMessage(env, msg){
   const media = msg.voice || msg.audio || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
   if (media && hp.items.some(i => i.type === "shadowing")) {
     const fo = msg.forward_origin; const fwdUid = fo && fo.type === "user" && fo.sender_user ? fo.sender_user.id : msg.forward_from ? msg.forward_from.id : null;
-    const staffSet = await staffIds(env, g);
+    const staffSet = await staffIds(env, g); hp.refs = await hpRefs(env, gid, hp);
     const isRef = (hp.refs || []).some(r => (r.fu && r.fu === media.file_unique_id) || (msg.audio && !msg.voice && ((r.dur && media.duration && Math.abs(r.dur - media.duration) <= 1) || (r.name && nn(media.title || media.file_name || "").includes(nn(r.name)) && nn(r.name).length > 3))))
       || (fwdUid && staffSet.map(String).includes(String(fwdUid)));
     if (isRef) return trace(env, gid, {th, s: s.name, why: "o'quvchi asl audioni o'z topic'iga tashladi — tekshirilmadi"});
