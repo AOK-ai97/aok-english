@@ -2151,7 +2151,9 @@ const WORKER = {
         if (path === "/teacher/audio") { const v = await env.KV.get(clean(b.key, 60)); return v ? out({clips: JSON.parse(v)}) : out({error: "Ovoz o'chirilgan (1 kundan keyin avtomatik o'chadi)."}, 404); }
         if (path === "/teacher/exam/save") {
           const exams = JSON.parse(await env.KV.get("exams") || "[]");
-          const e = {id: b.id || uid(), kind, name: clean(b.name, 80) || "Exam", ids: (b.ids || []).slice(0, 500), active: b.active !== false, at: Date.now()};
+          const prev = exams.find(x => x.id === b.id); // yangi imtihon YOPIQ yaratiladi; o'qituvchi "Ochish" bilan yoqadi
+          const act = b.active !== undefined ? !!b.active : (prev ? prev.active : false);
+          const e = {id: b.id || uid(), kind, name: clean(b.name, 80) || "Exam", ids: (b.ids || []).slice(0, 500), active: act, at: (prev && prev.at) || Date.now()};
           const i = exams.findIndex(x => x.id === e.id); if (i >= 0) exams[i] = {...exams[i], ...e}; else exams.push(e);
           await env.KV.put("exams", JSON.stringify(exams)); return out({ok: true, exam: e});
         }
