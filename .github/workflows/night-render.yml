@@ -2,8 +2,10 @@ name: Night render (feedback pages)
 on:
   schedule:
     - cron: "*/15 19-23 * * *"   # 00:00–04:59 Toshkent
-    - cron: "*/15 0-2 * * *"     # 05:00–07:59 Toshkent (qolganlari)
+    - cron: "*/12 0-4 * * *"     # 05:00–09:59 Toshkent (render fallback'dan oldin ulgursin)
   workflow_dispatch:
+  repository_dispatch:
+    types: [night-render]
   push:
     branches: [main]
     paths: ["render/**", ".github/workflows/night-render.yml"]

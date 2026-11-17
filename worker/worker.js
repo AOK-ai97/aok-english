@@ -1876,16 +1876,23 @@ function capOf(r){ // zaxira matn (render bo'lmasa): har Task/Part bitta qatorda
   else { L0.push(`📊 Umumiy: <b>${fmtN(r.total)}</b> / ${r.max}`); (r.tasks || []).forEach(t => L0.push(`• Task ${t.task} — ${t.missing ? "❌ yozilmagan (0)" : `<b>${fmtN(t.overall)}</b> / 5`}`)); }
   if (r.late) L0.push("⏰ Muddatdan kech topshirildi"); L0.push("<i>To'liq feedback — saytda «Natijalarim» bo'limida.</i>"); return L0.join("\n"); }
 async function nightFallback(env){ // 08:00 gacha render bo'lmagan natijalar — matn ko'rinishida
-  if (L(Date.now()).getUTCHours() < 7 || env.__kvfull) return; const q = await J(env, "rnd", []); if (!q.length) return;
+  if (L(Date.now()).getUTCHours() < 9 || env.__kvfull) return; const q = await J(env, "rnd", []); if (!q.length) return; const nowF = Date.now();
   const studs = await getStudents(env); const gs = await getGroups(env);
-  for (const id of q.slice(0, 15)) { const job = await J(env, "gj:" + id, null); if (!job || job.st !== "graded") { await nightPosted(env, id); continue; }
+  for (const id of q.slice(0, 15)) { const job = await J(env, "gj:" + id, null); if (!job) { await nightPosted(env, id); continue; }
+    if (job.st !== "graded") { if (job.st === "posted") await nightPosted(env, id); continue; }
+    if (nowF - (job.gt || 0) < 2 * 3600e3) continue; // render hali ulgurishi mumkin — qoldiramiz
     const r = JSON.parse(await env.KV.get(job.rkey) || "null"); const s0 = studs.find(x => x.id === job.sid); const g = s0 && gs.find(x => x.id === s0.gid);
     if (r && s0 && s0.thread && g) await say(env, g.id, capOf(r), {message_thread_id: s0.thread, ...(job.vmid ? {reply_to_message_id: job.vmid, allow_sending_without_reply: true} : {})});
     await nightPosted(env, id); } }
+async function ghDispatch(env){ // render workflow'ini darhol chaqirish (jadvalga bog'liq qolmaslik uchun)
+  if (!env.GH_PAT) return; const now = Date.now(); if (now - (await J(env, "ghdisp", 0)) < 4 * 60e3) return; // 4 daqiqada bir marta
+  await PUT(env, "ghdisp", now, {expirationTtl: 3600});
+  try { const r = await fetch(`https://api.github.com/repos/${env.GH_REPO || "AOK-ai97/aok-english"}/dispatches`, {method: "POST", headers: {Authorization: "Bearer " + env.GH_PAT, Accept: "application/vnd.github+json", "User-Agent": "aok-radar", "content-type": "application/json"}, body: JSON.stringify({event_type: "night-render"})}); if (!r.ok) console.log("ghd", r.status, (await r.text()).slice(0, 120)); } catch (e) { console.log("ghd", e.message); }
+}
 async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bittadan tekshiradi
   const now = Date.now(); if (!nightOK(now) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 100e3) return;
   const q = await J(env, "gjl", []); if (!q.length) return; await PUT(env, "gjrun", {t: now}, {expirationTtl: 300});
-  const mid0 = atLocal(dayKey(now), 0); const t0 = Date.now(); const drop = [];
+  const mid0 = atLocal(dayKey(now), 0); const t0 = Date.now(); const drop = []; let newGraded = false;
   for (const id of q) { if (Date.now() - t0 > 50e3) break;
     const job = await J(env, "gj:" + id, null); if (!job) { drop.push(id); continue; }
     if (job.st !== "q" || (job.next || 0) > Date.now()) { if (job.st !== "q") drop.push(id); continue; }
@@ -1895,13 +1902,14 @@ async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bi
     try { const rs = await W.fetch(new Request("https://night/" + job.kind, {method: "POST", headers: {"content-type": "application/json", "x-night": NIGHT_KEY_()}, body: JSON.stringify(job.b)}), env, {waitUntil: () => {}}); d = await rs.json(); if (!rs.ok || d.error) err = d.error || ("HTTP " + rs.status); }
     catch (e) { err = String(e.message || e); }
     if (d && d.key && !err) { job.st = "graded"; job.rkey = d.key; job.gt = Date.now(); delete job.b; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); drop.push(id);
-      const rq = await J(env, "rnd", []); rq.push(id); await PUT(env, "rnd", rq.slice(-300)); }
+      const rq = await J(env, "rnd", []); rq.push(id); await PUT(env, "rnd", rq.slice(-300)); newGraded = true; }
     else { job.n = (job.n || 0) + 1; job.err = err.slice(0, 200);
       if (job.n >= 6 || /422|topilmadi|Rasm yuklang|Audio yo'q/i.test(err)) { job.st = "fail"; drop.push(id); await nightFailNote(env, job).catch(e => console.log("nfn", e.message)); }
       else { job.st = "q"; job.next = Date.now() + 5 * 60e3; }
       await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); }
   }
   if (drop.length) await PUT(env, "gjl", (await J(env, "gjl", [])).filter(x => !drop.includes(x)));
+  if (newGraded) await ghDispatch(env); // tekshirilgan ish bor — render darhol ishga tushsin
   await PUT(env, "gjrun", {t: 0}, {expirationTtl: 300});
 }
 
