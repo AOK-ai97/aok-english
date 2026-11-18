@@ -1,1 +1,1 @@
-groups,students,shq,hp:*,hs:*,shj:*,lasterr
+hpr:-1004240255420*,hpf:-1004240255420,hp:-1004240255420,hpr:-1004306427312*
