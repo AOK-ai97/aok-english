@@ -233,7 +233,12 @@ const J = async (env, k, def) => { const v = await env.KV.get(k); return v ? JSO
 const shjMeta = v => ({s: v.sid, g: v.gid, st: v.st, d: (v.msg && v.msg.date) || 0, c: v.c || 0, n: v.n || 0, am: v.am !== undefined ? 1 : 0});
 const PUT = (env, k, v, o) => env.KV.put(k, JSON.stringify(v), String(k).startsWith("shj:") && v && typeof v === "object" ? {...(o || {}), metadata: shjMeta(v)} : o);
 const SHJ_DONE = new Map(); // tugagan joblar o'zgarmaydi — qayta o'qimaymiz
+let SHJ_C = null; // bitta umumiy "shj:" ro'yxati 60 s keshlanadi (bepul tarifda list ham kuniga 1000 ta)
 async function shjList(env, prefix){ // shadowing joblari ro'yxati: metadata'dan (har birini o'qimasdan)
+  if (!SHJ_C || Date.now() - SHJ_C.at > 60e3) SHJ_C = {at: Date.now(), p: shjListRaw(env)};
+  let all; try { all = await SHJ_C.p; } catch (e) { SHJ_C = null; throw e; }
+  return all.filter(j => j.name.startsWith(prefix)); }
+async function shjListRaw(env){ const prefix = "shj:";
   const out = []; let cur;
   do { const L = await env.KV.list({prefix, cursor: cur}); cur = L.list_complete ? null : L.cursor;
     for (const k of L.keys) { let m = k.metadata && k.metadata.st ? k.metadata : SHJ_DONE.get(k.name);
@@ -328,7 +333,7 @@ async function radarText(env, type, name, facts, ai){
 async function shadowJob(env, g, hp, s, msg){ // yozuvlarni tejash: avval darhol tekshiramiz, navbatga faqat kerak bo'lsa
   const jk = `shj:${g.id}:${msg.message_id}`, lk = "shl:" + s.id;
   const mk = () => ({st: "run", t: Date.now(), c: Date.now(), gid: g.id, sid: s.id, n: 1, msg: {message_id: msg.message_id, message_thread_id: msg.message_thread_id, voice: msg.voice, audio: msg.audio, document: msg.document, caption: msg.caption, forward_origin: msg.forward_origin, forward_from_chat: msg.forward_from_chat, forward_from: msg.forward_from, from: msg.from, date: msg.date}});
-  const enq = async job => { await PUT(env, jk, job, {expirationTtl: 3 * 86400}); const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-250)); } };
+  const enq = async job => { await PUT(env, jk, job, {expirationTtl: 3 * 86400}); SHJ_C = null; const q = await J(env, "shq", []); if (!q.includes(jk)) { q.push(jk); await PUT(env, "shq", q.slice(-250)); } };
   if (L(Date.now()).getUTCHours() >= 5) { // kunduzi: faqat qabul qilamiz — kechasi (00:00–05:00) tekshirib, shu xabar o'rniga feedback yoziladi
     if (await J(env, jk, null)) return;
     const fu = (msg.voice || msg.audio || msg.document || {}).file_unique_id; // shu audio oldin yuborilganmi (navbatda yoki tekshirilgan)
@@ -408,7 +413,7 @@ async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugall
         for (const e of x.list || []) if (e.cov >= 40 && !x.refs.includes(e.ref)) { x.refs.push(e.ref); ch = true; }
         if (ch) { x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); await PUT(env, k, sub, {expirationTtl: 30 * 86400});
           if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
-  if (L(Date.now()).getUTCHours() < 10) { // bir vaqtda forward qilingan audiolar shq ro'yxatidan tushib qolsa — shj: prefiksidan qayta tiklash (hech biri tekshirilmay qolmaydi)
+  if (L(Date.now()).getUTCHours() < 10 && L(Date.now()).getUTCMinutes() % 10 === 0) { // (10 daqiqada bir) bir vaqtda forward qilingan audiolar shq ro'yxatidan tushib qolsa — shj: prefiksidan qayta tiklash (hech biri tekshirilmay qolmaydi)
     const q0 = await J(env, "shq", []); const qs = new Set(q0); let added = 0; const hpc = {};
     for (const j of await shjList(env, "shj:")) { if (qs.has(j.name)) continue;
         if (j.st === "done" || j.n > 60 || Date.now() - (j.c || 0) > (j.am ? 50 : 20) * 3600e3) continue; // asosiy navbat tashlab yuboradiganlarini qaytarmaymiz (aks holda har daqiqa 2 ta bekor yozuv)
