@@ -399,6 +399,12 @@ async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugall
         for (const e of x.list || []) if (e.cov >= 40 && !x.refs.includes(e.ref)) { x.refs.push(e.ref); ch = true; }
         if (ch) { x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); await PUT(env, k, sub, {expirationTtl: 30 * 86400});
           if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
+  if (L(Date.now()).getUTCHours() < 10) { // bir vaqtda forward qilingan audiolar shq ro'yxatidan tushib qolsa — shj: prefiksidan qayta tiklash (hech biri tekshirilmay qolmaydi)
+    const q0 = await J(env, "shq", []); const qs = new Set(q0); let added = 0, cur;
+    do { const L2 = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L2.list_complete ? null : L2.cursor;
+      for (const k of L2.keys) { if (qs.has(k.name)) continue; const j = await J(env, k.name, null);
+        if (j && j.st !== "done" && Date.now() - (j.c || 0) < 2 * 864e5) { q0.push(k.name); qs.add(k.name); added++; } } } while (cur);
+    if (added) await PUT(env, "shq", q0.slice(-250)); }
   const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env); let done = 0;
   for (const jk of q) { const job = await J(env, jk, null);
     if (!job || job.st === "done" || job.n > 60 || Date.now() - (job.c || 0) > (job.am !== undefined ? 50 : 20) * 3600e3) { await PUT(env, "shq", (await J(env, "shq", [])).filter(x => x !== jk)); continue; }
@@ -1089,10 +1095,11 @@ async function checkShadowing(env, g, hp, s, msg, studs){
   const counted = cov >= 40;
   const k = hsubKey(hp, s.id); const sub = await J(env, k, {it: {}}); const x = sub.it[it.id] = sub.it[it.id] || {n: 0, refs: [], best: null, list: []};
   if (media.file_unique_id && (x.list || []).some(e => e.fu === media.file_unique_id)) return; // parallel takror
-  if (counted && refName && x.refs.includes(refName) && refs.length > 1) { // AI allaqachon hisoblangan mashqni tanladi — davomiyligi eng yaqin, hali hisoblanmagan mashqqa o'tkazamiz
+  const fewer = refs.length < (it.count || 1); // asl audiolar sonidan ko'proq shadowing so'ralgan — mashqlarni nomi bo'yicha ajratib bo'lmaydi
+  if (!fewer && counted && refName && x.refs.includes(refName) && refs.length > 1) { // AI allaqachon hisoblangan mashqni tanladi — davomiyligi eng yaqin, hali hisoblanmagan mashqqa o'tkazamiz
     const d = +media.duration || 0; const free = refs.filter(z => !x.refs.includes(z.name));
     if (free.length) refName = free.sort((a, b) => Math.abs((+a.dur || 0) - d) - Math.abs((+b.dur || 0) - d))[0].name; }
-  const key = refName || ("#" + (media.file_unique_id || (x.list.length + 1))); // har audio uchun o'z kaliti
+  const key = (!fewer && refName) ? refName : ("#" + (media.file_unique_id || (x.list.length + 1))); // har audio uchun o'z kaliti (asl kam bo'lsa — har yozuv alohida sanaladi, biri yo'qolmaydi)
   if (counted && !x.refs.includes(key)) { x.refs.push(key); x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = T0; }
   x.best = Math.max(x.best || 0, Math.round((cov + pron) / 2)); x.list.push({at: T0, ref: key, cov, pron, flu, sus, fu: media.file_unique_id || ""}); x.list = x.list.slice(-10);
   await PUT(env, k, sub, {expirationTtl: 30 * 86400});
@@ -1578,8 +1585,11 @@ async function onGroupMessage(env, msg){
     const au = msg.audio || msg.voice || (msg.document && /^audio\//.test(msg.document.mime_type || "") && msg.document);
     if (au && th && (th === g.hwt)) {
       const hp = await J(env, "hp:" + gid, null);
-      if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) { hp.refs = [...(hp.refs || []), {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || `Audio ${hp.refs.length + 1}`).replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || "", fu: au.file_unique_id || "", dur: au.duration || 0}].slice(0, 6);
-        await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); await PUT(env, `hpr:${gid}:${hp.id}:${String(msg.message_id).padStart(9, "0")}`, {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || "").replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || "", fu: au.file_unique_id || "", dur: au.duration || 0}, {expirationTtl: 30 * 86400}); await react(env, gid, msg.message_id, "👌"); } // bir vaqtda bir nechta audio tashlansa ham hech biri yo'qolmaydi
+      if (hp && hp.st !== "done" && Date.now() - hp.at < 6 * 3600e3) {
+        const ref = {file_id: au.file_id, name: (msg.caption || au.title || au.file_name || "").replace(/\.(mp3|m4a|ogg|wav)$/i, "").slice(0, 60), mime: au.mime_type || "", fu: au.file_unique_id || "", dur: au.duration || 0};
+        await PUT(env, `hpr:${gid}:${hp.id}:${String(msg.message_id).padStart(9, "0")}`, ref, {expirationTtl: 30 * 86400}); // manba — har audio alohida kalit, yo'qolmaydi
+        hp.refs = await hpRefs(env, gid, hp); await PUT(env, "hp:" + gid, hp, {expirationTtl: 30 * 86400}); // barcha asl audiolardan qayta yig'iladi (parallel yozuvda bir-birini buzmaydi)
+        await react(env, gid, msg.message_id, "👌"); }
       return;
     }
     if (!th) { await trace(env, gid, {th: 0, why: "topic'siz xabar"}); return; }
