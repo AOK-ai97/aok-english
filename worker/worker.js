@@ -230,7 +230,16 @@ const ddmm = t => { const d = L(t); return `${String(d.getUTCDate()).padStart(2,
 const ddmmyyyy = t => ddmm(t) + "." + L(t).getUTCFullYear();
 const hhmm = t => { const d = L(t); return `${String(d.getUTCHours()).padStart(2,"0")}:${String(d.getUTCMinutes()).padStart(2,"0")}`; };
 const J = async (env, k, def) => { const v = await env.KV.get(k); return v ? JSON.parse(v) : def; };
-const PUT = (env, k, v, o) => env.KV.put(k, JSON.stringify(v), o);
+const shjMeta = v => ({s: v.sid, g: v.gid, st: v.st, d: (v.msg && v.msg.date) || 0, c: v.c || 0, n: v.n || 0, am: v.am !== undefined ? 1 : 0});
+const PUT = (env, k, v, o) => env.KV.put(k, JSON.stringify(v), String(k).startsWith("shj:") && v && typeof v === "object" ? {...(o || {}), metadata: shjMeta(v)} : o);
+const SHJ_DONE = new Map(); // tugagan joblar o'zgarmaydi — qayta o'qimaymiz
+async function shjList(env, prefix){ // shadowing joblari ro'yxati: metadata'dan (har birini o'qimasdan)
+  const out = []; let cur;
+  do { const L = await env.KV.list({prefix, cursor: cur}); cur = L.list_complete ? null : L.cursor;
+    for (const k of L.keys) { let m = k.metadata && k.metadata.st ? k.metadata : SHJ_DONE.get(k.name);
+      if (!m) { const j = await J(env, k.name, null); if (!j) continue; m = shjMeta(j); if (m.st === "done") SHJ_DONE.set(k.name, m); }
+      out.push({name: k.name, ...m}); } } while (cur);
+  if (SHJ_DONE.size > 2000) SHJ_DONE.clear(); return out; }
 const H = s => String(s ?? "").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const nn = s => String(s || "").toLowerCase().replace(/[ʻʼ’‘`´']/g, "").replace(/[^a-zа-яёўқғҳ0-9 ]/gi, " ").replace(/\s+/g, " ").trim();
 const first = n => String(n || "").trim().split(/\s+/)[0] || "";
@@ -400,13 +409,12 @@ async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugall
         if (ch) { x.n = x.refs.length; if (x.n >= it.count && !x.doneAt) x.doneAt = Date.now(); await PUT(env, k, sub, {expirationTtl: 30 * 86400});
           if (s.thread) await toTopic(env, g.id, s.thread, `📡 ${H(first(s.name))}, shadowing'ingiz qayta tekshirildi va hisobga olindi ✅\n📋 Shadowing: <b>${x.n}/${it.count}</b>${x.n >= it.count ? " — bajarildi! 🎉" : ""}`); } } } }
   if (L(Date.now()).getUTCHours() < 10) { // bir vaqtda forward qilingan audiolar shq ro'yxatidan tushib qolsa — shj: prefiksidan qayta tiklash (hech biri tekshirilmay qolmaydi)
-    const q0 = await J(env, "shq", []); const qs = new Set(q0); let added = 0, cur; const hpc = {};
-    do { const L2 = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L2.list_complete ? null : L2.cursor;
-      for (const k of L2.keys) { if (qs.has(k.name)) continue; const j = await J(env, k.name, null);
-        if (!j || j.st === "done" || j.n > 60 || Date.now() - (j.c || 0) > (j.am !== undefined ? 50 : 20) * 3600e3) continue; // asosiy navbat tashlab yuboradiganlarini qaytarmaymiz (aks holda har daqiqa 2 ta bekor yozuv)
-        if (hpc[j.gid] === undefined) hpc[j.gid] = await J(env, "hp:" + j.gid, null); const hpj = hpc[j.gid]; // faqat JORIY vazifaga tegishli audio (eski vazifa audiolari yangi vazifaga qo'shilmasin)
-        if (hpj && j.msg && j.msg.date && j.msg.date * 1000 < hpj.at - 6 * 3600e3) continue;
-        q0.push(k.name); qs.add(k.name); added++; } } while (cur);
+    const q0 = await J(env, "shq", []); const qs = new Set(q0); let added = 0; const hpc = {};
+    for (const j of await shjList(env, "shj:")) { if (qs.has(j.name)) continue;
+        if (j.st === "done" || j.n > 60 || Date.now() - (j.c || 0) > (j.am ? 50 : 20) * 3600e3) continue; // asosiy navbat tashlab yuboradiganlarini qaytarmaymiz (aks holda har daqiqa 2 ta bekor yozuv)
+        if (hpc[j.g] === undefined) hpc[j.g] = await J(env, "hp:" + j.g, null); const hpj = hpc[j.g]; // faqat JORIY vazifaga tegishli audio (eski vazifa audiolari yangi vazifaga qo'shilmasin)
+        if (hpj && j.d && j.d * 1000 < hpj.at - 6 * 3600e3) continue;
+        q0.push(j.name); qs.add(j.name); added++; }
     if (added) await PUT(env, "shq", q0.slice(-250)); }
   const q = await J(env, "shq", []); if (!q.length) return; const gs = await getGroups(env); const studs = await getStudents(env); let done = 0;
   for (const jk of q) { const job = await J(env, jk, null);
@@ -932,8 +940,7 @@ function parseGrades(text){
 }
 async function pendShadow(env, gid, sid){ // qabul qilingan, lekin hali tekshirilmagan (navbatdagi yoki tiqilib qolgan) shadowing audiolari — shq'ga bog'liq emas
   const out = []; let cur;
-  try { do { const L = await env.KV.list({prefix: "shj:" + gid + ":", cursor: cur}); cur = L.list_complete ? null : L.cursor;
-    for (const k of L.keys) { const j = await J(env, k.name, null); if (j && j.sid === sid && j.st !== "done") out.push((j.msg && j.msg.date || 0) * 1000); } } while (cur); } catch (_) {}
+  try { for (const j of await shjList(env, "shj:" + gid + ":")) if (j.s === sid && j.st !== "done") out.push((j.d || 0) * 1000); } catch (_) {}
   return out; }
 async function hwStatus(env, g, s, hpC, hwsC, now){ // shu darsgacha muddati tugagan uyga vazifalar holati
   let T = []; try { const pend = hpC && hpC.items && hpC.items.some(i => i.type === "shadowing") ? await pendShadow(env, g.id, s.id) : []; // topshirilgan, ammo tekshirilmagan audio "bajarilmagan" deb ko'rsatilmasin
@@ -1817,8 +1824,8 @@ async function digestAll(env, gs, studs, hpAct, now, quiet){
     const sk = "rst:" + g.id; const st0 = await J(env, sk, null); const fresh = !st0; const st = st0 || {s: {}, posted: {}}; let ch = false; // fresh: birinchi ishga tushish — eski tizim yuborganlarini jim belgilab qo'yamiz
     const kun = [], lateK = [];
     const ic = hp ? hp.items.filter(i => i.type === "in_class") : []; // darsda so'raladigan (yodlash) vazifalar
-    const pendSh = {}; if (hp && hp.items.some(i => i.type === "shadowing")) { let cur; do { const L = await env.KV.list({prefix: "shj:" + g.id + ":", cursor: cur}); cur = L.list_complete ? null : L.cursor; // shq'dan tushib qolgan audiolar ham hisobga olinsin
-      for (const jk of L.keys) { const j = await J(env, jk.name, null); if (j && j.st !== "done" && j.msg && j.msg.date * 1000 >= hp.at - 6 * 3600e3) (pendSh[j.sid] = pendSh[j.sid] || []).push(j.msg.date * 1000); } } while (cur); }
+    const pendSh = {}; if (hp && hp.items.some(i => i.type === "shadowing")) for (const j of await shjList(env, "shj:" + g.id + ":")) // shq'dan tushib qolgan audiolar ham hisobga olinsin (metadata'dan — har daqiqa o'qimasdan)
+      if (j.st !== "done" && j.d && j.d * 1000 >= hp.at - 6 * 3600e3) (pendSh[j.s] = pendSh[j.s] || []).push(j.d * 1000);
     { const dk0 = dayKey(now); if ((g.days || []).includes(wdOf(dk0)) && now >= atLocal(dk0, lessonStart(g)) - 10 * 60e3 && now <= atLocal(dk0, lessonEnd(g))) continue; } // dars paytida eslatma yo'q
     st.kun = st.kun || {}; const rows = []; // KUN E'TIROZI uchun: har o'quvchining bajarilganlik %
     for (const s of studs.filter(x => x.gid === g.id)) {
@@ -1973,10 +1980,16 @@ const prevTags = prof => { const c = ruleCounts(prof); return Object.keys(c).sor
    ===================================================================== */
 // KV yozish limiti tugasa ham tizim yiqilmasin: yozuv xatosi yutiladi, env.__kvfull belgilanadi (yuborishlar shunga qarab to'xtaydi)
 let KVFULL_UNTIL = 0;
+const WST = {c: {}, n: 0, t: Date.now()}; // qaysi kalit turi qancha yozayotgani (diagnostika): xotirada yig'ilib, har 60 yozuvda / 20 daqiqada bitta yozuv
+const wstPre = k => String(k).split(":")[0];
+async function wstFlush(f, t){ if (!WST.n) return; const c = WST.c; const n = WST.n; WST.c = {}; WST.n = 0; WST.t = Date.now();
+  try { await f.apply(t, ["wst:" + new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 13) + ":" + Math.random().toString(36).slice(2, 7), JSON.stringify({n, c}), {expirationTtl: 4 * 86400}]); } catch (_) {} }
 function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = Object.create(env);
   e.__safe = true; e.__kvfull = Date.now() < KVFULL_UNTIL;
   e.KV = new Proxy(kv, {get(t, p){ const f = t[p]; if (typeof f !== "function") return f;
-    if (p === "put" || p === "delete") return async (...a) => { if (e.__kvfull) return; try { return await f.apply(t, a); } catch (x) { if (/limit exceeded|429|Too Many/i.test(String(x && x.message))) { e.__kvfull = true; const d = new Date(); KVFULL_UNTIL = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); console.log("KV FULL"); return; } throw x; } };
+    if (p === "put" || p === "delete") return async (...a) => { if (e.__kvfull) return; const pk = wstPre(a[0]) + (p === "delete" ? "~del" : ""); WST.c[pk] = (WST.c[pk] || 0) + 1; WST.n++;
+      if (WST.n >= 60 || Date.now() - WST.t > 20 * 60e3) await wstFlush(t.put, t);
+      try { return await f.apply(t, a); } catch (x) { if (/limit exceeded|429|Too Many/i.test(String(x && x.message))) { e.__kvfull = true; const d = new Date(); KVFULL_UNTIL = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); console.log("KV FULL"); return; } throw x; } };
     return f.bind(t); }});
   return e; }
 const WORKER = {
