@@ -1,0 +1,26 @@
+name: CF KV stats
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [".github/workflows/cfstats.yml"]
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: KV operations by hour (last 48h)
+        env: { CF: "${{ secrets.CLOUDFLARE_API_TOKEN }}" }
+        run: |
+          S=$(date -u -d '-48 hours' +%Y-%m-%dT%H:00:00Z); E=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          Q='{"query":"query($a:String!,$s:Time!,$e:Time!){viewer{accounts(filter:{accountTag:$a}){kvOperationsAdaptiveGroups(limit:500,filter:{datetime_geq:$s,datetime_leq:$e},orderBy:[datetimeHour_ASC]){sum{requests} dimensions{actionType datetimeHour namespaceId result}}}}}","variables":{"a":"7b382a7a765cf7a6a9916d58182d1f4d","s":"'$S'","e":"'$E'"}}'
+          curl -s https://api.cloudflare.com/client/v4/graphql -H "Authorization: Bearer $CF" -H "content-type: application/json" -d "$Q" > out.json
+          python3 - <<'PY'
+          import json,collections
+          d=json.load(open("out.json"))
+          if d.get("errors"): print("ERR",d["errors"]); raise SystemExit
+          rows=d["data"]["viewer"]["accounts"][0]["kvOperationsAdaptiveGroups"]
+          t=collections.defaultdict(lambda: collections.Counter())
+          for r in rows:
+              x=r["dimensions"]; t[x["datetimeHour"]][x["actionType"]+("" if x.get("result") in (None,"","success","Success") else "!"+str(x["result"]))]+=r["sum"]["requests"]
+          for h in sorted(t): print(h, dict(t[h]))
+          PY
