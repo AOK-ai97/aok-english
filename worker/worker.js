@@ -403,7 +403,7 @@ async function shadowQueue(env){ if (env.__kvfull) return; // har daqiqa: tugall
     const q0 = await J(env, "shq", []); const qs = new Set(q0); let added = 0, cur; const hpc = {};
     do { const L2 = await env.KV.list({prefix: "shj:", cursor: cur}); cur = L2.list_complete ? null : L2.cursor;
       for (const k of L2.keys) { if (qs.has(k.name)) continue; const j = await J(env, k.name, null);
-        if (!j || j.st === "done" || Date.now() - (j.c || 0) >= 50 * 3600e3) continue;
+        if (!j || j.st === "done" || j.n > 60 || Date.now() - (j.c || 0) > (j.am !== undefined ? 50 : 20) * 3600e3) continue; // asosiy navbat tashlab yuboradiganlarini qaytarmaymiz (aks holda har daqiqa 2 ta bekor yozuv)
         if (hpc[j.gid] === undefined) hpc[j.gid] = await J(env, "hp:" + j.gid, null); const hpj = hpc[j.gid]; // faqat JORIY vazifaga tegishli audio (eski vazifa audiolari yangi vazifaga qo'shilmasin)
         if (hpj && j.msg && j.msg.date && j.msg.date * 1000 < hpj.at - 6 * 3600e3) continue;
         q0.push(k.name); qs.add(k.name); added++; } } while (cur);
@@ -2257,7 +2257,7 @@ const WORKER = {
         const at = Date.now(), id = `${kind}:${stu.id}:${at}`; const hi = await hwInfo();
         let exp = ""; if (kind === "writing") { const its = await findItems(env, "writing", b.ids || []); exp = [...new Set(its.flatMap(it => it.wtype === "T1" ? ["1.1", "1.2"] : ["2"]))].join(","); } else exp = [...new Set(clips.map(c => c.part))].join(",");
         await env.KV.put("gj:" + id, JSON.stringify({id, kind, sid: stu.id, gid: stu.gid, at, late: !!(hi && hi.late), st: "q", n: 0, b: {...b, __night: at}}), {expirationTtl: 10 * 86400});
-        if (env.__kvfull) return out({error: "Hozir qabul qilib bo'lmadi — bir daqiqadan keyin qayta yuboring."}, 503);
+        if (env.__kvfull) return out({error: "📦 Server bugungi limitga yetdi — javoblaringiz telefoningizda saqlangan. Soat 05:00 dan keyin shu sahifani oching — o'zi yuboriladi.", kvfull: true}, 503);
         const q = await J(env, "gjl", []); q.push(id); await PUT(env, "gjl", q.slice(-300)); await PUT(env, fp, {id}, {expirationTtl: 3 * 86400});
         await saveProfile(env, stu, {at, k: kind, m: b.mode, t: clean(b.title, 120), tot: 0, max: kind === "writing" ? 0 : 5, q: 1, hw: hi ? hi.at : undefined, [kind === "writing" ? "tasks" : "parts"]: exp});
         await addLog(env, stu.id, [{t: "queued", kind, mode: b.mode, title: clean(b.title, 80)}]);

@@ -25,7 +25,7 @@ async function post(path,body){
   if(!API) throw new Error("Checker hali ulanmagan.");
   let r;try{r=await fetch(API+path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)})}catch(e){const er=new Error("Internet aloqasi yo'q yoki uzildi.");er.net=true;throw er}
   let j={};try{j=await r.json()}catch(e){}
-  if(!r.ok||j.error){const er=new Error(String(j.error||("Server xatosi "+r.status)).replace(/^BUSY: /,""));er.busy=!!j.busy||r.status===503||r.status===429;er.status=r.status;er.data=j;throw er}
+  if(!r.ok||j.error){const er=new Error(String(j.error||("Server xatosi "+r.status)).replace(/^BUSY: /,""));er.kvfull=!!j.kvfull;er.busy=!er.kvfull&&(!!j.busy||r.status===503||r.status===429);er.status=r.status;er.data=j;throw er}
   return j;
 }
 /* AI band bo'lsa — navbatda kutib, o'zi qayta yuboradi */
