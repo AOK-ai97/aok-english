@@ -1,0 +1,62 @@
+<!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Question Race · AOK English</title><meta name="description" content="Question Race — sinfda savol va zamonlar poygasi (o'qituvchi boshqaradi)."><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.workers.dev; object-src 'none'; base-uri 'self'; form-action 'none'"><meta name="theme-color" content="#0d1a13"><link rel="icon" type="image/png" href="../assets/icons/fav-32.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Nunito:wght@500;700;800;900&display=swap"><link rel="stylesheet" href="../assets/race.css?v=202611191404"></head><body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="logo">QUESTION RACE</div>
+      <div class="sub">Savollar va zamonlar poygasi · jungli sarguzashti</div>
+    </div>
+    <div class="sp"></div>
+    <a class="btn ghost" href="teacher.html" title="Teacher paneliga qaytish">← Panel</a>
+    <button class="btn" id="bSets">📚 Savollar</button>
+    <button class="btn ghost" id="bUndo" title="Oxirgi yurishni bekor qilish">↶ Ortga</button>
+    <button class="btn ghost" id="bSound">🔊 Ovoz</button>
+    <button class="btn" id="bNew">⚙ O‘yinchilar / Yangi o‘yin</button>
+  </header>
+
+  <div class="layout">
+    <div class="boardbox"><div class="board" id="board"><svg id="svg" viewBox="0 0 600 540" aria-label="O‘yin taxtasi"></svg><div id="toks"></div></div></div>
+
+    <aside class="panel">
+      <section class="card-s">
+        <div class="turn">
+          <div class="em" id="tEm">🦁</div>
+          <div style="min-width:0">
+            <div class="lbl">Navbat</div>
+            <div class="nm" id="tNm">—</div>
+            <div class="st" id="tSt"></div>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn gold big wide" id="bCard">🃏 Karta ochish</button>
+          <button class="btn" id="bManual">✎ Balni kiritish</button>
+          <button class="btn" id="bSkip">⏭ O‘tkazish</button>
+        </div>
+      </section>
+
+      <section class="card-s">
+        <h3 class="sec">Reyting</h3>
+        <ol class="rank" id="rank"></ol>
+      </section>
+
+      <section class="card-s">
+        <h3 class="sec">Jurnal</h3>
+        <ul class="log" id="log"></ul>
+      </section>
+
+      <section class="card-s">
+        <h3 class="sec">Sehrli kataklar</h3>
+        <div class="legend">
+          <span>🍃 <b>+1 / +2</b> oldinga</span><span>🌵 <b>−1 / −2</b> ortga</span>
+          <span>🌿 <b>Tez yo‘l</b> narvon</span><span>🐍 <b>Sirpanchiq</b> ilon</span>
+          <span>🃏 <b>Yana karta</b></span><span>⚡ <b>Tezkor</b> V2 fe’llar</span>
+          <span>⚔️ <b>Duel</b> bellashuv</span><span>🔄 <b>Almashtir</b> joy</span>
+          <span>❓ <b>Savol ber</b></span><span>❄️ <b>Muz</b> muzlash</span>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+<div id="ovroot"></div>
+
+<canvas id="confetti" hidden></canvas>
+<script src="../assets/checker-config.js?v=202611191404"></script><script src="../assets/race.js?v=202611191404"></script></body></html>

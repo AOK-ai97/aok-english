@@ -2110,6 +2110,15 @@ const WORKER = {
         const myGid = myG.map(g => g.id);
         const writeHw = async (k, mk) => { const tgt = (b.groups || []).map(String).filter(x => myGid.includes(x)); const list = tgt.length ? tgt : (myGid.length ? myGid : ["*"]); let n = 0;
           for (const gid of list) { const key = gid === "*" ? "hw:" + k : `hw:${k}:${gid}`; const old = await J(env, key, null); const v = mk(old, gid); if (v && !v.due && gid !== "*") { const g0 = (await getGroups(env)).find(x => String(x.id) === gid); if (g0) v.due = nextLesson(g0, dayKey()); } /* muddat yozilmasa — keyingi dars boshlanishi */ if (v) { await PUT(env, key, v); n = v.ids ? v.ids.length : n; } } return n; };
+        if (path === "/teacher/race/get") return out({ok: true, sets: await J(env, "race:sets", []), me: TT.name}); // Question Race — savol to'plamlari (hamma o'qituvchilarga umumiy)
+        if (path === "/teacher/race/set" || path === "/teacher/race/del") { const sets = await J(env, "race:sets", []); let nx, e = null;
+          if (path === "/teacher/race/del") nx = sets.filter(x => x.id !== b.id);
+          else { const st = b.set || {}; const id = /^[a-z0-9]{4,24}$/i.test(st.id || "") ? st.id : uid(); const old = sets.find(x => x.id === id);
+            const qs = (Array.isArray(st.qs) ? st.qs : []).slice(0, 500).map(q => ({t: clean(q.t, 40).trim() || "Savol", q: clean(q.q, 300).trim(), a: clean(q.a, 200).trim(), p: Math.min(3, Math.max(1, Math.round(+q.p) || 1)), h: clean(q.h, 80).trim(), x: clean(q.x, 80).trim()})).filter(q => q.q && q.a);
+            e = {id, name: clean(st.name, 60).trim() || "Yangi to'plam", by: (old && old.by) || TT.name, at: Date.now(), qs}; nx = [e, ...sets.filter(x => x.id !== id)].slice(0, 60); }
+          await PUT(env, "race:sets", nx);
+          if (env.__kvfull) return out({error: "Server bugungi limitga yetdi — savollar shu qurilmada saqlandi. 05:00 dan keyin yana «Saqlash»ni bosing.", kvfull: true}, 503);
+          return out({ok: true, set: e}); }
         if (path === "/teacher/login") { const sv = await env.KV.get("seed:v1"); return out({ok: true, seeded: !!sv, seedv: +(sv || 0), name: TT.name, admin: TT.admin}); }
         if (path === "/teacher/groups") return out({groups: myG, students: (await getStudents(env)).filter(s => myGid.includes(s.gid))});
         if (path === "/teacher/ai") { await aiCount(env, null, null, true); const days = [];
