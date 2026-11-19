@@ -19,7 +19,7 @@ const VERSES = {
   duel:["Ikki sher bir cho‘qqida, kim kuchli — bilinar shu daqiqada! Raqibingni tanla!","Jungli nog‘orasi chalindi, bellashuv vaqti keldi — raqibingni chaqir!"],
   swap:["Sehrgar tayog‘ini silkitdi, yo‘llar o‘rnini almashtirdi… To‘g‘ri javob bersang — istagan joyingga ko‘chasan!","Ko‘zgu ichra yo‘l ochildi, ikki yo‘lchi o‘rin almashdi — avval savolni yech!"],
   ask:["Endi sehrgar sen bo‘lding, savolni o‘zing tuzding — kim javob bersa, sovg‘ani teng bo‘lishing!","Jungli tilini sen bilasan — o‘zing savol ber, do‘stingni sina!"],
-  ice:["Shimol shamoli esdi qattiq, oyog‘ing muzga botdi mahkam… Keyingi navbatda to‘g‘ri javob bersang — muz eriydi.","Muz qal’asi seni yutdi, sovuq shamol qotirdi… To‘g‘ri javob — muzni eritadigan olov!"],
+  ice:["Shimol shamoli esdi qattiq, oyog‘ing muzga botdi mahkam… Keyingi navbatda to‘g‘ri javob bersang — muz eriydi, undan keyingi navbatda yurasan.","Muz qal’asi seni yutdi, sovuq shamol qotirdi… To‘g‘ri javob — muzni eritadigan olov! Erigach, keyingi navbatda yo‘lga chiqasan."],
   melt:["Bilim olovi yondi, muz qal’asi qulab tushdi — sen yana erkinsan!"],
   frozen:["Muz hali erimadi… Sabr qil, keyingi navbatda yana urinib ko‘r."],
   win:["Jungli seni tan oldi! Barcha sinovlardan o‘tding — sen g‘olibsan!"]
@@ -169,7 +169,7 @@ function renderPanel(){
   const p=cur();
   document.getElementById('tEm').textContent=p?p.em:'🏁';
   document.getElementById('tNm').textContent=p?p.name:'—';
-  document.getElementById('tSt').textContent=p? (p.frozen?'❄ Muzlagan — to‘g‘ri javob bersa eriydi':`${p.pos}-katakda · finishgacha ${30-p.pos} qadam`) : '';
+  document.getElementById('tSt').textContent=p? (p.frozen?'❄ Muzlagan — to‘g‘ri javob muzni eritadi, keyingi navbatda yuradi':`${p.pos}-katakda · finishgacha ${30-p.pos} qadam`) : '';
   const order=S.players.map((p,i)=>({...p,i})).sort((a,b)=> (a.place||99)-(b.place||99) || b.pos-a.pos);
   document.getElementById('rank').innerHTML=order.map((p,k)=>`<li class="${p.i===S.turn?'cur':''}"><span class="n">${k+1}</span><span class="e">${p.em}</span><span class="nm">${esc(p.name)}${p.frozen?' ❄':''}</span><span class="ps ${p.done?'fin':''}">${p.done?('🏆 '+p.place+'-o‘rin'):p.pos}</span></li>`).join('');
   document.getElementById('log').innerHTML=S.log.slice(-40).reverse().map(l=>`<li>${l}</li>`).join('');
@@ -222,6 +222,7 @@ function cardModal(q, title, buttons){
       ov.querySelector('#bRev').addEventListener('click',e=>{ ov.querySelector('#ans').classList.remove('hide'); e.target.disabled=true; qi.classList.add('flip'); });
     });
 }
+const frozenBtns = `<p class="muted" style="text-align:center;margin:12px 0 0">❄ Muzlagan: to‘g‘ri javob muzni eritadi, yurish — keyingi navbatda.</p><div class="row center"><button class="btn green big" data-v="1">✔ To‘g‘ri — muz eriydi</button><button class="btn red big" data-v="0">✘ Xato — muzda qoladi</button></div>`;
 const judgeBtns = `<div class="row center"><button class="btn green big" data-v="1">✔ To‘g‘ri</button><button class="btn red big" data-v="0">✘ Xato</button></div>`;
 function pointsBtns(sugg){
   return `<div class="pts">
@@ -262,6 +263,7 @@ async function checkWin(pi){
 }
 
 /* ---------------- special squares ---------------- */
+async function settle(pi){ const p=S.players[pi]; if(!p||p.done) return; if(await checkWin(pi)) return; await resolve(pi,1); await checkWin(pi); } // duel, savol ber, almashtirishdan keyin ham narvon/ilon ishlaydi
 async function resolve(pi, depth=0){
   const p=S.players[pi]; const s=SPEC[p.pos]; if(!s || p.done) return;
   if(depth>0 && !['ladder','slide'].includes(s.k)) return;
@@ -304,7 +306,7 @@ async function resolve(pi, depth=0){
       if(v==='n'){ log(`⚔️ ${who(p)} va ${who(o)} — durang`); break; }
       const [w,l]= v==='a'?[pi,oi]:[oi,pi]; SFX.correct();
       log(`⚔️ Duel: ${who(S.players[w])} yutdi (+2), ${who(S.players[l])} −1`);
-      await moveBy(w,2); await moveBy(l,-1); await checkWin(w);
+      await moveBy(w,2); await moveBy(l,-1); await settle(w); await settle(l);
       break; }
     case 'swap': {
       await omen('swap');
@@ -316,7 +318,7 @@ async function resolve(pi, depth=0){
       SFX.swap(); log(`🔄 ${who(p)} va ${who(o)} joy almashdi (${a} ↔ ${b})`);
       const ea=document.querySelector(`.tok[data-id="${p.id}"]`), eb=document.querySelector(`.tok[data-id="${o.id}"]`);
       ea&&ea.classList.add('jump'); eb&&eb.classList.add('jump'); p.pos=b; o.pos=a; renderTokens(); await sleep(800);
-      ea&&ea.classList.remove('jump'); eb&&eb.classList.remove('jump'); render(); await checkWin(pi);
+      ea&&ea.classList.remove('jump'); eb&&eb.classList.remove('jump'); render(); await settle(pi); await settle(oi);
       break; }
     case 'ask': {
       await omen('ask');
@@ -324,10 +326,10 @@ async function resolve(pi, depth=0){
       if(oi===null) break; const o=S.players[oi];
       const v=await openModal(`<h2>${p.em} → ${o.em}</h2><p class="muted">${esc(p.name)} savol beradi, ${esc(o.name)} javob beradi. Savol ham, javob ham to‘g‘ri bo‘lsa — ikkalasiga +1.</p>
         <div class="row center"><button class="btn green big" data-v="1">✔ Ikkalasi to‘g‘ri (+1)</button><button class="btn red" data-v="0">✘ Xato bo‘ldi</button></div>`);
-      if(v==='1'){ SFX.correct(); log(`❓ ${who(p)} va ${who(o)} +1`); await moveBy(pi,1); await moveBy(oi,1); await checkWin(pi); await checkWin(oi); }
+      if(v==='1'){ SFX.correct(); log(`❓ ${who(p)} va ${who(o)} +1`); await moveBy(pi,1); await moveBy(oi,1); await settle(pi); await settle(oi); }
       else { SFX.wrong(); log(`❓ ${who(p)} savol-javobi chiqmadi`); }
       break; }
-    case 'ice': SFX.ice(); await omen('ice'); p.frozen=true; log(`❄️ ${who(p)} muzlab qoldi`); render(); break;
+    case 'ice': SFX.ice(); await omen('ice',{},'Keyingi navbatingda to‘g‘ri javob bersang — muz eriydi. Yurish — undan keyingi navbatda.'); p.frozen=true; log(`❄️ ${who(p)} muzlab qoldi`); render(); break;
   }
 }
 
@@ -343,7 +345,8 @@ async function applyPoints(v){
   const pi=S.turn, p=cur();
   if(p.frozen){
     if(v<=0){ SFX.ice(); log(`🧊 ${who(p)} hali muzlagan`); await omen('frozen'); nextTurn(); return; }
-    p.frozen=false; SFX.melt(); log(`🔥 ${who(p)} muzdan qutuldi`); render(); await omen('melt');
+    p.frozen=false; SFX.melt(); log(`🔥 ${who(p)} muzdan qutuldi — keyingi navbatda yuradi`); render();
+    await omen('melt',{},'Bu navbatda joyida qoladi — <b>keyingi navbatida</b> yuradi.'); nextTurn(); return;
   }
   if(v<=0){ SFX.wrong(); log(`✘ ${who(p)} xato javob — joyida qoldi`); render(); await sleep(400); nextTurn(); return; }
   SFX.correct(); log(`✔ ${who(p)} +${v} qadam`); await sleep(350);
@@ -354,12 +357,12 @@ async function applyPoints(v){
 async function onCard(){
   if(busy || !cur() || cur().done) return; busy=true; snapshot();
   const p=cur(), q=draw(); render();
-  const v=await cardModal(q, `${p.em} ${esc(p.name)}${p.frozen?' · ❄ muzlagan':''}`, pointsBtns(+q.p||1));
+  const v=await cardModal(q, `${p.em} ${esc(p.name)}${p.frozen?' · ❄ muzlagan':''}`, p.frozen?frozenBtns:pointsBtns(+q.p||1));
   await applyPoints(+v); busy=false; render();
 }
 async function onManual(){
   if(busy || !cur() || cur().done) return; busy=true; snapshot(); const p=cur();
-  const v=await openModal(`<h2>${p.em} ${esc(p.name)}</h2><p class="muted">Necha qadam yuradi? (O‘zingiz savol bergan bo‘lsangiz)</p>${pointsBtns(0)}<div class="row center"><button class="btn ghost" data-v="x">Bekor qilish</button></div>`);
+  const v=await openModal(`<h2>${p.em} ${esc(p.name)}</h2><p class="muted">${p.frozen?'❄ Muzlagan — to‘g‘ri javob bersa muz eriydi (yurmaydi).':'Necha qadam yuradi? (O‘zingiz savol bergan bo‘lsangiz)'}</p>${p.frozen?frozenBtns:pointsBtns(0)}<div class="row center"><button class="btn ghost" data-v="x">Bekor qilish</button></div>`);
   if(v==='x'){ history.pop(); busy=false; return; }
   await applyPoints(+v); busy=false; render();
 }
