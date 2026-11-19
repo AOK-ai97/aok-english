@@ -1925,9 +1925,11 @@ async function ghDispatch(env){ // render workflow'ini darhol chaqirish (jadvalg
   try { const r = await fetch(`https://api.github.com/repos/${env.GH_REPO || "AOK-ai97/aok-english"}/dispatches`, {method: "POST", headers: {Authorization: "Bearer " + env.GH_PAT, Accept: "application/vnd.github+json", "User-Agent": "aok-radar", "content-type": "application/json"}, body: JSON.stringify({event_type: "night-render"})}); if (!r.ok) console.log("ghd", r.status, (await r.text()).slice(0, 120)); } catch (e) { console.log("ghd", e.message); }
 }
 async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bittadan tekshiradi
-  const now = Date.now(); if (!nightOK(now) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 100e3) return;
-  const q = await J(env, "gjl", []); if (!q.length) return; await PUT(env, "gjrun", {t: now}, {expirationTtl: 300});
-  const mid0 = atLocal(dayKey(now), 0); const t0 = Date.now(); const drop = []; let newGraded = false;
+  const now = Date.now(); if (!nightOK(now) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 55e3) return;
+  const q = await J(env, "gjl", []); if (!q.length) return;
+  const mid0 = atLocal(dayKey(now), 0); let any = false; // tekshiradigan ish bormi? (yo'q bo'lsa — hech narsa yozmaymiz; avval har daqiqa 2 ta bekor yozuv bo'lardi)
+  for (const id of q) { const jb = await J(env, "gj:" + id, null); if (!jb || jb.st !== "q") { any = true; break; } if ((jb.next || 0) > now) continue; if (L(now).getUTCHours() >= 5 && jb.at >= mid0) continue; any = true; break; }
+  if (!any) return; await PUT(env, "gjrun", {t: now}, {expirationTtl: 300}); const t0 = Date.now(); const drop = []; let newGraded = false;
   for (const id of q) { if (Date.now() - t0 > 50e3) break;
     const job = await J(env, "gj:" + id, null); if (!job) { drop.push(id); continue; }
     if (job.st !== "q" || (job.next || 0) > Date.now()) { if (job.st !== "q") drop.push(id); continue; }
@@ -1945,7 +1947,7 @@ async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bi
   }
   if (drop.length) await PUT(env, "gjl", (await J(env, "gjl", [])).filter(x => !drop.includes(x)));
   if (newGraded) await ghDispatch(env); // tekshirilgan ish bor — render darhol ishga tushsin
-  await PUT(env, "gjrun", {t: 0}, {expirationTtl: 300});
+  // qulf 55 s da o'zi tugaydi (sikl 50 s dan oshmaydi) — bo'shatish uchun alohida yozuv shart emas
 }
 
 /* ---------------- Faoliyat jurnali (o'qituvchi uchun) ---------------- */
@@ -1992,8 +1994,8 @@ async function wstFlush(f, t){ if (!WST.n) return; const c = WST.c; const n = WS
 function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = Object.create(env);
   e.__safe = true; e.__kvfull = Date.now() < KVFULL_UNTIL;
   e.KV = new Proxy(kv, {get(t, p){ const f = t[p]; if (typeof f !== "function") return f;
-    if (p === "put" || p === "delete") return async (...a) => { if (e.__kvfull) return; const pk = wstPre(a[0]) + (p === "delete" ? "~del" : ""); WST.c[pk] = (WST.c[pk] || 0) + 1; WST.n++;
-      if (WST.n >= 60 || Date.now() - WST.t > 20 * 60e3) await wstFlush(t.put, t);
+    if (p === "put" || p === "delete") return async (...a) => { if (e.__kvfull) return; const pk = wstPre(a[0]) + (p === "delete" ? "~del" : ""); if (!WST.n) WST.t = Date.now(); WST.c[pk] = (WST.c[pk] || 0) + 1; WST.n++;
+      if (WST.n >= 50 || (WST.n >= 10 && Date.now() - WST.t > 30 * 60e3)) await wstFlush(t.put, t); // avval 1 ta yozuvdan keyin ham saqlanib, yozuvlarni ikki baravar oshirardi
       try { return await f.apply(t, a); } catch (x) { if (/limit exceeded|429|Too Many/i.test(String(x && x.message))) { e.__kvfull = true; const d = new Date(); KVFULL_UNTIL = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1); console.log("KV FULL"); return; } throw x; } };
     return f.bind(t); }});
   return e; }
