@@ -1,30 +1,47 @@
 /* AOK English — Question Race (sinf o'yini, o'qituvchi boshqaradi) */
 "use strict";
-const BUILTIN = [{"t": "Savol tuzing", "q": "You are a student.", "a": "Are you a student?", "p": 1, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "I ___ (play) football every day.", "a": "play", "p": 1, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "It is hot, ___?", "a": "isn’t it?", "p": 2, "h": "", "x": ""}, {"t": "Qisqa javob", "q": "Is he a doctor? — Yes, ___", "a": "Yes, he is.", "p": 1, "h": "", "x": ""}, {"t": "Zamonni ayting", "q": "She is sleeping now.", "a": "Present Continuous", "p": 1, "h": "", "x": ""}, {"t": "So / Neither", "q": "I like pizza. — ___ do I.", "a": "So", "p": 1, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "She likes cats.", "a": "Does she like cats?", "p": 1, "h": "", "x": ""}, {"t": "Tanlang", "q": "Yesterday I ( go / went ) to school.", "a": "went", "p": 1, "h": "", "x": ""}, {"t": "Who? What?", "q": "Ali is my friend.", "a": "Who is your friend?", "p": 2, "h": "Ali", "x": ""}, {"t": "Or bilan so‘rang", "q": "Do you like tea? (coffee)", "a": "Do you like tea or coffee?", "p": 2, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "He ___ (watch) TV every evening.", "a": "watches", "p": 1, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "They are at home.", "a": "Are they at home?", "p": 1, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "You like apples, ___?", "a": "don’t you?", "p": 2, "h": "", "x": ""}, {"t": "Qisqa javob", "q": "Do you have a cat? — No, ___", "a": "No, I don’t.", "p": 1, "h": "", "x": ""}, {"t": "Where?", "q": "She lives in Tashkent.", "a": "Where does she live?", "p": 2, "h": "in Tashkent", "x": ""}, {"t": "Zamonni ayting", "q": "I will go to Samarkand tomorrow.", "a": "Future Simple", "p": 1, "h": "", "x": ""}, {"t": "So / Neither", "q": "I can’t swim. — ___ can I.", "a": "Neither", "p": 2, "h": "", "x": ""}, {"t": "Tanlang", "q": "Look! The baby ( sleeps / is sleeping ).", "a": "is sleeping", "p": 1, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "He played football yesterday.", "a": "Did he play football yesterday?", "p": 2, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "We ___ (visit) grandma last Sunday.", "a": "visited", "p": 1, "h": "", "x": ""}, {"t": "Or bilan so‘rang", "q": "Is it a cat? (a dog)", "a": "Is it a cat or a dog?", "p": 2, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "She can swim, ___?", "a": "can’t she?", "p": 2, "h": "", "x": ""}, {"t": "What?", "q": "He is reading a book.", "a": "What is he reading?", "p": 2, "h": "a book", "x": ""}, {"t": "Qisqa javob", "q": "Can you cook? — Yes, ___", "a": "Yes, I can.", "p": 1, "h": "", "x": ""}, {"t": "Zamonni ayting", "q": "They played chess yesterday.", "a": "Past Simple", "p": 1, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "You can drive.", "a": "Can you drive?", "p": 1, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "Look! It ___ (rain).", "a": "is raining", "p": 2, "h": "", "x": ""}, {"t": "So / Neither", "q": "She is tired. — ___ am I.", "a": "So", "p": 1, "h": "", "x": ""}, {"t": "Tanlang", "q": "She ( don’t / doesn’t ) like milk.", "a": "doesn’t", "p": 1, "h": "", "x": ""}, {"t": "When?", "q": "They came yesterday.", "a": "When did they come?", "p": 2, "h": "yesterday", "x": ""}, {"t": "Savol tuzing", "q": "It will rain tomorrow.", "a": "Will it rain tomorrow?", "p": 2, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "They aren’t at school, ___?", "a": "are they?", "p": 2, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "Tomorrow I ___ (help) you.", "a": "will help", "p": 1, "h": "", "x": ""}, {"t": "Qisqa javob", "q": "Did you see the film? — No, ___", "a": "No, I didn’t.", "p": 2, "h": "", "x": ""}, {"t": "Or bilan so‘rang", "q": "Does he play football? (tennis)", "a": "Does he play football or tennis?", "p": 2, "h": "", "x": ""}, {"t": "Zamonni ayting", "q": "I have finished my homework.", "a": "Present Perfect", "p": 2, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "She has a bike.", "a": "Does she have a bike?", "p": 2, "h": "", "x": ""}, {"t": "Xatoni toping", "q": "Do she like music?", "a": "Does she like music?", "p": 2, "h": "", "x": "Do"}, {"t": "How many?", "q": "I have two brothers.", "a": "How many brothers do you have?", "p": 3, "h": "two", "x": ""}, {"t": "Tanlang", "q": "( Did / Do ) you go to the park yesterday?", "a": "Did", "p": 1, "h": "", "x": ""}, {"t": "So / Neither", "q": "I don’t like coffee. — ___ do I.", "a": "Neither", "p": 2, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "He went home, ___?", "a": "didn’t he?", "p": 3, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "She ___ (not / eat) meat.", "a": "doesn’t eat", "p": 2, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "We were at the park.", "a": "Were we at the park?", "p": 1, "h": "", "x": ""}, {"t": "Who?", "q": "Tom broke the window.", "a": "Who broke the window?", "p": 3, "h": "Tom", "x": ""}, {"t": "Qisqa javob", "q": "Are they your friends? — Yes, ___", "a": "Yes, they are.", "p": 1, "h": "", "x": ""}, {"t": "Xatoni toping", "q": "I am go to school every day.", "a": "I go to school every day.", "p": 2, "h": "", "x": "am go"}, {"t": "Zamonni ayting", "q": "She was cooking at 7 o’clock.", "a": "Past Continuous", "p": 2, "h": "", "x": ""}, {"t": "Or bilan so‘rang", "q": "Will you go by bus? (by taxi)", "a": "Will you go by bus or by taxi?", "p": 2, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "At 8 yesterday I ___ (sleep).", "a": "was sleeping", "p": 3, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "I am right, ___?", "a": "aren’t I?", "p": 3, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "He is playing now.", "a": "Is he playing now?", "p": 1, "h": "", "x": ""}, {"t": "What time?", "q": "School starts at 8.", "a": "What time does school start?", "p": 3, "h": "at 8", "x": ""}, {"t": "So / Neither", "q": "I went to the zoo. — ___ did I.", "a": "So", "p": 2, "h": "", "x": ""}, {"t": "Tanlang", "q": "She ( has / have ) seen this film.", "a": "has", "p": 1, "h": "", "x": ""}, {"t": "Xatoni toping", "q": "He don’t play chess.", "a": "He doesn’t play chess.", "p": 2, "h": "", "x": "don’t"}, {"t": "Fe’lni yozing", "q": "I ___ (see) this film already.", "a": "have seen", "p": 3, "h": "", "x": ""}, {"t": "Qisqa javob", "q": "Will you come? — Yes, ___", "a": "Yes, I will.", "p": 1, "h": "", "x": ""}, {"t": "Why?", "q": "She is sad because she is ill.", "a": "Why is she sad?", "p": 3, "h": "because she is ill", "x": ""}, {"t": "Zamonni ayting", "q": "I have been waiting for an hour.", "a": "Present Perfect Continuous", "p": 3, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "He is hungry.", "a": "Is he hungry?", "p": 1, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "My mother ___ (cook) dinner every day.", "a": "cooks", "p": 1, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "You are tired, ___?", "a": "aren’t you?", "p": 2, "h": "", "x": ""}, {"t": "Qisqa javob", "q": "Does she like music? — Yes, ___", "a": "Yes, she does.", "p": 1, "h": "", "x": ""}, {"t": "Zamonni ayting", "q": "We visited Bukhara last summer.", "a": "Past Simple", "p": 1, "h": "", "x": ""}, {"t": "So / Neither", "q": "I am hungry. — ___ am I.", "a": "So", "p": 1, "h": "", "x": ""}, {"t": "Where?", "q": "They are in the park.", "a": "Where are they?", "p": 2, "h": "in the park", "x": ""}, {"t": "Or bilan so‘rang", "q": "Is your bag black? (brown)", "a": "Is your bag black or brown?", "p": 2, "h": "", "x": ""}, {"t": "Tanlang", "q": "They ( is / are ) my friends.", "a": "are", "p": 1, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "They went to the cinema.", "a": "Did they go to the cinema?", "p": 2, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "Now we ___ (have) lunch.", "a": "are having", "p": 2, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "He doesn’t eat meat, ___?", "a": "does he?", "p": 2, "h": "", "x": ""}, {"t": "What?", "q": "She likes pizza.", "a": "What does she like?", "p": 2, "h": "pizza", "x": ""}, {"t": "Xatoni toping", "q": "She can sings well.", "a": "She can sing well.", "p": 2, "h": "", "x": ""}, {"t": "Qisqa javob", "q": "Was it cold yesterday? — Yes, ___", "a": "Yes, it was.", "p": 1, "h": "", "x": ""}, {"t": "Zamonni ayting", "q": "He will call you tomorrow.", "a": "Future Simple", "p": 1, "h": "", "x": ""}, {"t": "So / Neither", "q": "She didn’t go. — ___ did I.", "a": "Neither", "p": 2, "h": "", "x": ""}, {"t": "Savol tuzing", "q": "You will help me.", "a": "Will you help me?", "p": 1, "h": "", "x": ""}, {"t": "When?", "q": "She was born in 2010.", "a": "When was she born?", "p": 2, "h": "in 2010", "x": ""}, {"t": "Tanlang", "q": "I ( am / is ) a student.", "a": "am", "p": 1, "h": "", "x": ""}, {"t": "Or bilan so‘rang", "q": "Did you go by bus? (by car)", "a": "Did you go by bus or by car?", "p": 2, "h": "", "x": ""}, {"t": "Fe’lni yozing", "q": "He ___ (not / go) to school yesterday.", "a": "didn’t go", "p": 2, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "We can play here, ___?", "a": "can’t we?", "p": 2, "h": "", "x": ""}, {"t": "Who?", "q": "My father drives a car.", "a": "Who drives a car?", "p": 3, "h": "My father", "x": ""}, {"t": "Xatoni toping", "q": "Did you went home?", "a": "Did you go home?", "p": 2, "h": "", "x": ""}, {"t": "Zamonni ayting", "q": "They have bought a new car.", "a": "Present Perfect", "p": 2, "h": "", "x": ""}, {"t": "How old?", "q": "My sister is ten.", "a": "How old is your sister?", "p": 3, "h": "ten", "x": ""}, {"t": "Fe’lni yozing", "q": "I ___ (never / see) a lion.", "a": "have never seen", "p": 3, "h": "", "x": ""}, {"t": "So / Neither", "q": "I have finished. — ___ have I.", "a": "So", "p": 2, "h": "", "x": ""}, {"t": "Tag qo‘shing", "q": "She was at home, ___?", "a": "wasn’t she?", "p": 3, "h": "", "x": ""}];
+const BUILTIN = BANK.flatMap(s=>s.qs);
 const VERBS = [["go","went"],["see","saw"],["eat","ate"],["drink","drank"],["write","wrote"],["take","took"],["come","came"],["buy","bought"],["make","made"],["run","ran"],["swim","swam"],["sing","sang"],["sleep","slept"],["read","read"],["give","gave"],["find","found"],["speak","spoke"],["drive","drove"],["fly","flew"],["have","had"],["do","did"],["get","got"],["know","knew"],["think","thought"],["sit","sat"],["begin","began"],["break","broke"],["teach","taught"],["catch","caught"],["tell","told"]];
 const EMOJIS = ["🦁","🐯","🐵","🦊","🐼","🐨","🐸","🦉","🦄","🐲","🐙","🦋","🐢","🦜","🐬","🦓","🦒","🐘","🦩","🐝","🦔","🐧","🦀","🐳","🦖","🐊","🦥","🐿️","🦚","🐞"];
 const SPEC = {
-  3:{k:'ladder',to:10}, 4:{k:'plus',n:2}, 6:{k:'quick'}, 8:{k:'card'}, 9:{k:'ask'}, 11:{k:'minus',n:1}, 12:{k:'duel'},
-  14:{k:'ladder',to:23}, 15:{k:'swap'}, 18:{k:'ice'}, 21:{k:'slide',to:16}, 24:{k:'duel'}, 26:{k:'ask'}, 27:{k:'quick'}, 29:{k:'slide',to:20}
+  2:{k:'gift'}, 3:{k:'ladder',to:10}, 4:{k:'plus',n:2}, 5:{k:'wheel'}, 6:{k:'quick'}, 7:{k:'trap'}, 8:{k:'card'}, 9:{k:'ask'},
+  11:{k:'minus',n:1}, 12:{k:'duel'}, 13:{k:'monkey'}, 14:{k:'ladder',to:23}, 15:{k:'swap'}, 16:{k:'double'}, 17:{k:'storm'}, 18:{k:'ice'},
+  19:{k:'arrow'}, 21:{k:'slide',to:16}, 22:{k:'eagle',n:3}, 24:{k:'duel'}, 25:{k:'wheel'}, 26:{k:'hourglass'}, 27:{k:'quick'}, 28:{k:'minus',n:2}, 29:{k:'slide',to:20}
 };
-const ICON = {ladder:'🌿',plus:'🍃',minus:'🌵',quick:'⚡',card:'🃏',ask:'❓',duel:'⚔️',swap:'🔄',ice:'❄️',slide:'🐍'};
-const LABEL = {ladder:'TEZ YO‘L',plus:'+',minus:'−',quick:'TEZKOR',card:'YANA KARTA',ask:'SAVOL BER',duel:'DUEL',swap:'ALMASHTIR',ice:'MUZ',slide:'SIRPANCHIQ'};
+const ICON = {ladder:'🌿',plus:'🍃',minus:'🌵',quick:'⚡',card:'🃏',ask:'❓',duel:'⚔️',swap:'🔄',ice:'❄️',slide:'🐍',
+  gift:'🎁',wheel:'🎡',trap:'🕳️',monkey:'🐒',storm:'🌪️',arrow:'🏹',double:'🔮',eagle:'🦅',hourglass:'⏳'};
+const LABEL = {ladder:'TEZ YO‘L',plus:'+',minus:'−',quick:'TEZKOR',card:'YANA KARTA',ask:'SAVOL BER',duel:'DUEL',swap:'ALMASHTIR',ice:'MUZ',slide:'SIRPANCHIQ',
+  gift:'SOVG‘A',wheel:'G‘ILDIRAK',trap:'BOTQOQ',monkey:'MAYMUN',storm:'BO‘RON',arrow:'NISHON',double:'KO‘ZGU',eagle:'BURGUT',hourglass:'QUM SOATI'};
+const LEGEND = [['plus','<b>+1/+2</b> oldinga'],['minus','<b>−1/−2</b> ortga'],['ladder','<b>Tez yo‘l</b> narvon'],['slide','<b>Sirpanchiq</b> ilon'],
+  ['card','<b>Yana karta</b>'],['quick','<b>Tezkor</b> V2 fe’llar'],['duel','<b>Duel</b> bellashuv'],['swap','<b>Almashtir</b> joy'],['ask','<b>Savol ber</b>'],
+  ['ice','<b>Muz</b> muzlash'],['gift','<b>Sovg‘a</b> do‘stga +1'],['wheel','<b>G‘ildirak</b> taqdir'],['trap','<b>Botqoq</b> yoki −3'],['monkey','<b>Maymun</b> o‘g‘irlaydi'],
+  ['storm','<b>Bo‘ron</b> hammaga −1'],['arrow','<b>Nishon</b> raqibga −2'],['double','<b>Ko‘zgu</b> 2 karta'],['eagle','<b>Burgut</b> +3 uchish'],['hourglass','<b>Qum soati</b> 30 s']];
 const VERSES = {
-  plus:["Shamol esdi orqangdan, qanot bitdi yelkangdan — {n} qadam olg‘a, botir!","Jungli seni olqishlar, yo‘l o‘zi oldinga boshlar — {n} qadam oldinga!"],
-  minus:["Tikanli butalar yo‘lingni to‘sdi, chakalakzor oyog‘ingni bosdi — {n} qadam ortga!","Botqoq seni ushladi, yo‘l orqaga burildi — {n} qadam ortga qayt!"],
-  ladder:["Daraxtdan liana tushdi osmondan, ushla uni qo‘rqmasdan — yuqoriga chiq, {to}-katakka!","Qadimiy narvon uyg‘ondi, botirlar uchun yo‘l ochildi — {to}-katakka ko‘taril!"],
-  slide:["Yer tagidan ilon chiqdi, yo‘lingga zahar sochdi… Pastga sudrar seni u — {to}-katakka!","Sirpanchiq tosh, sovuq ilon — pastga tortar beomon… {to}-katakka tushasan!"],
-  card:["Sehrli sandiq ochildi, ichidan yana bir sir sochildi — yana bitta karta ol!","Jungli hali tinchimadi, yana bir savol kutmoqda seni — karta ol!"],
-  quick:["Daryo toshdi, vaqt oz qoldi, tez bo‘l — yo‘l shu on ochildi! O‘n soniya ichida uch fe’lni o‘tgan zamonga aylantir!","Chaqmoq chaqdi osmonda, chaqqon bo‘l bu zamonda — 10 soniya, 3 fe’l!"],
-  duel:["Ikki sher bir cho‘qqida, kim kuchli — bilinar shu daqiqada! Raqibingni tanla!","Jungli nog‘orasi chalindi, bellashuv vaqti keldi — raqibingni chaqir!"],
-  swap:["Sehrgar tayog‘ini silkitdi, yo‘llar o‘rnini almashtirdi… To‘g‘ri javob bersang — istagan joyingga ko‘chasan!","Ko‘zgu ichra yo‘l ochildi, ikki yo‘lchi o‘rin almashdi — avval savolni yech!"],
-  ask:["Endi sehrgar sen bo‘lding, savolni o‘zing tuzding — kim javob bersa, sovg‘ani teng bo‘lishing!","Jungli tilini sen bilasan — o‘zing savol ber, do‘stingni sina!"],
-  ice:["Shimol shamoli esdi qattiq, oyog‘ing muzga botdi mahkam… Keyingi navbatda to‘g‘ri javob bersang — muz eriydi, undan keyingi navbatda yurasan.","Muz qal’asi seni yutdi, sovuq shamol qotirdi… To‘g‘ri javob — muzni eritadigan olov! Erigach, keyingi navbatda yo‘lga chiqasan."],
-  melt:["Bilim olovi yondi, muz qal’asi qulab tushdi — sen yana erkinsan!"],
-  frozen:["Muz hali erimadi… Sabr qil, keyingi navbatda yana urinib ko‘r."],
-  win:["Jungli seni tan oldi! Barcha sinovlardan o‘tding — sen g‘olibsan!"]
+  plus:["Shamol esdi orqangdan, qanot bitdi yelkangdan — {n} qadam olg‘a, botir!","Jungli seni olqishlar, yo‘l o‘zi oldinga boshlar — {n} qadam oldinga!","Daryo oqimi seni ko‘tardi, qayiqchang yelday uchdi — {n} qadam ilgari!"],
+  minus:["Tikanli butalar yo‘lingni to‘sdi, chakalakzor oyog‘ingni bosdi — {n} qadam ortga!","Botqoq seni ushladi, yo‘l orqaga burildi — {n} qadam ortga qayt!","Qoyadan tosh qulab tushdi, so‘qmoq birdan yopildi — {n} qadam chekin!"],
+  ladder:["Daraxtdan liana tushdi osmondan, ushla uni qo‘rqmasdan — yuqoriga chiq, {to}-katakka!","Qadimiy narvon uyg‘ondi, botirlar uchun yo‘l ochildi — {to}-katakka ko‘taril!","Ildizlar zinapoya bo‘ldi, yashil yo‘lak porladi — {to}-katakka chiq!"],
+  slide:["Yer tagidan ilon chiqdi, yo‘lingga zahar sochdi… Pastga sudrar seni u — {to}-katakka!","Sirpanchiq tosh, sovuq ilon — pastga tortar beomon… {to}-katakka tushasan!","Anakonda dumini silkitdi, yer silkinib ketdi… {to}-katakka sirpanasan!"],
+  card:["Sehrli sandiq ochildi, ichidan yana bir sir sochildi — yana bitta karta ol!","Jungli hali tinchimadi, yana bir savol kutmoqda seni — karta ol!","Oltin barg qo‘lingga tushdi, ustida yangi topishmoq — karta ol!"],
+  quick:["Daryo toshdi, vaqt oz qoldi, tez bo‘l — yo‘l shu on ochildi! O‘n soniya ichida uch fe’lni o‘tgan zamonga aylantir!","Chaqmoq chaqdi osmonda, chaqqon bo‘l bu zamonda — 10 soniya, 3 fe’l!","Gepard yonimdan o‘tdi, shamoldek g‘oyib bo‘ldi — sen ham tez bo‘l: 10 soniya, 3 fe’l!"],
+  duel:["Ikki sher bir cho‘qqida, kim kuchli — bilinar shu daqiqada! Raqibingni tanla!","Jungli nog‘orasi chalindi, bellashuv vaqti keldi — raqibingni chaqir!","Ikki burgut bir osmonda, joy bitta — kim tezroq? Raqibingni tanla!"],
+  swap:["Sehrgar tayog‘ini silkitdi, yo‘llar o‘rnini almashtirdi… To‘g‘ri javob bersang — istagan joyingga ko‘chasan!","Ko‘zgu ichra yo‘l ochildi, ikki yo‘lchi o‘rin almashdi — avval savolni yech!","Tuman quyuqlashdi, yo‘llar aralashdi — to‘g‘ri javob bersang, xohlagan o‘rinni olasan!"],
+  ask:["Endi sehrgar sen bo‘lding, savolni o‘zing tuzding — kim javob bersa, sovg‘ani teng bo‘lishing!","Jungli tilini sen bilasan — o‘zing savol ber, do‘stingni sina!","To‘tiqush gapirib qoldi: «Savolni sen ber!» — do‘stingni tanla!"],
+  ice:["Shimol shamoli esdi qattiq, oyog‘ing muzga botdi mahkam… Keyingi navbatda to‘g‘ri javob bersang — muz eriydi, undan keyingi navbatda yurasan.","Muz qal’asi seni yutdi, sovuq shamol qotirdi… To‘g‘ri javob — muzni eritadigan olov! Erigach, keyingi navbatda yo‘lga chiqasan.","Qor bo‘roni yo‘lingni to‘sdi, tizzangacha muz qotdi… Keyingi navbatda to‘g‘ri javob — erish, undan keyin — yo‘l."],
+  melt:["Bilim olovi yondi, muz qal’asi qulab tushdi — sen yana erkinsan!","Quyosh chiqdi, muz tomchiladi — oyoqlaring yana erkin!","Aqling o‘choqdek qizidi, muz bug‘ bo‘lib uchdi — ozodsan!"],
+  frozen:["Muz hali erimadi… Sabr qil, keyingi navbatda yana urinib ko‘r.","Sovuq hali ketmadi… Keyingi navbatda yana bir urinish.","Muz qattiq ekan… Keyingi safar albatta erishiga ishon!"],
+  win:["Jungli seni tan oldi! Barcha sinovlardan o‘tding — sen g‘olibsan!","Sherlar ta’zim qildi, burgutlar qanot qoqdi — sen g‘olibsan!"],
+  gift:["Qadimiy daraxt ostida sovg‘a qutisi topding! To‘g‘ri javob bersang — o‘zingga +1, bir do‘stingga ham +1!","Jungli saxiy bo‘ldi bugun — savolni yech, o‘zing ham, do‘sting ham bir qadam oldinga!","Kapalaklar lenta bog‘ladi, ichida sir bor — to‘g‘ri javob: senga +1, do‘stingga +1!"],
+  wheel:["Taqdir g‘ildiragi aylandi, jungli nafasini ichiga yutdi… Qayerda to‘xtarkin?","Qadimiy tosh g‘ildirak uyg‘ondi — omad senga kulib boqarmikan?","G‘ildirak aylanar, taqdiring yozilar — aylantir-chi!"],
+  trap:["Oyog‘ing botqoqqa botdi, loy seni pastga tortmoqda… To‘g‘ri javob bersang — qutulasan, xato bo‘lsa — 3 qadam ortga!","Qumloq botqoq yutmoqchi seni! Faqat bilim qutqaradi — xato bo‘lsa, 3 qadam ortga!","Pufakchalar ko‘tarildi, yer yumshab ketdi… Savolga javob ber — aks holda 3 qadam ortga!"],
+  monkey:["Shoxdan shoxga sakrab o‘g‘ri maymun keldi — oldindagidan bir qadam o‘g‘irlab, senga berdi!","Maymun bananni tortib oldi-yu qochdi — eng oldindagi −1, sen +1!","Hiylagar maymun hazil qildi — yetakchining bir qadamini senga uzatdi!"],
+  storm:["Osmon qorong‘i tortdi, bo‘ron qo‘zg‘aldi — hamma 1 qadam ortga uchdi, faqat sen joyingda qolding!","Girdob kelib daraxtlarni egdi — sendan boshqa hamma 1 qadam ortga!","Momaqaldiroq gumburladi, shamol hammani surdi — sen esa tik turibsan!"],
+  arrow:["Kamoningni tortding, nishonni ko‘zlading… To‘g‘ri javob bersang — tanlagan raqibing 2 qadam ortga!","O‘q kamondan uzildi — avval savolni yech, keyin kimni nishonga olishingni tanla!","Ovchi ko‘zi o‘tkir bo‘ladi — to‘g‘ri javob: raqibingga −2!"],
+  double:["Sehrli ko‘zgu ikki savolni aks ettirdi — har bir to‘g‘ri javob uchun +1 qadam!","Ko‘zgu ichida ikki yo‘l ko‘rinmoqda — ikkalasini ham bos: har biri +1!","Oy nuri ko‘zguga tushdi, ikki karta yondi — har to‘g‘ri javobga +1!"],
+  eagle:["Osmondan burgut tushdi, seni qanotiga oldi — 3 qadam oldinga uchasan!","Burgut sening jasoratingni ko‘rdi — uch katak oshib uchirdi!","Bulutlar ustida parvoz — burgut seni 3 qadam oldinga eltdi!"],
+  hourglass:["Qum soati ag‘darildi, qum tez oqmoqda — 30 soniyada uchta savol! Har to‘g‘ri javob — bir qadam.","Vaqt qum bo‘lib to‘kilmoqda — 30 soniya, 3 savol, har biri +1!","Sehrgar soatini ag‘dardi: tez o‘yla, tez ayt — 3 savol, 30 soniya!"]
 };
-const KIND_TITLE = {plus:'OLG‘A!',minus:'ORTGA!',ladder:'TEZ YO‘L',slide:'SIRPANCHIQ',card:'YANA KARTA',quick:'TEZKOR',duel:'DUEL',swap:'ALMASHTIR',ask:'SAVOL BER',ice:'MUZ',melt:'MUZ ERIDI',frozen:'MUZLAGAN',win:'G‘OLIB!'};
+const KIND_TITLE = {plus:'OLG‘A!',minus:'ORTGA!',ladder:'TEZ YO‘L',slide:'SIRPANCHIQ',card:'YANA KARTA',quick:'TEZKOR',duel:'DUEL',swap:'ALMASHTIR',ask:'SAVOL BER',ice:'MUZ',melt:'MUZ ERIDI',frozen:'MUZLAGAN',win:'G‘OLIB!',
+  gift:'SOVG‘A',wheel:'TAQDIR G‘ILDIRAGI',trap:'BOTQOQ',monkey:'O‘G‘RI MAYMUN',storm:'BO‘RON',arrow:'NISHON',double:'SEHRLI KO‘ZGU',eagle:'BURGUT',hourglass:'QUM SOATI'};
 
 /* ---------------- geometry ---------------- */
 const NODES = {};
@@ -38,8 +55,20 @@ const KEY='qrace-v1';
 function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
 function load(){ try{ const v=JSON.parse(localStorage.getItem(KEY)); if(v && v.players && v.players.length) return v; }catch(e){} return null; }
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
-function newDeck(){ return shuffle(pool()); }
-function draw(){ if(!Array.isArray(S.deck) || !S.deck.length || typeof S.deck[0]!=='object') S.deck=newDeck(); return S.deck.pop(); }
+function newDeck(){ return []; } // (eski versiya bilan moslik) — savollar endi takrorlanmas tartibda tortiladi
+const qkey=q=>(String(q.q)+'|'+String(q.a)).toLowerCase().replace(/\s+/g,' ').trim();
+let USED=null, LASTSEC='';
+function usedSet(){ if(!USED){ try{ USED=new Set(JSON.parse(localStorage.getItem('qrace-used')||'[]')); }catch(e){ USED=new Set(); } } return USED; }
+function saveUsed(){ try{ localStorage.setItem('qrace-used', JSON.stringify([...usedSet()].slice(-3000))); }catch(e){} }
+function usedCount(){ const U=usedSet(); return pool().filter(q=>U.has(qkey(q))).length; }
+function resetUsed(){ const U=usedSet(); for(const q of pool()) U.delete(qkey(q)); saveUsed(); }
+function draw(){ // tanlangan mavzulardagi BARCHA savollar chiqmaguncha bittasi ham takrorlanmaydi; mavzular aralash beriladi
+  const P=pool(), U=usedSet(); let av=P.filter(q=>!U.has(qkey(q)));
+  if(!av.length){ resetUsed(); av=P; toast('♻ Tanlangan mavzulardagi barcha savollar ishlatildi — endi qaytadan aralashtirildi'); if(S&&S.log) log('♻ Barcha savollar tugadi — dasta qayta aralashtirildi'); }
+  let c=av.filter(q=>q.sec!==LASTSEC); if(!c.length) c=av;
+  const q=c[Math.floor(Math.random()*c.length)]; U.add(qkey(q)); LASTSEC=q.sec||''; saveUsed(); return q;
+}
+function toast(msg){ const t=document.createElement('div'); t.className='toast'; t.textContent=msg; document.body.appendChild(t); t.animate([{opacity:0,transform:'translate(-50%,20px)'},{opacity:1,transform:'translate(-50%,0)',offset:.1},{opacity:1,offset:.85},{opacity:0}],{duration:4200}).onfinish=()=>t.remove(); }
 const cur = () => S.players[S.turn];
 const sleep = ms => new Promise(r=>setTimeout(r,ms));
 const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -193,7 +222,7 @@ function openModal(html, onMount){
 }
 function verseHTML(text){ return text.split(' ').map((w,i)=>`<span style="animation-delay:${(i*0.07).toFixed(2)}s">${esc(w)}</span>`).join(' '); }
 function omen(kind, vars={}, rule='', buttons=[{v:'ok',label:'Davom etish →',cls:'gold big'}], extra=''){
-  const list=VERSES[kind]; let t=list[Math.floor(Math.random()*list.length)];
+  let t=verseFor(kind); setTimeout(()=>fx(kind),60);
   t=t.replace('{n}',vars.n??'').replace('{to}',vars.to??'');
   const glyph = kind==='melt'?'🔥':kind==='frozen'?'🧊':kind==='win'?'🏆':ICON[kind];
   return openModal(`<div class="omen"><div class="glyph">${glyph}</div><div class="kind">${KIND_TITLE[kind]}</div>
@@ -206,7 +235,7 @@ function cardFront(q){
   if(q.h) txt=txt.replace(esc(q.h), `<mark>${esc(q.h)}</mark>`);
   const pp=Math.min(3,Math.max(1,+q.p||1)); const stars='★'.repeat(pp)+`<span class="off">${'★'.repeat(3-pp)}</span>`;
   const hint = q.h?`Tagiga chizilgan so‘zga savol bering`: q.x?`Tagiga chizilgan xatoni to‘g‘rilang`:'';
-  return `<div class="hd"><span class="chip">${esc(q.t)}</span><span class="stars" aria-label="${q.p} ball">${stars}</span></div>
+  return `<div class="hd"><span class="chip">${esc(q.t)}</span>${q.sec?`<span class="secl">${esc(q.sec)}</span>`:''}<span class="stars" aria-label="${q.p} ball">${stars}</span></div>
     <div class="q">${txt}</div>${hint?`<div class="hint">${hint}</div>`:''}
     <div class="ans hide" id="ans">Javob: ${esc(q.a)}</div>`;
 }
@@ -262,16 +291,120 @@ async function checkWin(pi){
   return true;
 }
 
-/* ---------------- special squares ---------------- */
-async function settle(pi){ const p=S.players[pi]; if(!p||p.done) return; if(await checkWin(pi)) return; await resolve(pi,1); await checkWin(pi); } // duel, savol ber, almashtirishdan keyin ham narvon/ilon ishlaydi
-async function resolve(pi, depth=0){
-  const p=S.players[pi]; const s=SPEC[p.pos]; if(!s || p.done) return;
-  if(depth>0 && !['ladder','slide'].includes(s.k)) return;
+/* ---------------- effects: har bir shartga o'z effekti ---------------- */
+const FXK = {
+  plus:{m:'wind',e:['🍃','🍂','🌿','🍃'],n:26,d:1500,tint:'124,196,106'},
+  minus:{m:'rain',e:['🌵','✴️','🥀'],n:22,d:1300,tint:'212,87,46',shake:1},
+  ladder:{m:'rise',e:['🌿','🍃','✨','🌱'],n:30,d:1700,tint:'124,196,106',glow:1},
+  slide:{m:'sink',e:['🐍','🌀','💚'],n:20,d:1600,tint:'40,70,20',wobble:1},
+  card:{m:'burst',e:['✨','⭐','🃏','💛'],n:30,d:1300,tint:'246,217,139'},
+  quick:{m:'zig',e:['⚡'],n:9,d:1100,tint:'143,216,238',flash:3},
+  duel:{m:'cross',e:['⚔️','🗡️','💥'],n:10,d:1200,tint:'230,120,40',flash:1,shake:1},
+  swap:{m:'orbit',e:['🔄','🌀','💫'],n:16,d:1700,tint:'150,90,220'},
+  ask:{m:'float',e:['❓','❔','💬'],n:20,d:1800,tint:'80,200,190'},
+  ice:{m:'snow',e:['❄️','❅','❆'],n:34,d:2200,tint:'190,230,255',frost:1},
+  melt:{m:'rise',e:['🔥','✨','💧'],n:24,d:1500,tint:'255,140,40'},
+  gift:{m:'burst',e:['🎁','🎉','🎈','🎀'],n:26,d:1500,tint:'255,120,170'},
+  wheel:{m:'orbit',e:['🎡','🍀','🎲','⭐'],n:14,d:1900,tint:'255,210,80',hue:1},
+  trap:{m:'bubble',e:['🫧','🟤','💧'],n:24,d:1900,tint:'110,75,30'},
+  monkey:{m:'sweep',e:['🐒'],n:1,d:1500,big:1,trail:['🍌','🍌','🍌'],tint:'240,200,60'},
+  storm:{m:'gust',e:['🌪️','💨','🍂','🌫️'],n:30,d:1400,tint:'120,130,140',shake:2},
+  arrow:{m:'volley',e:['🏹','➶'],n:7,d:1100,tint:'200,60,40'},
+  double:{m:'orbit',e:['🔮','✨','🌙'],n:18,d:1800,tint:'120,70,200'},
+  eagle:{m:'sweep',e:['🦅'],n:1,d:1600,big:1,trail:['🪶','🪶','🪶'],tint:'180,220,255'},
+  hourglass:{m:'sand',e:['⏳','·','•'],n:40,d:2000,tint:'200,160,80'},
+  win:{m:'burst',e:['🏆','👑','⭐','🎊'],n:30,d:1800,tint:'246,217,139'}
+};
+function fxLayer(){ let L=document.getElementById('fx'); if(!L){ L=document.createElement('div'); L.id='fx'; document.body.appendChild(L); } return L; }
+function fx(kind){
+  try{
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const c=FXK[kind]; if(!c) return; const L=fxLayer(); const W=innerWidth, H=innerHeight, cx=W/2, cy=H/2, R=Math.min(W,H);
+    const rnd=(a,b)=>a+Math.random()*(b-a), pick=a=>a[Math.floor(Math.random()*a.length)];
+    const tint=document.createElement('div'); tint.className='fxtint'; L.appendChild(tint);
+    tint.style.background=c.frost?`radial-gradient(circle at 50% 50%, rgba(${c.tint},0) 35%, rgba(${c.tint},.55) 100%)`:`radial-gradient(circle at 50% 50%, rgba(${c.tint},0) 25%, rgba(${c.tint},.35) 100%)`;
+    tint.animate([{opacity:0},{opacity:1,offset:.25},{opacity:0}],{duration:c.d*1.25,easing:'ease-out'}).onfinish=()=>tint.remove();
+    if(c.flash){ const f=document.createElement('div'); f.className='fxflash'; L.appendChild(f); const kf=[]; for(let i=0;i<c.flash;i++){ kf.push({opacity:0},{opacity:.85},{opacity:0}); } f.animate(kf,{duration:260*c.flash}).onfinish=()=>f.remove(); }
+    const wrap=document.querySelector('.wrap');
+    if(c.shake&&wrap){ const a=c.shake*7; wrap.animate([0,1,2,3,4,5,6,7].map(i=>({transform:`translate(${i%2?a:-a}px,${i%3?-a/2:a/2}px)`})).concat([{transform:'none'}]),{duration:520}); }
+    if(c.wobble){ const b=document.querySelector('.boardbox'); b&&b.animate([{transform:'none'},{transform:'rotate(-2.5deg) scale(.98)'},{transform:'rotate(2deg)'},{transform:'rotate(-1deg)'},{transform:'none'}],{duration:900}); }
+    if(c.glow){ const b=document.querySelector('.boardbox'); b&&b.animate([{boxShadow:'0 0 0 0 rgba(124,196,106,0)'},{boxShadow:'0 0 60px 18px rgba(124,196,106,.8)'},{boxShadow:'0 0 0 0 rgba(124,196,106,0)'}],{duration:1400}); }
+    if(c.hue){ document.body.animate([{filter:'hue-rotate(0)'},{filter:'hue-rotate(160deg)'},{filter:'hue-rotate(0)'}],{duration:1500}); }
+    const items=c.big?[...c.e,...(c.trail||[])]:Array.from({length:c.n},()=>pick(c.e));
+    items.forEach((em,i)=>{
+      const s=document.createElement('span'); s.className='fxp'; s.textContent=em; L.appendChild(s);
+      const big=c.big&&i===0, fs=big?Math.round(R*.22):Math.round(rnd(R*.035,R*.075)); s.style.fontSize=fs+'px';
+      let kf, dur=c.d*rnd(.75,1.15), delay=rnd(0,c.d*.35);
+      switch(c.m){
+        case 'wind': { const y=rnd(0,H), dy=rnd(-80,80); kf=[{transform:`translate(-80px,${y}px) rotate(0)`},{transform:`translate(${cx}px,${y+dy}px) rotate(200deg)`},{transform:`translate(${W+80}px,${y-dy}px) rotate(400deg)`}]; break; }
+        case 'gust': { const y=rnd(0,H), rev=i%2; kf=[{transform:`translate(${rev?W+80:-80}px,${y}px) scale(.6)`},{transform:`translate(${rev?-80:W+80}px,${y+rnd(-120,120)}px) scale(1.3) rotate(${rev?-540:540}deg)`}]; dur*=.7; break; }
+        case 'rain': { const x=rnd(0,W); kf=[{transform:`translate(${x}px,-80px) rotate(0)`},{transform:`translate(${x+rnd(-40,40)}px,${H+80}px) rotate(${rnd(-180,180)}deg)`}]; break; }
+        case 'snow': { const x=rnd(0,W); kf=[{transform:`translate(${x}px,-60px)`,opacity:0},{transform:`translate(${x+40}px,${H*.35}px)`,opacity:1,offset:.3},{transform:`translate(${x-40}px,${H*.7}px)`,opacity:1,offset:.7},{transform:`translate(${x}px,${H+60}px)`,opacity:0}]; dur*=1.3; break; }
+        case 'sand': { const x=cx+rnd(-R*.25,R*.25); kf=[{transform:`translate(${x}px,${cy-R*.4}px) scale(.6)`,opacity:0},{transform:`translate(${cx+rnd(-20,20)}px,${cy}px) scale(.8)`,opacity:1,offset:.5},{transform:`translate(${x}px,${cy+R*.45}px) scale(1)`,opacity:0}]; s.style.color='#e6b54a'; break; }
+        case 'rise': { const x=rnd(0,W); kf=[{transform:`translate(${x}px,${H+60}px) scale(.5)`,opacity:0},{transform:`translate(${x+rnd(-60,60)}px,${H*.5}px) scale(1)`,opacity:1,offset:.4},{transform:`translate(${x}px,-80px) scale(1.4)`,opacity:0}]; break; }
+        case 'float': { const x=rnd(W*.1,W*.9); kf=[{transform:`translate(${x}px,${H+40}px) rotate(-15deg)`,opacity:0},{transform:`translate(${x+30}px,${H*.6}px) rotate(15deg)`,opacity:1,offset:.35},{transform:`translate(${x-30}px,${H*.3}px) rotate(-15deg)`,opacity:1,offset:.7},{transform:`translate(${x}px,-40px) rotate(10deg)`,opacity:0}]; break; }
+        case 'bubble': { const x=cx+rnd(-R*.45,R*.45); kf=[{transform:`translate(${x}px,${H+30}px) scale(.3)`,opacity:.9},{transform:`translate(${x+rnd(-30,30)}px,${cy+rnd(-60,60)}px) scale(1.2)`,opacity:1,offset:.8},{transform:`translate(${x}px,${cy}px) scale(2)`,opacity:0}]; break; }
+        case 'burst': { const a=rnd(0,Math.PI*2), r=rnd(R*.25,R*.6); kf=[{transform:`translate(${cx}px,${cy}px) scale(.2)`,opacity:1},{transform:`translate(${cx+Math.cos(a)*r}px,${cy+Math.sin(a)*r}px) scale(1.4) rotate(${rnd(-200,200)}deg)`,opacity:0}]; delay*=.3; break; }
+        case 'sink': { const a=rnd(0,Math.PI*2), r=R*.6; kf=[0,1,2,3,4].map(k=>({transform:`translate(${cx+Math.cos(a+k*1.3)*r*(1-k/4)}px,${cy+Math.sin(a+k*1.3)*r*(1-k/4)}px) scale(${1.2-k*.25}) rotate(${k*90}deg)`,opacity:k===4?0:1})); break; }
+        case 'orbit': { const a=rnd(0,Math.PI*2), r=rnd(R*.18,R*.42); kf=Array.from({length:9},(_,k)=>({transform:`translate(${cx+Math.cos(a+k*Math.PI/4)*r}px,${cy+Math.sin(a+k*Math.PI/4)*r}px) scale(${k===0||k===8?.3:1.1})`,opacity:k===8?0:1})); break; }
+        case 'zig': { kf=Array.from({length:5},(_,k)=>({transform:`translate(${rnd(0,W)}px,${rnd(0,H*.8)}px) scale(${rnd(1,2.2)})`,opacity:k%2?1:.2})); s.style.filter='drop-shadow(0 0 12px #8fd8ee)'; dur*=.8; break; }
+        case 'cross': { const left=i%2===0, y=cy+rnd(-R*.15,R*.15); kf=[{transform:`translate(${left?-100:W+100}px,${y}px) rotate(${left?-60:60}deg) scale(1.6)`},{transform:`translate(${cx+(left?-30:30)}px,${cy}px) rotate(0) scale(2.2)`,offset:.55},{transform:`translate(${cx+rnd(-R*.4,R*.4)}px,${cy+rnd(-R*.4,R*.4)}px) scale(.5)`,opacity:0}]; break; }
+        case 'volley': { const y0=H+60+i*20, y1=-80-i*30; kf=[{transform:`translate(${-80+i*30}px,${y0}px) rotate(-40deg)`},{transform:`translate(${W+80}px,${y1+H*.3}px) rotate(-40deg)`}]; delay=i*90; dur*=.8; break; }
+        case 'sweep': { if(big){ kf=[{transform:`translate(${-fs}px,${H*.65}px) rotate(-10deg)`},{transform:`translate(${cx-fs/2}px,${H*.18}px) rotate(5deg) scale(1.15)`},{transform:`translate(${W+fs}px,${H*.5}px) rotate(-5deg)`}]; delay=0; }
+          else { const x=rnd(W*.2,W*.8); kf=[{transform:`translate(${x}px,${H*.25}px) rotate(0)`,opacity:0},{transform:`translate(${x+rnd(-80,80)}px,${H*.55}px) rotate(${rnd(-160,160)}deg)`,opacity:1,offset:.3},{transform:`translate(${x+rnd(-120,120)}px,${H+60}px) rotate(${rnd(-300,300)}deg)`,opacity:0}]; delay=rnd(c.d*.25,c.d*.6); } break; }
+      }
+      const an=s.animate(kf,{duration:dur,delay,easing:c.m==='zig'?'steps(5)':'ease-in-out',fill:'both'}); an.onfinish=()=>s.remove();
+    });
+  }catch(e){}
+}
+const lastVerse = {};
+function verseFor(kind){ const list=VERSES[kind]||['']; let i=Math.floor(Math.random()*list.length); if(list.length>1&&i===lastVerse[kind]) i=(i+1)%list.length; lastVerse[kind]=i; return list[i]; }
+Object.assign(SFX, {
+  gift:()=>{ [784,988,1175,1568].forEach((f,i)=>tone(f,.18,'triangle',.12,i*.06)); noise(.3,.06,.1,3000,8000); },
+  wheel:()=>{ for(let i=0;i<18;i++) tone(900+(i%3)*80,.03,'square',.05,i*(.05+i*.012)); },
+  trap:()=>{ for(let i=0;i<6;i++) tone(140+Math.random()*90,.18,'sine',.16,i*.13,60); },
+  monkey:()=>{ [880,1100,880,1300,990].forEach((f,i)=>tone(f,.08,'square',.06,i*.09,f*1.3)); },
+  storm:()=>{ noise(1.3,.2,0,200,1600); noise(.9,.12,.4,1800,300); tone(60,.9,'sawtooth',.08,.1,40); },
+  arrow:()=>{ noise(.25,.16,0,6000,900); tone(1200,.12,'sine',.06,.2,300); },
+  double:()=>{ [523,784,1047,1568,2093].forEach((f,i)=>tone(f,.4,'sine',.06,i*.08)); },
+  eagle:()=>{ tone(2200,.5,'sawtooth',.06,0,1400); tone(1800,.4,'sawtooth',.05,.45,1100); noise(.6,.05,0,800,3000); },
+  hourglass:()=>{ for(let i=0;i<8;i++) tone(1400,.03,'sine',.06,i*.25); noise(1.6,.03,0,4000,6000); },
+  spin:()=>{ for(let i=0;i<26;i++) tone(1000,.025,'square',.05,Math.pow(i,1.35)*.03); }
+});
+
+/* ---------------- special squares (zanjir: shartdan keyin boshqa shartga tushsa — u ham bajariladi) ---------------- */
+const MAXCHAIN = 5;
+function others(pi){ return S.players.map((p,i)=>i).filter(i=>i!==pi && !S.players[i].done); }
+async function afterSelfMove(pi, depth, seen){ if(await checkWin(pi)) return; await resolve(pi, depth+1, seen); }
+async function settle(pi){ const p=S.players[pi]; if(!p||p.done) return; if(await checkWin(pi)) return; await resolve(pi, 1, new Set(), true); await checkWin(pi); } // boshqa o'yinchilar: narvon/ilon ishlaydi
+async function moveOthers(list, n){ for(const i of list){ await moveBy(i,n); } for(const i of list) await settle(i); }
+async function wheelSpin(){
+  const SEG=[{t:'+3',m:3,c:'#5fb06d'},{t:'−1',m:-1,c:'#d4572e'},{t:'🃏',card:1,c:'#e6b54a'},{t:'+1',m:1,c:'#7cc46a'},{t:'❄',ice:1,c:'#8fd8ee'},{t:'+2',m:2,c:'#3f8f55'},{t:'−2',m:-2,c:'#b0451d'},{t:'🍀+4',m:4,c:'#f6d98b'}];
+  const k=Math.floor(Math.random()*SEG.length), n=SEG.length, step=360/n;
+  let paths=''; SEG.forEach((s,i)=>{ const a0=(i*step-90-step/2)*Math.PI/180, a1=((i+1)*step-90-step/2)*Math.PI/180; const x0=100+95*Math.cos(a0), y0=100+95*Math.sin(a0), x1=100+95*Math.cos(a1), y1=100+95*Math.sin(a1);
+    const am=(i*step-90)*Math.PI/180; paths+=`<path d="M100,100 L${x0.toFixed(1)},${y0.toFixed(1)} A95,95 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)} Z" fill="${s.c}" stroke="#2b1d0d" stroke-width="2"/><text x="${(100+62*Math.cos(am)).toFixed(1)}" y="${(100+62*Math.sin(am)+7).toFixed(1)}" text-anchor="middle" font-size="19" font-weight="900" fill="#1a1208" font-family="Nunito,sans-serif">${s.t}</text>`; });
+  const res=SEG[k];
+  await openModal(`<h2>🎡 Taqdir g‘ildiragi</h2><div class="wheelbox"><div class="wptr">▼</div><svg id="whl" viewBox="0 0 200 200" width="260" height="260">${paths}<circle cx="100" cy="100" r="16" fill="#2b1d0d" stroke="#e6b54a" stroke-width="3"/></svg></div>
+    <div class="row center"><button class="btn gold big" id="bSpin">🎡 Aylantirish</button><button class="btn green big" data-v="ok" id="bWOk" hidden>Davom etish →</button></div><p class="note" id="wRes" style="text-align:center;font-size:18px"></p>`,(ov)=>{
+      ov.querySelector('#bSpin').onclick=e=>{ e.currentTarget.disabled=true; SFX.spin(); const end=360*6-(k*step);
+        const an=ov.querySelector('#whl').animate([{transform:'rotate(0deg)'},{transform:`rotate(${end}deg)`}],{duration:3200,easing:'cubic-bezier(.15,.85,.2,1)',fill:'forwards'});
+        an.onfinish=()=>{ ov.querySelector('#wRes').innerHTML=`Natija: <b>${res.card?'🃏 Bonus karta':res.ice?'❄ Muz — muzlab qolasan':res.m>0?`+${res.m} qadam oldinga`:`${res.m} qadam ortga`}</b>`; ov.querySelector('#bWOk').hidden=false; res.m>0||res.card?SFX.correct():SFX.wrong(); };
+      };
+    });
+  return res;
+}
+async function resolve(pi, depth=0, seen=new Set(), onlyMove=false){
+  const p=S.players[pi]; if(!p||p.done) return; const s=SPEC[p.pos]; if(!s) return;
+  if(onlyMove && !['ladder','slide'].includes(s.k)) return;
+  if(depth>MAXCHAIN || seen.has(p.pos)) return; seen.add(p.pos);
+  if(depth>0) log(`🔗 Zanjir: ${who(p)} ${p.pos}-katakdagi shartga tushdi`);
   SFX.drum(); await sleep(250);
+  const self=async n=>{ await moveBy(pi,n); await afterSelfMove(pi,depth,seen); };
   switch(s.k){
-    case 'plus': await omen('plus',{n:s.n}); log(`🍃 ${who(p)} +${s.n} qadam`); SFX.plus(); await moveBy(pi,s.n); await checkWin(pi) || await resolve(pi,depth+1); break;
-    case 'minus': await omen('minus',{n:s.n}); log(`🌵 ${who(p)} −${s.n} qadam`); SFX.minus(); await moveBy(pi,-s.n); await resolve(pi,depth+1); break;
-    case 'ladder': await omen('ladder',{to:s.to}); log(`🌿 ${who(p)} narvondan ${s.to}-katakka chiqdi`); await jumpTo(pi,s.to,SFX.ladder); break;
+    case 'plus': await omen('plus',{n:s.n}); log(`🍃 ${who(p)} +${s.n} qadam`); SFX.plus(); await self(s.n); break;
+    case 'minus': await omen('minus',{n:s.n}); log(`🌵 ${who(p)} −${s.n} qadam`); SFX.minus(); await self(-s.n); break;
+    case 'eagle': SFX.eagle(); await omen('eagle',{n:s.n}); log(`🦅 ${who(p)} burgut bilan +${s.n} uchdi`); await self(s.n); break;
+    case 'ladder': await omen('ladder',{to:s.to}); log(`🌿 ${who(p)} narvondan ${s.to}-katakka chiqdi`); await jumpTo(pi,s.to,SFX.ladder); await afterSelfMove(pi,depth,seen); break;
     case 'slide': {
       const v=await omen('slide',{to:s.to},'<b>Qutqarish sinovi:</b> 2 ta karta. Ikkalasiga ham to‘g‘ri javob bersang — joyingda qolasan!',[{v:'try',label:'⚔ Qutqarish sinovi',cls:'gold big'},{v:'fall',label:'Sirpanib tushish',cls:'red'}]);
       let saved=false;
@@ -279,13 +412,13 @@ async function resolve(pi, depth=0){
         const a=await cardModal(draw(),'Qutqarish · 1-karta',judgeBtns); a==='1'?SFX.correct():SFX.wrong();
         if(a==='1'){ const b=await cardModal(draw(),'Qutqarish · 2-karta',judgeBtns); b==='1'?SFX.correct():SFX.wrong(); saved=b==='1'; }
       }
-      if(saved){ log(`🛡 ${who(p)} ilondan qutuldi!`); SFX.melt(); }
-      else { log(`🐍 ${who(p)} ${s.to}-katakka sirpanib tushdi`); await jumpTo(pi,s.to,SFX.slide); }
+      if(saved){ log(`🛡 ${who(p)} ilondan qutuldi!`); SFX.melt(); fx('melt'); }
+      else { log(`🐍 ${who(p)} ${s.to}-katakka sirpanib tushdi`); await jumpTo(pi,s.to,SFX.slide); await afterSelfMove(pi,depth,seen); }
       break; }
     case 'card': {
       await omen('card');
       const q=draw(); const v=+await cardModal(q,`Bonus karta · ${p.em} ${esc(p.name)}`, pointsBtns(+q.p||1));
-      if(v>0){ SFX.correct(); log(`🃏 ${who(p)} bonus karta: +${v}`); await moveBy(pi,v); await checkWin(pi) || await resolve(pi,depth+1); }
+      if(v>0){ SFX.correct(); log(`🃏 ${who(p)} bonus karta: +${v}`); await self(v); }
       else { SFX.wrong(); log(`🃏 ${who(p)} bonus kartada xato`); }
       break; }
     case 'quick': {
@@ -293,20 +426,21 @@ async function resolve(pi, depth=0){
       const v=await omen('quick',{},'',[{v:'ok',label:'✔ Uddaladi (+2)',cls:'green big'},{v:'no',label:'✘ Uddalay olmadi',cls:'red'}],
         `<div class="verbs">${vs.map(x=>`<div>${x[0]}<small class="v2" hidden>${x[1]}</small></div>`).join('')}</div>
          <div class="timer" id="tm">10</div><div class="row center"><button class="btn gold" id="tStart">⏱ Boshlash</button><button class="btn" id="tShow">👁 V2 ni ko‘rsatish</button></div>`);
-      if(v==='ok'){ SFX.correct(); log(`⚡ ${who(p)} tezkor sinovdan o‘tdi: +2`); await moveBy(pi,2); await checkWin(pi) || await resolve(pi,depth+1); }
+      if(v==='ok'){ SFX.correct(); log(`⚡ ${who(p)} tezkor sinovdan o‘tdi: +2`); await self(2); }
       else { SFX.wrong(); log(`⚡ ${who(p)} tezkor sinovda ulgurmadi`); }
       break; }
     case 'duel': {
       await omen('duel');
       const oi=await pickPlayer('⚔️ Raqibni tanlang', `${p.em} ${esc(p.name)} kim bilan bellashadi?`, [pi]);
-      if(oi===null) break; const o=S.players[oi]; SFX.clang();
+      if(oi===null) break; const o=S.players[oi]; SFX.clang(); fx('duel');
       const v=await cardModal(draw(), `${p.em} ${esc(p.name)}  ⚔  ${o.em} ${esc(o.name)}`,
         `<p class="muted" style="text-align:center;margin:12px 0 0">Kim birinchi to‘g‘ri aytdi? G‘olib +2, yutqazgan −1.</p>
          <div class="row center"><button class="btn green" data-v="a">${p.em} ${esc(p.name)} yutdi</button><button class="btn green" data-v="b">${o.em} ${esc(o.name)} yutdi</button><button class="btn ghost" data-v="n">Hech kim</button></div>`);
       if(v==='n'){ log(`⚔️ ${who(p)} va ${who(o)} — durang`); break; }
       const [w,l]= v==='a'?[pi,oi]:[oi,pi]; SFX.correct();
       log(`⚔️ Duel: ${who(S.players[w])} yutdi (+2), ${who(S.players[l])} −1`);
-      await moveBy(w,2); await moveBy(l,-1); await settle(w); await settle(l);
+      await moveBy(w,2); await moveBy(l,-1);
+      if(w===pi){ await settle(l); await afterSelfMove(pi,depth,seen); } else { await settle(w); await afterSelfMove(pi,depth,seen); }
       break; }
     case 'swap': {
       await omen('swap');
@@ -315,10 +449,10 @@ async function resolve(pi, depth=0){
       SFX.correct();
       const oi=await pickPlayer('🔄 Kim bilan joy almashasiz?', 'Istalgan o‘yinchini tanlang (masalan, eng oldindagisini).', [pi]);
       if(oi===null) break; const o=S.players[oi]; const a=p.pos, b=o.pos;
-      SFX.swap(); log(`🔄 ${who(p)} va ${who(o)} joy almashdi (${a} ↔ ${b})`);
+      SFX.swap(); fx('swap'); log(`🔄 ${who(p)} va ${who(o)} joy almashdi (${a} ↔ ${b})`);
       const ea=document.querySelector(`.tok[data-id="${p.id}"]`), eb=document.querySelector(`.tok[data-id="${o.id}"]`);
       ea&&ea.classList.add('jump'); eb&&eb.classList.add('jump'); p.pos=b; o.pos=a; renderTokens(); await sleep(800);
-      ea&&ea.classList.remove('jump'); eb&&eb.classList.remove('jump'); render(); await settle(pi); await settle(oi);
+      ea&&ea.classList.remove('jump'); eb&&eb.classList.remove('jump'); render(); await settle(oi); await afterSelfMove(pi,depth,seen);
       break; }
     case 'ask': {
       await omen('ask');
@@ -326,10 +460,61 @@ async function resolve(pi, depth=0){
       if(oi===null) break; const o=S.players[oi];
       const v=await openModal(`<h2>${p.em} → ${o.em}</h2><p class="muted">${esc(p.name)} savol beradi, ${esc(o.name)} javob beradi. Savol ham, javob ham to‘g‘ri bo‘lsa — ikkalasiga +1.</p>
         <div class="row center"><button class="btn green big" data-v="1">✔ Ikkalasi to‘g‘ri (+1)</button><button class="btn red" data-v="0">✘ Xato bo‘ldi</button></div>`);
-      if(v==='1'){ SFX.correct(); log(`❓ ${who(p)} va ${who(o)} +1`); await moveBy(pi,1); await moveBy(oi,1); await settle(pi); await settle(oi); }
+      if(v==='1'){ SFX.correct(); log(`❓ ${who(p)} va ${who(o)} +1`); await moveBy(oi,1); await settle(oi); await self(1); }
       else { SFX.wrong(); log(`❓ ${who(p)} savol-javobi chiqmadi`); }
       break; }
     case 'ice': SFX.ice(); await omen('ice',{},'Keyingi navbatingda to‘g‘ri javob bersang — muz eriydi. Yurish — undan keyingi navbatda.'); p.frozen=true; log(`❄️ ${who(p)} muzlab qoldi`); render(); break;
+    case 'gift': {
+      SFX.gift(); await omen('gift');
+      const v=await cardModal(draw(), `🎁 Sovg‘a · ${p.em} ${esc(p.name)}`, judgeBtns);
+      if(v!=='1'){ SFX.wrong(); log(`🎁 ${who(p)} sovg‘a savolida xato`); break; }
+      SFX.correct(); const oi=await pickPlayer('🎁 Sovg‘ani kimga berasiz?', 'Tanlagan do‘stingiz ham +1 qadam yuradi.', [pi]);
+      if(oi!==null){ log(`🎁 ${who(p)} +1 va do‘sti ${who(S.players[oi])} +1`); await moveBy(oi,1); await settle(oi); } else log(`🎁 ${who(p)} +1`);
+      await self(1); break; }
+    case 'wheel': {
+      await omen('wheel'); const r=await wheelSpin();
+      if(r.card){ const q=draw(); const v=+await cardModal(q,`🎡 G‘ildirak kartasi · ${p.em} ${esc(p.name)}`, pointsBtns(+q.p||1)); if(v>0){ SFX.correct(); log(`🎡 ${who(p)} g‘ildirak kartasi: +${v}`); await self(v); } else { SFX.wrong(); log(`🎡 ${who(p)} g‘ildirak kartasida xato`); } }
+      else if(r.ice){ SFX.ice(); fx('ice'); p.frozen=true; log(`🎡 ${who(p)} — g‘ildirak muzlatdi ❄`); render(); }
+      else { log(`🎡 ${who(p)} g‘ildirak: ${r.m>0?'+':''}${r.m}`); await self(r.m); }
+      break; }
+    case 'trap': {
+      SFX.trap(); await omen('trap');
+      const v=await cardModal(draw(), `🕳 Botqoq · ${p.em} ${esc(p.name)}`, judgeBtns);
+      if(v==='1'){ SFX.correct(); fx('melt'); log(`🕳 ${who(p)} botqoqdan qutuldi`); }
+      else { SFX.wrong(); log(`🕳 ${who(p)} botqoqqa botdi: −3`); await self(-3); }
+      break; }
+    case 'monkey': {
+      SFX.monkey(); const os=others(pi); const lead=os.length?os.reduce((a,b)=>S.players[b].pos>S.players[a].pos?b:a):-1;
+      if(lead<0 || S.players[lead].pos<=p.pos){ await omen('monkey',{},'Bu safar <b>yetakchi o‘zing</b> ekansan — maymun sening bananingni olib qochdi: <b>−1</b>!'); log(`🐒 ${who(p)} yetakchi — maymun −1 qildi`); await self(-1); }
+      else { const L=S.players[lead]; await omen('monkey',{},`${L.em} <b>${esc(L.name)}</b> −1, ${p.em} <b>${esc(p.name)}</b> +1`); log(`🐒 Maymun ${who(L)}dan 1 qadam olib, ${who(p)}ga berdi`); await moveBy(lead,-1); await settle(lead); await self(1); }
+      break; }
+    case 'storm': {
+      SFX.storm(); const os=others(pi); await omen('storm',{},os.length?`${os.map(i=>S.players[i].em).join(' ')} — <b>1 qadam ortga</b>`:'');
+      log(`🌪 Bo‘ron: ${who(p)}dan boshqa hamma −1`); await moveOthers(os.filter(i=>S.players[i].pos>1),-1); break; }
+    case 'arrow': {
+      SFX.arrow(); await omen('arrow');
+      const v=await cardModal(draw(), `🏹 Nishon · ${p.em} ${esc(p.name)}`, judgeBtns);
+      if(v!=='1'){ SFX.wrong(); log(`🏹 ${who(p)} nishonga ololmadi`); break; }
+      SFX.correct(); const oi=await pickPlayer('🏹 Kimni nishonga olasiz?', 'Tanlangan o‘yinchi 2 qadam ortga qaytadi.', [pi]);
+      if(oi!==null){ SFX.arrow(); fx('arrow'); log(`🏹 ${who(p)} ${who(S.players[oi])}ni nishonga oldi: −2`); await moveBy(oi,-2); await settle(oi); }
+      break; }
+    case 'double': {
+      SFX.double(); await omen('double'); let n=0;
+      for(const k of [1,2]){ const v=await cardModal(draw(), `🔮 Sehrli ko‘zgu · ${k}-karta · ${p.em} ${esc(p.name)}`, judgeBtns); if(v==='1'){ n++; SFX.correct(); } else SFX.wrong(); }
+      log(`🔮 ${who(p)} ko‘zgu: ${n}/2 → +${n}`); if(n) await self(n); break; }
+    case 'hourglass': {
+      SFX.hourglass(); await omen('hourglass');
+      const qs=[draw(),draw(),draw()];
+      const v=+await openModal(`<h2>⏳ Qum soati · ${p.em} ${esc(p.name)}</h2>
+        <div class="hglist">${qs.map((q,i)=>`<div class="hgq"><span class="chip sm">${esc(q.t)}</span><div class="q">${i+1}. ${esc(q.q)}</div><div class="ans hide hga">Javob: ${esc(q.a)}</div></div>`).join('')}</div>
+        <div class="timer" id="hgT">30</div><div class="row center"><button class="btn gold" id="hgGo">⏱ Boshlash</button><button class="btn" id="hgShow">👁 Javoblar</button></div>
+        <p class="muted" style="text-align:center;margin:10px 0 0">Nechta to‘g‘ri javob berdi?</p>
+        <div class="pts">${[0,1,2,3].map(n=>`<button class="btn ${n?'green':'red'}" data-v="${n}">${n}<small>${n?'+'+n+' qadam':'0 qadam'}</small></button>`).join('')}</div>`,(ov)=>{
+          ov.querySelector('#hgShow').onclick=e=>{ ov.querySelectorAll('.hga').forEach(a=>a.classList.remove('hide')); e.currentTarget.disabled=true; };
+          ov.querySelector('#hgGo').onclick=e=>{ e.currentTarget.disabled=true; const tm=ov.querySelector('#hgT'); let t=30; const iv=setInterval(()=>{ if(!document.body.contains(tm)){clearInterval(iv);return;} t--; tm.textContent=t; if(t<=5){ SFX.tick(); tm.classList.add('low'); } if(t<=0){ clearInterval(iv); SFX.buzz(); tm.textContent='⌛'; } },1000); };
+        });
+      log(`⏳ ${who(p)} qum soati: ${v}/3 → +${v}`); if(v>0){ SFX.correct(); await self(v); } else SFX.wrong();
+      break; }
   }
 }
 
@@ -381,6 +566,7 @@ function openSetup(){
     <form class="addrow" id="fAdd"><input id="inName" placeholder="O‘quvchi ismi…" maxlength="24" autocomplete="off" autofocus><button class="btn gold" type="submit">+ Qo‘shish</button></form>
     <div class="note"><span class="count" id="cnt"></span>${isSample?' · Namuna ismlar — ✕ bilan o‘chirib, o‘z o‘quvchilaringizni yozing.':''}</div>
     <div class="plist" id="plist"></div>
+    <h3 class="sec" style="margin-top:18px">📚 Mavzular — o‘quvchilarga aralash beriladi</h3><div id="tpS"></div>
     <div class="row center"><button class="btn green big" id="bStart">▶ O‘yinni boshlash</button><button class="btn ghost" data-v="x">Yopish</button></div>`, (ov, done)=>{
       const list=ov.querySelector('#plist'), cnt=ov.querySelector('#cnt'), inp=ov.querySelector('#inName'), start=ov.querySelector('#bStart');
       const paint=()=>{
@@ -388,7 +574,7 @@ function openSetup(){
         cnt.textContent=`${draft.length} / 20 o‘yinchi`; start.disabled=draft.length<2;
         inp.disabled=draft.length>=20; inp.placeholder=draft.length>=20?'20 ta o‘yinchi to‘ldi':'O‘quvchi ismi…';
       };
-      paint();
+      paint(); topicPicker(ov.querySelector('#tpS'));
       list.addEventListener('click',e=>{
         const x=e.target.closest('[data-x]'), em=e.target.closest('[data-e]');
         if(x){ draft.splice(+x.dataset.x,1); paint(); SFX.back(0); }
@@ -436,6 +622,7 @@ document.getElementById('bSound').addEventListener('click',()=>{ soundOn=!soundO
 
 function start(data){
   drawBoard();
+  const lg=document.getElementById('legend'); if(lg) lg.innerHTML=LEGEND.map(([k,t])=>`<span>${ICON[k]} ${t}</span>`).join('');
   S = (data && data.S) || load();
   if(S){ render(); }
   else {
@@ -454,13 +641,30 @@ const API=(window.AOK_API||"").replace(/\/$/,"");
 const lsg=k=>{try{return localStorage.getItem(k)||""}catch(e){return""}};
 const lss=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 const TCODE=()=>lsg("aok_tcode");
-const STD={id:"std",name:"Standart to‘plam",by:"AOK English",std:true,qs:BUILTIN};
+const GROUPS=["Zamonlar","Savollar","Grammatika","O‘qituvchilar to‘plamlari"];
 let SETS=(()=>{try{const v=JSON.parse(lsg("qrace-sets")||"[]");return Array.isArray(v)?v:[]}catch(e){return[]}})();
-let ACTIVE=(()=>{try{const v=JSON.parse(lsg("qrace-active")||"null");return Array.isArray(v)&&v.length?v:["std"]}catch(e){return["std"]}})();
+let ACTIVE=(()=>{const all=BANK.map(s=>s.id); try{let v=JSON.parse(lsg("qrace-active")||"null"); if(!Array.isArray(v)||!v.length) return all; if(v.includes("std")) v=[...v.filter(x=>x!=="std"),...all]; return [...new Set(v)];}catch(e){return all}})();
 let ME="";
-const allSets=()=>[STD,...SETS];
+const allSets=()=>[...BANK,...SETS.map(s=>({...s,group:GROUPS[3]}))];
 function saveLocal(){ lss("qrace-sets",JSON.stringify(SETS)); lss("qrace-active",JSON.stringify(ACTIVE)); }
-function pool(){ const qs=allSets().filter(s=>ACTIVE.includes(s.id)).flatMap(s=>s.qs||[]).filter(q=>q&&q.q&&q.a); return qs.length?qs:BUILTIN.slice(); }
+function pool(){ // tanlangan mavzular (takroriy savollar bir marta olinadi)
+  const seen=new Set(), out=[];
+  for(const st of allSets()) if(ACTIVE.includes(st.id)) for(const q of (st.qs||[])){ if(!q||!q.q||!q.a) continue; const k=qkey(q); if(seen.has(k)) continue; seen.add(k); out.push(q.sec?q:{...q,sec:st.name}); }
+  return out.length?out:BUILTIN.slice(); }
+function topicPicker(box, onChange){ // mavzularni tanlash (yangi o'yin va «Savollar» oynasida)
+  const paint=()=>{ const all=allSets(); const n=pool().length, u=usedCount();
+    box.innerHTML=GROUPS.map(g=>{ const ss=all.filter(s=>s.group===g); if(!ss.length) return "";
+      const on=ss.filter(s=>ACTIVE.includes(s.id)).length;
+      return `<div class="tgrp"><div class="tgh"><b>${esc(g)}</b><span class="muted">${on}/${ss.length}</span><span class="sp"></span><button type="button" class="btn ghost sm" data-ga="${esc(g)}">${on===ss.length?"✗ Hech biri":"✓ Hammasi"}</button></div>
+        <div class="tchips">${ss.map(s=>`<button type="button" class="tchip ${ACTIVE.includes(s.id)?"on":""}" data-t="${esc(s.id)}">${ACTIVE.includes(s.id)?"✓ ":""}${esc(s.name)} <small>${(s.qs||[]).length}</small></button>`).join("")}</div></div>`; }).join("")
+      +`<p class="note">Tanlangan mavzulardan kartalar <b>aralash</b> beriladi: <span class="count">${n} ta savol</span> · ishlatilgan: ${u}/${n} — hammasi chiqmaguncha savol takrorlanmaydi. ${u?`<button type="button" class="btn ghost sm" data-reset="1">♻ Qaytadan boshlash</button>`:""}</p>`;
+  };
+  box.onclick=e=>{ const t=e.target.closest("[data-t]"), g=e.target.closest("[data-ga]"), r=e.target.closest("[data-reset]");
+    if(t){ const id=t.dataset.t; ACTIVE=ACTIVE.includes(id)?ACTIVE.filter(x=>x!==id):[...ACTIVE,id]; }
+    if(g){ const ids=allSets().filter(s=>s.group===g.dataset.ga).map(s=>s.id); const allOn=ids.every(id=>ACTIVE.includes(id)); ACTIVE=allOn?ACTIVE.filter(x=>!ids.includes(x)):[...new Set([...ACTIVE,...ids])]; }
+    if(r){ resetUsed(); }
+    if(t||g||r){ if(!ACTIVE.length) toast("Kamida bitta mavzu tanlang — hozircha barcha savollar ishlatiladi"); saveLocal(); paint(); onChange&&onChange(); } };
+  paint(); }
 async function api(path,body){
   if(!API) throw new Error("Server ulanmagan.");
   let r; try{ r=await fetch(API+path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({tcode:TCODE(),...body})}); }catch(e){ throw new Error("Internet aloqasi yo‘q."); }
@@ -472,7 +676,7 @@ async function syncSets(){
   try{ const j=await api("/teacher/race/get",{}); ME=j.me||"";
     const local=SETS.filter(s=>s.dirty); // saqlanmay qolganlar yo'qolmasin
     SETS=[...local,...(j.sets||[]).filter(s=>!local.some(l=>l.id===s.id))];
-    ACTIVE=ACTIVE.filter(id=>allSets().some(s=>s.id===id)); if(!ACTIVE.length) ACTIVE=["std"];
+    ACTIVE=ACTIVE.filter(id=>allSets().some(s=>s.id===id));
     saveLocal(); return true;
   }catch(e){ return false; }
 }
@@ -501,23 +705,24 @@ function openSets(){
     function paint(){
       if(view==="list"){
         const n=pool().length;
-        root.innerHTML=`<h2>📚 Savol to‘plamlari</h2><p class="muted" style="margin:0 0 6px">${who()}</p>
-          <p class="note">O‘yinda ishlatiladiganlarini belgilang. Hozir kartalar dastasida: <span class="count">${n} ta savol</span>.</p>
-          <div class="sets">${allSets().map(s=>`<div class="setrow"><label class="chk"><input type="checkbox" data-act="${esc(s.id)}" ${ACTIVE.includes(s.id)?"checked":""}><span><b>${esc(s.name)}</b> <span class="muted">· ${(s.qs||[]).length} ta${s.by?` · ${esc(s.by)}`:""}${s.dirty?' · <span class="warn">saqlanmagan</span>':""}</span></span></label>
-            <span class="sp"></span>${s.std?`<button class="btn" data-copy="std">⧉ Nusxa olib tahrirlash</button><button class="btn ghost" data-open="std">👁 Ko‘rish</button>`:`<button class="btn gold" data-open="${esc(s.id)}">✎ Ochish</button><button class="btn ghost" data-del="${esc(s.id)}" title="O‘chirish">🗑</button>`}</div>`).join("")}</div>
+        root.innerHTML=`<h2>📚 Mavzular va savollar</h2><p class="muted" style="margin:0 0 6px">${who()}</p>
+          <h3 class="sec" style="margin-top:12px">O‘yinda qaysi mavzular?</h3><div id="tp"></div>
+          <h3 class="sec" style="margin-top:16px">Ko‘rish va tahrirlash</h3>
+          <div class="sets">${allSets().map(s=>`<div class="setrow"><span><b>${esc(s.name)}</b> <span class="muted">· ${esc(s.group)} · ${(s.qs||[]).length} ta${s.by&&!s.std?` · ${esc(s.by)}`:""}${s.dirty?' · <span class="warn">saqlanmagan</span>':""}</span></span>
+            <span class="sp"></span>${s.std?`<button class="btn ghost" data-open="${esc(s.id)}">👁 Ko‘rish</button><button class="btn" data-copy="${esc(s.id)}">⧉ Nusxa olib tahrirlash</button>`:`<button class="btn gold" data-open="${esc(s.id)}">✎ Ochish</button><button class="btn ghost" data-del="${esc(s.id)}" title="O‘chirish">🗑</button>`}</div>`).join("")}</div>
           <div class="row"><button class="btn green" id="qmNew">➕ Yangi to‘plam</button></div>${msg?`<p class="note">${msg}</p>`:""}`;
-        root.querySelectorAll("[data-act]").forEach(c=>c.onchange=()=>{ const id=c.dataset.act; ACTIVE=c.checked?[...new Set([...ACTIVE,id])]:ACTIVE.filter(x=>x!==id); if(!ACTIVE.length){ACTIVE=["std"];} saveLocal(); msg=""; paint(); });
+        topicPicker(root.querySelector("#tp"));
         root.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const s=allSets().find(x=>x.id===b.dataset.open); ed=JSON.parse(JSON.stringify(s)); ed.dirty=!!s.dirty; ei=-1; view="edit"; msg=""; paint(); });
-        root.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{ ed={id:newId(),name:"Mening to‘plamim",qs:JSON.parse(JSON.stringify(BUILTIN)),dirty:true,isNew:true}; ei=-1; view="edit"; msg=""; paint(); });
+        root.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{ const src=allSets().find(x=>x.id===b.dataset.copy); ed={id:newId(),name:src.name+" (mening)",qs:JSON.parse(JSON.stringify(src.qs)).map(q=>{ const c={...q}; delete c.sec; return c; }),dirty:true,isNew:true}; ei=-1; view="edit"; msg=""; paint(); });
         root.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{ const s=SETS.find(x=>x.id===b.dataset.del); if(!s||!confirm(`«${s.name}» to‘plami o‘chirilsinmi? (${(s.qs||[]).length} ta savol)`)) return;
-          try{ if(TCODE()&&!s.localOnly) await api("/teacher/race/del",{id:s.id}); SETS=SETS.filter(x=>x.id!==s.id); ACTIVE=ACTIVE.filter(x=>x!==s.id); if(!ACTIVE.length)ACTIVE=["std"]; saveLocal(); msg="🗑 O‘chirildi."; }catch(e){ msg="❌ "+esc(e.message); } paint(); });
+          try{ if(TCODE()&&!s.localOnly) await api("/teacher/race/del",{id:s.id}); SETS=SETS.filter(x=>x.id!==s.id); ACTIVE=ACTIVE.filter(x=>x!==s.id); saveLocal(); msg="🗑 O‘chirildi."; }catch(e){ msg="❌ "+esc(e.message); } paint(); });
         root.querySelector("#qmNew").onclick=()=>{ ed={id:newId(),name:"",qs:[],dirty:true,isNew:true}; ei=-1; view="edit"; msg=""; paint(); root.querySelector("#seName").focus(); };
         return;
       }
       // ---- to'plamni tahrirlash ----
       const ro=!!ed.std, q=ei>=0?ed.qs[ei]:{t:"",q:"",a:"",p:1,h:"",x:""};
       root.innerHTML=`<div class="edhd"><button class="btn ghost" id="seBack">← To‘plamlar</button><span class="sp"></span>${ro?"":`<button class="btn gold" id="seSave">💾 Saqlash</button>`}</div>
-        ${ro?`<h2>${esc(ed.name)}</h2><p class="note">Standart to‘plamni o‘zgartirib bo‘lmaydi — «⧉ Nusxa olib tahrirlash» orqali o‘zingizniki qiling.</p>`
+        ${ro?`<h2>${esc(ed.name)}</h2><p class="note">Standart bo‘limni o‘zgartirib bo‘lmaydi — «⧉ Nusxa olib tahrirlash» orqali o‘zingizniki qiling (u «O‘qituvchilar to‘plamlari» guruhida chiqadi).</p>`
           :`<label class="fl">To‘plam nomi<input id="seName" maxlength="60" value="${esc(ed.name)}" placeholder="Masalan: Past Simple savollari · 12-noyabr"></label>`}
         ${ro?"":`<div class="qform"><h3 class="sec">${ei>=0?`✎ ${ei+1}-savolni tahrirlash`:"➕ Yangi savol"}</h3>
           <div class="g2"><label class="fl">Turi (kartadagi yorliq)<input id="fT" list="dlT" maxlength="40" value="${esc(q.t)}" placeholder="Savol tuzing"></label>
