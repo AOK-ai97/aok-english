@@ -1,0 +1,25 @@
+# SINOV worker (aok-checker-dev) — asosiy aok-checker ga TEGMAYDI.
+# Faqat `dev` branchiga push qilinganda deploy-dev.yml orqali yangilanadi.
+name = "aok-checker-dev"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+account_id = "7b382a7a765cf7a6a9916d58182d1f4d"
+workers_dev = true
+keep_vars = true
+
+[vars]
+ALLOWED_ORIGIN = "https://aok-ai97.github.io"
+OWNER_ID = "6710553098"
+
+# Alohida sinov bazasi (aok-dev). Asosiy baza: aab1bb58... — bu yerda YO'Q.
+[[kv_namespaces]]
+binding = "KV"
+id = "ad3b3ffddacb456aab52edd022eb6224"
+
+# Cron odatda O'CHIQ: KV yozish limiti (~1000/kun) butun akkaunt uchun umumiy,
+# sinov asosiy botning limitini yemasligi kerak. Sinov paytida vaqtincha yoqiladi.
+[triggers]
+crons = []
+
+[observability]
+enabled = true

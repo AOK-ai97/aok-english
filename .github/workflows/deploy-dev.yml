@@ -1,0 +1,28 @@
+name: Deploy SINOV worker (dev)
+on:
+  push:
+    branches: [dev]
+    paths: ["worker/**", ".github/workflows/deploy-dev.yml"]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render token (dev)
+        env: { CF: "${{ secrets.CLOUDFLARE_API_TOKEN }}" }
+        run: |
+          RT=$(printf '%s' "$CF:aok-render-dev-v1" | sha256sum | cut -c1-40)
+          echo "::add-mask::$RT"
+          echo "RENDER_TOKEN=$RT" >> "$GITHUB_ENV"
+      - name: Deploy to Cloudflare (aok-checker-dev)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: 7b382a7a765cf7a6a9916d58182d1f4d
+          workingDirectory: worker
+          command: deploy --config wrangler.dev.toml
+          secrets: |
+            RENDER_TOKEN
+      - name: Check
+        run: curl -s https://aok-checker-dev.ozodbekadilov092.workers.dev/ | head -c 300
