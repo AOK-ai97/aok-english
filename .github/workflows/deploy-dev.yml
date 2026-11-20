@@ -22,7 +22,11 @@ jobs:
           accountId: 7b382a7a765cf7a6a9916d58182d1f4d
           workingDirectory: worker
           command: deploy --config wrangler.dev.toml
-          secrets: |
-            RENDER_TOKEN
+      # DIQQAT: wrangler-action'ning "secrets:" bandi --config ni e'tiborsiz qoldirib,
+      # ASOSIY aok-checker ga yozib yuboradi. Shuning uchun secret alohida, --config bilan qo'yiladi.
+      - name: RENDER_TOKEN -> faqat aok-checker-dev
+        working-directory: worker
+        env: { CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}", CLOUDFLARE_ACCOUNT_ID: "7b382a7a765cf7a6a9916d58182d1f4d" }
+        run: printf '%s' "$RENDER_TOKEN" | npx --yes wrangler@4 secret put RENDER_TOKEN --config wrangler.dev.toml
       - name: Check
         run: curl -s https://aok-checker-dev.ozodbekadilov092.workers.dev/ | head -c 300
