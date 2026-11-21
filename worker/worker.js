@@ -1,4 +1,4 @@
-// AOK English — Writing & Speaking Checker v7 + AOK Radar 📡 bot (Cloudflare Worker)
+// AOK English — Writing & Speaking Checker v7 + Support Teacher 👩‍🏫 bot (eski nomi AOK Radar) (Cloudflare Worker)
 // Settings → Variables: GEMINI_KEY, CLASS_CODE, TEACHER_CODE, TG_TOKEN (Secret), OWNER_ID, ALLOWED_ORIGIN = https://aok-ai97.github.io, MODEL / LITE_MODEL (ixtiyoriy).
 // Bindings: KV namespace → nomi "KV". Triggers → Cron: */5 * * * *. Bot ulash: brauzerda <worker manzili>/bot/setup ni oching.
 
@@ -107,7 +107,7 @@ const GOOD = {};
 const EXH = {}, OVL = {}; // key|model → qachongacha band (limit tugagan)
 const gKeys = env => [...new Set([env.GEMINI_KEY, ...Array.from({length: 11}, (_, i) => env["GEMINI_KEY" + (i + 2)])].filter(Boolean).flatMap(k => String(k).split(/[,\s]+/)).filter(Boolean))];
 const USE = {c: {}, n: 0, t: Date.now()};
-function aiTag(sys){ const m = [["AOK Radar 📡\", the Telegram","eslatma/maqtov"],["end-of-lesson feedback","dars feedback"],["SHADOWING","shadowing"],["speaking examiner chatting","speaking suhbat"],["FINAL result of a speaking","speaking suhbat xulosa"],["extract CEFR","vazifa kiritish"],["homework post","homework o'qish"],["Target word","talaffuz"],["model answers","namuna tekshiruvi"],["pronunciation coach","talaffuz mashqi"]];
+function aiTag(sys){ const m = [["Support Teacher\", the Telegram","eslatma/maqtov"],["end-of-lesson feedback","dars feedback"],["SHADOWING","shadowing"],["speaking examiner chatting","speaking suhbat"],["FINAL result of a speaking","speaking suhbat xulosa"],["extract CEFR","vazifa kiritish"],["homework post","homework o'qish"],["Target word","talaffuz"],["model answers","namuna tekshiruvi"],["pronunciation coach","talaffuz mashqi"]];
   const low = sys.toLowerCase(); for (const [k, v] of m) if (low.includes(k.toLowerCase())) return v; return /writing/i.test(sys.slice(0, 400)) ? "writing tekshiruv" : /speaking/i.test(sys.slice(0, 400)) ? "speaking tekshiruv" : /pronunc/i.test(sys.slice(0, 400)) ? "talaffuz" : "boshqa"; }
 async function aiCount(env, tag, model, force, ki, status){
   if (tag) { const k = tag + (model && /lite/.test(model) ? " (lite)" : ""); const inc = x => USE.c[x] = (USE.c[x] || 0) + 1;
@@ -220,7 +220,7 @@ function compose(kind, bank, sections, pool, topic){
 }
 
 /* =====================================================================
-   AOK RADAR 📡 — o'quvchilar, PIN, guruhlar, Telegram bot, davomat, eslatmalar
+   SUPPORT TEACHER (eski AOK Radar) — o'quvchilar, PIN, guruhlar, Telegram bot, davomat, eslatmalar
    ===================================================================== */
 const TZ = 5 * 3600e3;                                   // O'zbekiston vaqti (UTC+5)
 const L = (t = Date.now()) => new Date(t + TZ);           // getUTC* = mahalliy vaqt
@@ -289,32 +289,32 @@ const kb = rows => ({reply_markup: {inline_keyboard: rows}});
 async function secretOf(env){ const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("aok-radar:" + env.TG_TOKEN)); return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2,"0")).join("").slice(0, 48); }
 
 /* ---------------- AI gaplar (maqtov, eslatma, tanbeh) ---------------- */
-const RADAR_SYS = `You are "AOK Radar 📡", the Telegram assistant of an English teacher at AOK English (CEFR Multilevel exam preparation, Uzbekistan).
+const RADAR_SYS = `You are "Support Teacher", the Telegram assistant of an English teacher at AOK English (CEFR Multilevel exam preparation, Uzbekistan).
 Write ONE short message in UZBEK (Latin script) to the student, addressed by first name: 1–3 sentences, max 300 characters, 1–3 fitting emoji.
-Every message must be worded differently (never a template); sometimes use a light radar/signal metaphor, but not always.
+Every message must be worded differently (never a template).
 Tone by type: "praise" = warm, specific (mention what exactly was good); "encourage" = friendly, points to one thing to improve;
 "scold" = respectful, never rude or humiliating, firm, gives one concrete next step; "remind" = urgent but kind, says what is still missing and how much time is left;
 "late" = respectful disappointment that the deadline passed + it can still be submitted before the next lesson; "late_remind" = the deadline has already passed, but the student can still submit before the lesson starts — say what is missing and how many hours are left, kind and motivating, not angry; "late_ok" = thanks for submitting even though late, next time on time.
 Use ONLY the facts given. No markdown. Answer ONLY with JSON {"text": "..."}.`;
-const FB_SYS = `You are "AOK Radar 📡", assistant of an English teacher (CEFR Multilevel prep, Uzbekistan). After the lesson, write ONE end-of-lesson feedback message in UZBEK (Latin script) to the student, addressed by first name.
+const FB_SYS = `You are "Support Teacher", assistant of an English teacher (CEFR Multilevel prep, Uzbekistan). After the lesson, write ONE end-of-lesson feedback message in UZBEK (Latin script) to the student, addressed by first name.
 It must cover ALL graded parts from Facts, but stay short and lively: 2–4 sentences, max 420 characters, 2–3 fitting emoji. No bullet lists, no headings, no "Hurmatli".
 Structure: 1) quick overall verdict for today; 2) name the strongest part(s) specifically; 3) name the weakest part(s) with ONE concrete, doable tip for next lesson (e.g. how many words to repeat, what to re-record). If a part was improved after a redo, praise the effort. If Facts include "Uyga vazifa", also say in one short clause whether the homework was done on time, late or not done (a list of it is shown under your text, so do not list items).
 Tone by Type: praise = warm and proud; encourage = friendly, motivating; scold = honest and firm but caring, never insulting. Every message must be worded differently — avoid clichés and templates; vary openings. Use the grade names as given (A'lo, yaxshi, chala…). Output JSON {"text": "..."}.`;
 const FALLBACK = {
-  praise: ["🔥 {n}, zo'r natija! Shu tempda davom eting 💪", "🏆 {n}, bugun a'lo ishladingiz! Radar faxrlanadi 📡", "👏 {n}, juda yaxshi! Keyingi darsda ham shunday 🚀"],
+  praise: ["🔥 {n}, zo'r natija! Shu tempda davom eting 💪", "🏆 {n}, bugun a'lo ishladingiz! Ustozingiz faxrlanadi 🌟", "👏 {n}, juda yaxshi! Keyingi darsda ham shunday 🚀"],
   encourage: ["🙂 {n}, yomon emas! Biroz ko'proq mashq qilsangiz, natija ancha o'sadi 💪", "📈 {n}, yaxshi harakat. Kamchiliklarni takrorlab oling, keyingi safar a'lo bo'ladi!"],
-  scold: ["⚠️ {n}, bugun natija past bo'ldi. Uyda qaytadan takrorlab oling — sizdan ko'proq kutamiz 💪", "📡 {n}, radar past signal ko'rdi. Bugun 20 daqiqa ajratib qayta tayyorlaning!"],
+  scold: ["⚠️ {n}, bugun natija past bo'ldi. Uyda qaytadan takrorlab oling — sizdan ko'proq kutamiz 💪", "📉 {n}, bugungi natija past. Bugun 20 daqiqa ajratib qayta tayyorlaning!"],
   remind: ["⏰ {n}, vazifa hali kutib turibdi: {x}. Muddatgacha {t} qoldi!", "📡 {n}, {x} hali topshirilmagan. {t} qoldi — hozir boshlang 💪"],
   late: ["⌛ {n}, muddat o'tdi: {x} topshirilmagan. Bugun topshirsangiz baribir hisobga olinadi 🙏", "📡 {n}, vazifa muddatida kelmadi ({x}). Iltimos, bugunoq topshiring."],
   late_remind: ["⌛ {n}, muddat o'tdi, lekin hali kech emas: {x}. Darsgacha topshirsangiz hisobga olinadi 💪"],
   late_ok: ["✅ {n}, kech bo'lsa ham topshirdingiz — rahmat! Keyingi safar muddatida kutamiz 🙂"]
 };
 const TPL = {
-  remind: ["⏰ {n}, eslatma!", "📡 {n}, radar vazifangizni qidiryapti 🔎", "⏳ {n}, vaqt ketyapti!", "🔔 {n}, bir eslatib qo'yay 🙂", "📋 {n}, vazifa sizni kutyapti!", "💪 {n}, oz qoldi — tugatib qo'ying!", "🎯 {n}, maqsadga yaqin qoldik!", "📡 {n}, signal hali kelmadi!"],
-  late: ["⌛ {n}, muddat o'tib ketdi.", "📡 {n}, radar vazifani muddatida ko'rmadi.", "😕 {n}, vazifa vaqtida kelmadi.", "⚠️ {n}, muddat tugadi."],
-  late_remind: ["⌛ {n}, muddat o'tdi, lekin hali kech emas — darsgacha topshiring!", "📡 {n}, hali imkoniyat bor — darsgacha yuboring!", "⏳ {n}, kechikkan bo'lsa ham topshiring, hisobga olinadi!"],
-  late_ok: ["✅ {n}, kech bo'lsa ham topshirdingiz — rahmat! Keyingi safar muddatida kutamiz 🙂", "👍 {n}, yetib keldi! Keyingi safar biroz erta yuboring 🙂", "📡 {n}, signal qabul qilindi ✅ Keyingisini muddatida kutamiz!"],
-  praise: ["🔥 {n}, zo'r!", "🏆 {n}, a'lo!", "👏 {n}, barakalla!", "🚀 {n}, ajoyib ish!", "📡 {n}, radar kuchli signal ko'rdi! 💪", "🌟 {n}, juda yaxshi!", "✅ {n}, hammasi joyida!"]
+  remind: ["⏰ {n}, eslatma!", "🔎 {n}, vazifangizni kutyapmiz!", "⏳ {n}, vaqt ketyapti!", "🔔 {n}, bir eslatib qo'yay 🙂", "📋 {n}, vazifa sizni kutyapti!", "💪 {n}, oz qoldi — tugatib qo'ying!", "🎯 {n}, maqsadga yaqin qoldik!", "📭 {n}, vazifa hali kelmadi!"],
+  late: ["⌛ {n}, muddat o'tib ketdi.", "📭 {n}, vazifa muddatida kelmadi.", "😕 {n}, vazifa vaqtida kelmadi.", "⚠️ {n}, muddat tugadi."],
+  late_remind: ["⌛ {n}, muddat o'tdi, lekin hali kech emas — darsgacha topshiring!", "🙂 {n}, hali imkoniyat bor — darsgacha yuboring!", "⏳ {n}, kechikkan bo'lsa ham topshiring, hisobga olinadi!"],
+  late_ok: ["✅ {n}, kech bo'lsa ham topshirdingiz — rahmat! Keyingi safar muddatida kutamiz 🙂", "👍 {n}, yetib keldi! Keyingi safar biroz erta yuboring 🙂", "📬 {n}, vazifa qabul qilindi ✅ Keyingisini muddatida kutamiz!"],
+  praise: ["🔥 {n}, zo'r!", "🏆 {n}, a'lo!", "👏 {n}, barakalla!", "🚀 {n}, ajoyib ish!", "💯 {n}, kuchli natija! 💪", "🌟 {n}, juda yaxshi!", "✅ {n}, hammasi joyida!"]
 };
 const cap1 = t => String(t || "").replace(/^\s*\S/, c => c.toUpperCase());
 async function radarText(env, type, name, facts, ai){
@@ -359,13 +359,6 @@ async function hpRefs(env, gid, hp){ // Homework audiolari: hp.refs + har bir au
   const out0 = [...(hp.refs || [])]; try { const L = await env.KV.list({prefix: `hpr:${gid}:${hp.id}:`});
     for (const k of L.keys) { const r = await J(env, k.name, null); if (r && !out0.some(x => x.fu && x.fu === r.fu)) out0.push({...r, name: r.name || `Audio ${out0.length + 1}`}); } } catch (_) {}
   return out0.slice(0, 6); }
-async function fbFixOnce(env){ if (await env.KV.get("mig:fbn1")) return; await env.KV.put("mig:fbn1", "1", {expirationTtl: 30 * 86400});
-  const k = "gs:-1004306427312:2026-11-14"; const o = await J(env, k, null); if (o && o["mwb183i8k1f9"]) { delete o["mwb183i8k1f9"]; await PUT(env, k, o, {expirationTtl: 7 * 86400}); }
-  const q = await J(env, "fbq", []); q.push({gid: "-1004306427312", d: "2026-11-14", by: null, t: Date.now()}); await PUT(env, "fbq", q.slice(-20)); }
-async function nightFailOnce(env){ if (await env.KV.get("mig:nfn1")) return; await env.KV.put("mig:nfn1", "1", {expirationTtl: 30 * 86400});
-  for (const k of (await env.KV.list({prefix: "gj:"})).keys) { const j = await J(env, k.name, null); if (j && j.st === "fail" && Date.now() - (j.at || 0) < 3 * 864e5) await nightFailNote(env, j).catch(() => {}); } }
-async function pronSkipOnce(env){ if (await env.KV.get("mig:pron1")) return; await env.KV.put("mig:pron1", "1", {expirationTtl: 30 * 86400});
-  for (const k of ["r:speaking:1794497439466"]) { const rv = await env.KV.getWithMetadata(k); if (rv.value && rv.metadata && !rv.metadata.pronHash) await env.KV.put(k, rv.value, {metadata: {...rv.metadata, pronHash: "skip"}}); } } // Sirojiddin: urinishlari eski versiyada tugagan
 async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 1 tadan, qulf bilan)
   const st = await J(env, "mig:shrg2", null); if (st && st.done) return; if (await env.KV.get("shrg:lk")) return;
   await env.KV.put("shrg:lk", "1", {expirationTtl: 120}); const S = st || {seen: []};
@@ -600,57 +593,6 @@ async function impFail(env, r, d, mid, e){ // AI band — qayta urinish navbati 
   d.q.next = Date.now() + [60e3, 120e3, 180e3, 300e3][d.q.n - 1]; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400});
   return tg(env, "editMessageText", {chat_id: r.uid, message_id: mid, parse_mode: "HTML", text: `⏳ Google AI hozir band — ${d.q.n + 1}-urinish ${Math.round((d.q.next - Date.now()) / 60e3)} daqiqadan keyin. Hech narsa bosish shart emas, o'zim qayta urinaman.`});
 }
-// Bir martalik: o'qituvchi so'rovi bilan uyga vazifani (sayt repo'sidagi assets/hw/<nom>/) bazaga qo'shib guruhga berish
-async function hwSeedOnce(env, name, grpRe, dueAt){ const mk = "mig:hw-" + name; const st = await env.KV.get(mk); if (st) return;
-  await env.KV.put(mk, "run", {expirationTtl: 900}); if (env.__kvfull) return;
-  const base = `https://aok-ai97.github.io/aok-english/assets/hw/${name}/`; const j = await (await fetch(base + "items.json?" + Date.now())).json(); const items = [];
-  for (const it of j.items) { const x = {...it, id: uid(), created: Date.now()}; if (it.imgs) { x._img = []; for (const f of it.imgs) { const b = new Uint8Array(await (await fetch(base + f)).arrayBuffer()); x._img.push("data:image/jpeg;base64," + b64of(b)); } delete x.imgs; } items.push(x); }
-  const g = (await getGroups(env)).find(g => grpRe.test(g.title || "")); if (!g) { await pm(env, env.OWNER_ID, "⚠️ Uyga vazifa: guruh topilmadi."); return; }
-  const r = {admin: true, uid: String(env.OWNER_ID), name: "Bosh admin"};
-  const x = await impSave(env, r, {title: j.title, items, sel: [g.id]}, true); await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  const due = dueAt || nextLesson(g, dayKey()); if (dueAt) for (const k of ["writing", "speaking"]) { const hw = await J(env, `hw:${k}:${g.id}`, null); if (hw && hw.title === j.title) { hw.due = dueAt; await PUT(env, `hw:${k}:${g.id}`, hw); } }
-  await pm(env, env.OWNER_ID, `✅ <b>${H(j.title)}</b> uyga vazifasi saytga joylashtirildi — <b>${H(g.title)}</b>\n📚 Bazaga qo'shildi: ${x.added} ta${x.dup ? ` (oldin bor edi: ${x.dup})` : ""}\n${x.done.map(t => "📌 " + H(t)).join("\n")}\n⏰ Muddat: ${DAY_UZ[wdOf(dayKey(due))]} ${ddmm(due)} ${hhmm(due)}`);
-}
-async function hwP3Once(env, title, keep, grpRe){ // uyga vazifada Part 3 dan faqat bittasi qolsin (o'qituvchi so'rovi)
-  const mk = "mig:p3-" + title; if (await env.KV.get(mk) || (await env.KV.get("mig:hw-tourism")) !== "1") return;
-  const g = (await getGroups(env)).find(g => grpRe.test(g.title || "")); if (!g) return; const k = `hw:speaking:${g.id}`; const hw = await J(env, k, null); if (!hw || hw.title !== title) return;
-  const b3 = await getBank(env, "speaking", "3"); const p3 = new Set(b3.map(x => x.id)); const keepIt = b3.find(x => norm(keyText(x)) === norm(keep));
-  hw.ids = hw.ids.filter(id => !p3.has(id) || (keepIt && id === keepIt.id)); await PUT(env, k, hw); await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  await pm(env, env.OWNER_ID, `✅ <b>${H(title)}</b> uyga vazifasida Part 3 dan bittasi qoldirildi: «${H(keep)}». Speaking savollari: ${hw.ids.length} ta.`);
-}
-async function fixC1Once(env){ // bir martalik: guruh jadvali (kunlar) + C guruh "Grammar Mix" vazifasiga rasm va to'g'ri muddat
-  const mk = "mig:fixC1"; if (await env.KV.get(mk)) return; await env.KV.put(mk, "run", {expirationTtl: 900}); if (env.__kvfull) return;
-  const gs = await getGroups(env); let ch = false;
-  for (const g of gs) { if (g.days && g.days.length) continue; if (/16\s*-\s*18/.test(g.title || "")) { g.days = [2, 4, 6]; ch = true; } else if (/15\s*-\s*17/.test(g.title || "")) { g.days = [1, 3, 5]; ch = true; } }
-  if (ch) await PUT(env, "groups", gs);
-  const g = gs.find(x => /15\s*-\s*17/.test(x.title || "")); const out = [];
-  if (g) for (const k of ["writing", "speaking"]) { const key = `hw:${k}:${g.id}`; const hw = await J(env, key, null); if (!hw || !/grammar mix/i.test(hw.title || "")) continue;
-    hw.due = nextLesson(g, dayKey(hw.at));
-    if (k === "speaking") { const arr = await getBank(env, "speaking", "1.2"); const base = "https://aok-ai97.github.io/aok-english/assets/hw/c-celebrations/"; const images = [];
-      for (const f of ["1.jpg", "2.jpg"]) { const rs = await fetch(base + f); if (rs.ok) { const ik = "img:" + uid(); await env.KV.put(ik, "data:image/jpeg;base64," + b64of(new Uint8Array(await rs.arrayBuffer()))); images.push({k: ik}); } }
-      const it = {id: uid(), kind: "speaking", topic: hw.title, created: Date.now(), part: "1.2", q: ["Tell me what you can see in these pictures."], images};
-      if (images.length) { arr.push(it); await putBank(env, "speaking", "1.2", arr); const ids12 = new Set(arr.filter(x => x.part === "1.2" || true).map(x => x.id)); hw.ids = hw.ids.filter(id => !ids12.has(id) || id === it.id); hw.ids.push(it.id); hw.ids = [...new Set(hw.ids)]; out.push(`🖼 Part 1.2 ga ${images.length} ta rasm`); } }
-    await PUT(env, key, hw); out.push(`${k === "writing" ? "✍️" : "🎤"} muddat: ${DAY_UZ[wdOf(dayKey(hw.due))]} ${ddmm(hw.due)} ${hhmm(hw.due)}`); }
-  await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  if (out.length) await pm(env, env.OWNER_ID, `✅ <b>${H(g.title)}</b> — Grammar Mix vazifasi tuzatildi:\n${out.join("\n")}`);
-}
-async function picC2(env){ // C guruh Grammar Mix: Part 1.2 savolida rasm bo'lmasa — qo'shamiz (muvaffaqiyatli bo'lgunicha har daqiqa urinadi)
-  if (await env.KV.get("mig:picC2")) return; const g = (await getGroups(env)).find(x => /15\s*-\s*17/.test(x.title || "")); if (!g) return;
-  const hw = await J(env, `hw:speaking:${g.id}`, null); if (!hw || !/grammar mix/i.test(hw.title || "")) return;
-  const arr = await getBank(env, "speaking", "1.2"); let it = arr.find(x => hw.ids.includes(x.id));
-  if (it && it.images && it.images.length) { await env.KV.put("mig:picC2", "1", {expirationTtl: 60 * 86400}); return; }
-  const base = "https://aok-ai97.github.io/aok-english/assets/hw/c-celebrations/"; const images = [];
-  for (const f of ["1.jpg", "2.jpg"]) { const rs = await fetch(base + f + "?v=2"); if (!rs.ok) return; const ik = "img:" + uid(); await env.KV.put(ik, "data:image/jpeg;base64," + b64of(new Uint8Array(await rs.arrayBuffer()))); images.push({k: ik}); }
-  if (env.__kvfull) return;
-  if (!it) { it = {id: uid(), kind: "speaking", topic: hw.title, created: Date.now(), part: "1.2", q: ["Tell me what you can see in these pictures."]}; arr.push(it); hw.ids.push(it.id); await PUT(env, `hw:speaking:${g.id}`, hw); }
-  else if (it.topic !== hw.title) { const oldId = it.id; it = {...it, id: uid(), topic: hw.title}; arr.push(it); hw.ids = hw.ids.map(id => id === oldId ? it.id : id); await PUT(env, `hw:speaking:${g.id}`, hw); } // boshqa mavzudagi umumiy savolga tegmaymiz — yangisini yaratamiz
-  it.images = images; await putBank(env, "speaking", "1.2", arr); await env.KV.put("mig:picC2", "1", {expirationTtl: 60 * 86400});
-  await pm(env, env.OWNER_ID, `🖼 <b>${H(g.title)}</b> — «${H(hw.title)}» Part 1.2 ga ${images.length} ta rasm qo'shildi. O'quvchilar saytdagi sahifani yangilasa, rasmlar chiqadi.`);
-}
-async function dialogFixOnce(env){ const mk = "mig:dlg1"; if (await env.KV.get(mk)) return; await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue; let ch = false;
-    for (const it of hp.items) if ((it.type === "voice" || it.type === "video") && /dialog|suhbat|yodla|retell/i.test(it.title || "") && !/yubor|tashla|ovozli|audio|yozib/i.test(it.title || "")) { it.type = "in_class"; ch = true; }
-    if (ch) await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 86400}); } }
 async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari
   const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
   for (const j of q) { if (typeof j !== "object") { drop.push(j); continue; } const d = await J(env, impD(j.id), null);
@@ -709,7 +651,7 @@ Return JSON: "level": the student's realistic CEFR speaking level (A0, A1, A2, B
 "tips_uz": up to 3 very short, concrete UZBEK tips for the next week. Be honest, clear and brief. Answer ONLY with JSON.`;
 const SPK_END_SCHEMA = {type:"OBJECT",properties:{level:STR,strong_uz:STR,weak_uz:{type:"ARRAY",items:STR},tips_uz:{type:"ARRAY",items:STR}},required:["level","strong_uz","weak_uz","tips_uz"]};
 const SPK_OPEN = ["Hello {n}! Nice to meet you. What do you like doing in your free time?", "Hi {n}! Let's talk a little. Can you tell me about your family?", "Hello {n}! Tell me, what is your favourite food?", "Hi {n}! Where do you live? Do you like it there?", "Hello {n}! What do you usually do after school?"];
-const SPK_NUDGE = ["🎤 {n}, mikrofon sizni kutyapti… Javobingizni ovozli xabar qilib yuboring!", "📡 Radar jimlikni sezdi 🙂 {n}, qisqa bo'lsa ham javob bering — 2–3 gap kifoya!", "⏳ {n}, bemalol o'ylab oling, lekin javobsiz qoldirmang. Ovozli xabarni bosing 🎙", "🙂 {n}, qiyin bo'lsa ham urinib ko'ring — bitta gap ham hisobga olinadi!", "🎧 Savolni qayta tinglang va javob yozib yuboring, {n}. Siz uddalaysiz! 💪"];
+const SPK_NUDGE = ["🎤 {n}, mikrofon sizni kutyapti… Javobingizni ovozli xabar qilib yuboring!", "🤫 Jimlik cho'zildi 🙂 {n}, qisqa bo'lsa ham javob bering — 2–3 gap kifoya!", "⏳ {n}, bemalol o'ylab oling, lekin javobsiz qoldirmang. Ovozli xabarni bosing 🎙", "🙂 {n}, qiyin bo'lsa ham urinib ko'ring — bitta gap ham hisobga olinadi!", "🎧 Savolni qayta tinglang va javob yozib yuboring, {n}. Siz uddalaysiz! 💪"];
 const spsK = sid => "sps:" + sid;
 async function ttsMp3(text){ // Google Translate TTS (en-GB) → MP3
   const chunks = []; let cur = "";
@@ -1247,7 +1189,7 @@ async function weeklyReport(env, g){
 async function myGroups(env, r){ return (await getGroups(env)).filter(g => g.active !== false && canG(r, g)); }
 async function mainMenu(env, r, edit){
   const gs = await myGroups(env, r); const studs = await getStudents(env);
-  const text = gs.length ? `📡 <b>AOK Radar</b>${r.admin ? "" : ` · ${H(r.name)}`}\nGuruhni tanlang:` : `📡 <b>AOK Radar</b>\nHali guruh yo'q.\n\nBotni guruhga qo'shing va <b>admin</b> qiling — guruh shu yerda o'zi paydo bo'ladi.`;
+  const text = gs.length ? `👩‍🏫 <b>Support Teacher</b>${r.admin ? "" : ` · ${H(r.name)}`}\nGuruhni tanlang:` : `👩‍🏫 <b>Support Teacher</b>\nHali guruh yo'q.\n\nBotni guruhga qo'shing va <b>admin</b> qiling — guruh shu yerda o'zi paydo bo'ladi.`;
   const rows = gs.map(g => [{text: `📚 ${g.title} (${studs.filter(s => s.gid === g.id).length})`, callback_data: "g:" + g.id}]);
   if (r.admin) rows.push([{text: "👩‍🏫 O'qituvchilar", callback_data: "tl"}]);
   return edit ? tg(env, "editMessageText", {chat_id: r.uid, message_id: edit, text, parse_mode: "HTML", ...kb(rows)}) : pm(env, r.uid, text, kb(rows));
@@ -1326,9 +1268,9 @@ async function onPrivate(env, msg){
   const me = String(msg.from.id); const text = (msg.text || "").trim(); let r = await roleOf(env, me);
   if (!r) { // o'qituvchi kodini yuborsa — ulanadi
     const ts = await getTeachers(env); const t = /^\d{6}$/.test(text) && ts.find(x => x.code === text);
-    if (t) { t.tg = me; await PUT(env, "teachers", ts); await pm(env, me, `✅ Xush kelibsiz, <b>${H(t.name)}</b>!\nSiz AOK Radar'ga o'qituvchi sifatida ulandingiz.`);
+    if (t) { t.tg = me; await PUT(env, "teachers", ts); await pm(env, me, `✅ Xush kelibsiz, <b>${H(t.name)}</b>!\nSiz Support Teacher'ga o'qituvchi sifatida ulandingiz.`);
       await pm(env, env.OWNER_ID, `👩‍🏫 <b>${H(t.name)}</b> botga ulandi.`); return mainMenu(env, await roleOf(env, me)); }
-    return pm(env, me, "📡 <b>AOK Radar</b>\nBu bot AOK English o'qituvchilari uchun. O'quvchi bo'lsangiz, natijalaringiz guruhdagi topic'ingizga keladi 🙂\n\n👩‍🏫 O'qituvchi bo'lsangiz — 6 xonali kodingizni yuboring.");
+    return pm(env, me, "👩‍🏫 <b>Support Teacher</b>\nBu bot AOK English o'qituvchilari uchun. O'quvchi bo'lsangiz, natijalaringiz guruhdagi topic'ingizga keladi 🙂\n\n👩‍🏫 O'qituvchi bo'lsangiz — 6 xonali kodingizni yuboring.");
   }
   const w = await wizGet(env, me);
   if (/^#vazifa\b/i.test(text)) { if (w) await wizDel(env, me); return vazifaText(env, r, text); } // tayyor matn — darhol vazifa
@@ -1761,9 +1703,9 @@ async function cron(env){
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const DG = {
   r1: ["📡 {n}, vazifalar holati — muddatgacha {t} bor:", "📋 {n}, eslatib qo'yaman: muddatgacha {t} qoldi.", "🗓 {n}, bugungi vazifalaringiz — {t} vaqtingiz bor:", "☀️ {n}, vazifalarni rejalashtirib oling — {t} qoldi:"],
-  r2: ["⏳ {n}, muddatga {t} qoldi!", "⚡️ {n}, {t} qoldi — ulgurib qoling!", "📡 {n}, radar kutyapti: {t} qoldi.", "💪 {n}, oz qoldi — {t} ichida tugatib qo'ying!"],
+  r2: ["⏳ {n}, muddatga {t} qoldi!", "⚡️ {n}, {t} qoldi — ulgurib qoling!", "🔔 {n}, kutyapmiz: {t} qoldi.", "💪 {n}, oz qoldi — {t} ichida tugatib qo'ying!"],
   r3: ["🚨 {n}, oxirgi {t}!", "⏰ {n}, muddat tugashiga {t} qoldi!", "🔔 {n}, so'nggi eslatma — {t} qoldi!", "🏁 {n}, marraga {t} qoldi!"],
-  late: ["⌛ {n}, muddat o'tdi.", "📡 {n}, radar vazifani muddatida ko'rmadi.", "⚠️ {n}, muddat tugadi."],
+  late: ["⌛ {n}, muddat o'tdi.", "📭 {n}, vazifa muddatida kelmadi.", "⚠️ {n}, muddat tugadi."],
   lrem: ["📡 {n}, darsgacha {t} qoldi — muddati o'tgan vazifani hali topshirsa bo'ladi.", "⏳ {n}, dars boshlanishiga {t} qoldi — kech bo'lsa ham topshiring."],
   pron: ["🗣 {n}, talaffuz mashqini qilmadingiz.", "🎯 {n}, talaffuz mashqi qolib ketdi."]
 };
@@ -1925,15 +1867,16 @@ async function ghDispatch(env){ // render workflow'ini darhol chaqirish (jadvalg
   try { const r = await fetch(`https://api.github.com/repos/${env.GH_REPO || "AOK-ai97/aok-english"}/dispatches`, {method: "POST", headers: {Authorization: "Bearer " + env.GH_PAT, Accept: "application/vnd.github+json", "User-Agent": "aok-radar", "content-type": "application/json"}, body: JSON.stringify({event_type: "night-render"})}); if (!r.ok) console.log("ghd", r.status, (await r.text()).slice(0, 120)); } catch (e) { console.log("ghd", e.message); }
 }
 async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bittadan tekshiradi
-  const now = Date.now(); if (!nightOK(now) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 55e3) return;
+  const now = Date.now(); const NN = env.NIGHT_NOW === "1"; // faqat SINOV worker: tungi tekshiruv kunduzi ham (asosiyda bu var YO'Q)
+  if ((!NN && !nightOK(now)) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 55e3) return;
   const q = await J(env, "gjl", []); if (!q.length) return;
   const mid0 = atLocal(dayKey(now), 0); let any = false; // tekshiradigan ish bormi? (yo'q bo'lsa — hech narsa yozmaymiz; avval har daqiqa 2 ta bekor yozuv bo'lardi)
-  for (const id of q) { const jb = await J(env, "gj:" + id, null); if (!jb || jb.st !== "q") { any = true; break; } if ((jb.next || 0) > now) continue; if (L(now).getUTCHours() >= 5 && jb.at >= mid0) continue; any = true; break; }
+  for (const id of q) { const jb = await J(env, "gj:" + id, null); if (!jb || jb.st !== "q") { any = true; break; } if ((jb.next || 0) > now) continue; if (!NN && L(now).getUTCHours() >= 5 && jb.at >= mid0) continue; any = true; break; }
   if (!any) return; await PUT(env, "gjrun", {t: now}, {expirationTtl: 300}); const t0 = Date.now(); const drop = []; let newGraded = false;
   for (const id of q) { if (Date.now() - t0 > 50e3) break;
     const job = await J(env, "gj:" + id, null); if (!job) { drop.push(id); continue; }
     if (job.st !== "q" || (job.next || 0) > Date.now()) { if (job.st !== "q") drop.push(id); continue; }
-    if (L(now).getUTCHours() >= 5 && job.at >= mid0) continue; // 05:00 dan keyin topshirilganlar — keyingi kechada
+    if (!NN && L(now).getUTCHours() >= 5 && job.at >= mid0) continue; // 05:00 dan keyin topshirilganlar — keyingi kechada
     job.st = "run"; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); if (env.__kvfull) return;
     let d = null, err = "";
     try { const rs = await W.fetch(new Request("https://night/" + job.kind, {method: "POST", headers: {"content-type": "application/json", "x-night": NIGHT_KEY_()}, body: JSON.stringify(job.b)}), env, {waitUntil: () => {}}); d = await rs.json(); if (!rs.ok || d.error) err = d.error || ("HTTP " + rs.status); }
@@ -2000,7 +1943,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 const WORKER = {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([nightFailOnce(env).catch(() => {}), fbFixOnce(env).catch(() => {}), pronSkipOnce(env).catch(() => {}), shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     if (path === "/diag") { // diagnostika (faqat GitHub Actions token bilan; natija shifrlanib chiqariladi)
@@ -2031,7 +1974,7 @@ const WORKER = {
       const wh = await tg(env, "setWebhook", {url: url.origin + "/tg", secret_token: await secretOf(env), allowed_updates: ["message", "edited_message", "callback_query", "my_chat_member"], drop_pending_updates: false});
       const cmds = [["start","📡 Bosh menyu"],["guruhlar","📚 Guruhlarim"],["natijalar","📊 Oxirgi vazifa natijalari"],["limit","🤖 AI limit (tepaga pin)"],["davomat","📋 Bugungi davomat"],["holat","🔎 Kim topshirdi / kim topshirmadi"],["pinlar","🔑 O'quvchilar PIN kodlari"],["hisobot","📈 Haftalik hisobotni hozir yuborish"],["jim","🔕 Eslatmalarni vaqtincha o'chirish"],["yoq","🔔 Eslatmalarni yoqish"]];
       await tg(env, "setMyCommands", {commands: cmds.map(([command, description]) => ({command, description})), scope: {type: "chat", chat_id: +env.OWNER_ID}});
-      if (wh.ok && env.OWNER_ID) await owner(env, "📡 <b>AOK Radar ishga tushdi!</b>\n\nEndi botni guruhlaringizga qo'shing va <b>admin</b> qiling. Menyu: /start");
+      if (wh.ok && env.OWNER_ID) await owner(env, "👩‍🏫 <b>Support Teacher ishga tushdi!</b>\n\nEndi botni guruhlaringizga qo'shing va <b>admin</b> qiling. Menyu: /start");
       return new Response(`<meta charset=utf-8><body style="font:18px system-ui;padding:30px"><h2>${wh.ok ? "✅ Bot ulandi" : "❌ Xato"}</h2><p>Bot: @${H(me.result && me.result.username)}</p><p>${H(wh.description || "")}</p><p>${wh.ok ? "Telegram'da botga qarang — xabar yubordi." : ""}</p>`, {headers: {"content-type": "text/html; charset=utf-8"}});
     }
 
@@ -2042,7 +1985,7 @@ const WORKER = {
     const out = (o, s = 200) => { if (env.__kvfull && s < 300 && o && o.ok && /^\/teacher\//.test(path)) { o = {error: "⏳ Bugun xotiraning kunlik yozuv limiti tugadi — o'zgarish SAQLANMADI. Ertalab 05:00 dan keyin qayta saqlang."}; s = 507; } // jim "saqlandi" demasin
       return new Response(JSON.stringify(o), {status: s, headers: {...cors, "content-type": "application/json; charset=utf-8"}}); };
     if (req.method === "OPTIONS") return new Response(null, {headers: cors});
-    if (req.method !== "POST") return out({ok: true, service: "AOK checker + Radar", version: 8, kv: !!env.KV, bot: !!env.TG_TOKEN});
+    if (req.method !== "POST") return out({ok: true, service: "AOK checker + Support Teacher", version: 8, kv: !!env.KV, bot: !!env.TG_TOKEN});
     if (!allow.includes(origin) && (!NIGHT_KEY0 || req.headers.get("x-night") !== NIGHT_KEY0) && !(env.RENDER_TOKEN && url.searchParams.get("rt") === env.RENDER_TOKEN)) return out({error: "Ruxsat yo'q (origin)."}, 403); // kechki ichki tekshiruv / render
     if (!env.KV) return out({error: "KV ulanmagan (Cloudflare → Bindings → KV namespace, nomi: KV)."}, 500);
 
