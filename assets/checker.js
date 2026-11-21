@@ -2,7 +2,7 @@
 (()=>{
 const API=(window.AOK_API||"").replace(/\/$/,"");
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const ls={get:k=>{try{return localStorage.getItem(k)||""}catch(e){return""}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
+const LSP=window.AOK_LS||"";const ls={get:k=>{try{return localStorage.getItem(LSP+k)||""}catch(e){return""}},set:(k,v)=>{try{localStorage.setItem(LSP+k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(LSP+k)}catch(e){}}};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmt=x=>(Math.round((+x||0)*2)/2).toString();
 const initials=n=>(n||"?").trim().split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
