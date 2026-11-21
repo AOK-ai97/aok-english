@@ -1,5 +1,6 @@
 /* AOK English — Question Race (sinf o'yini, o'qituvchi boshqaradi) */
 "use strict";
+var LSP=window.AOK_LS||""; // sinov rejimida (?api=dev) saqlash kalitlari alohida
 const BUILTIN = BANK.flatMap(s=>s.qs);
 const VERBS = [["go","went"],["see","saw"],["eat","ate"],["drink","drank"],["write","wrote"],["take","took"],["come","came"],["buy","bought"],["make","made"],["run","ran"],["swim","swam"],["sing","sang"],["sleep","slept"],["read","read"],["give","gave"],["find","found"],["speak","spoke"],["drive","drove"],["fly","flew"],["have","had"],["do","did"],["get","got"],["know","knew"],["think","thought"],["sit","sat"],["begin","began"],["break","broke"],["teach","taught"],["catch","caught"],["tell","told"]];
 const EMOJIS = ["🦁","🐯","🐵","🦊","🐼","🐨","🐸","🦉","🦄","🐲","🐙","🦋","🐢","🦜","🐬","🦓","🦒","🐘","🦩","🐝","🦔","🐧","🦀","🐳","🦖","🐊","🦥","🐿️","🦚","🐞"];
@@ -52,14 +53,14 @@ let S = null;  // {players:[{id,name,em,pos,frozen,done,place}], turn, deck:[], 
 let history = [];
 let soundOn = true;
 const KEY='qrace-v1';
-function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
-function load(){ try{ const v=JSON.parse(localStorage.getItem(KEY)); if(v && v.players && v.players.length) return v; }catch(e){} return null; }
+function save(){ try{ localStorage.setItem(LSP+KEY, JSON.stringify(S)); }catch(e){} }
+function load(){ try{ const v=JSON.parse(localStorage.getItem(LSP+KEY)); if(v && v.players && v.players.length) return v; }catch(e){} return null; }
 function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
 function newDeck(){ return []; } // (eski versiya bilan moslik) — savollar endi takrorlanmas tartibda tortiladi
 const qkey=q=>(String(q.q)+'|'+String(q.a)).toLowerCase().replace(/\s+/g,' ').trim();
 let USED=null, LASTSEC='';
-function usedSet(){ if(!USED){ try{ USED=new Set(JSON.parse(localStorage.getItem('qrace-used')||'[]')); }catch(e){ USED=new Set(); } } return USED; }
-function saveUsed(){ try{ localStorage.setItem('qrace-used', JSON.stringify([...usedSet()].slice(-3000))); }catch(e){} }
+function usedSet(){ if(!USED){ try{ USED=new Set(JSON.parse(localStorage.getItem(LSP+'qrace-used')||'[]')); }catch(e){ USED=new Set(); } } return USED; }
+function saveUsed(){ try{ localStorage.setItem(LSP+'qrace-used', JSON.stringify([...usedSet()].slice(-3000))); }catch(e){} }
 function usedCount(){ const U=usedSet(); return pool().filter(q=>U.has(qkey(q))).length; }
 function resetUsed(){ const U=usedSet(); for(const q of pool()) U.delete(qkey(q)); saveUsed(); }
 function draw(){ // tanlangan mavzulardagi BARCHA savollar chiqmaguncha bittasi ham takrorlanmaydi; mavzular aralash beriladi
@@ -638,8 +639,8 @@ function start(data){
 
 /* ---------------- savol to'plamlari (o'qituvchi qo'shadi) ---------------- */
 const API=(window.AOK_API||"").replace(/\/$/,"");
-const lsg=k=>{try{return localStorage.getItem(k)||""}catch(e){return""}};
-const lss=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+const lsg=k=>{try{return localStorage.getItem(LSP+k)||""}catch(e){return""}};
+const lss=(k,v)=>{try{localStorage.setItem(LSP+k,v)}catch(e){}};
 const TCODE=()=>lsg("aok_tcode");
 const GROUPS=["Zamonlar","Savollar","Grammatika","O‘qituvchilar to‘plamlari"];
 let SETS=(()=>{try{const v=JSON.parse(lsg("qrace-sets")||"[]");return Array.isArray(v)?v:[]}catch(e){return[]}})();
