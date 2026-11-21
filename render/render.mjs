@@ -1,11 +1,11 @@
 // Kechki render: worker tekshirgan natijalarni sayt kodidagi A4 feedback sahifalariga aylantirib, o'quvchi topic'iga yuboradi.
 import { chromium } from "playwright";
-const W = "https://aok-checker.ozodbekadilov092.workers.dev", SITE = "https://aok-ai97.github.io/aok-english/checker/";
+const W = process.env.AOK_W || "https://aok-checker.ozodbekadilov092.workers.dev", SITE = "https://aok-ai97.github.io/aok-english/checker/";
 const RT = process.env.RT; if (!RT) { console.log("RT yo'q"); process.exit(0); }
 const browser = await chromium.launch(); const t0 = Date.now(); let n = 0;
 const pages = {};
 async function pageFor(kind){ if (pages[kind]) return pages[kind]; const p = await browser.newPage({viewport: {width: 1100, height: 1400}, colorScheme: "light"});
-  await p.goto(SITE + (kind === "writing" ? "writing.html" : "speaking.html") + "?v=" + Date.now(), {waitUntil: "networkidle"}); await p.waitForTimeout(5000); // sahifa o'zini bir marta yangilashi mumkin
+  await p.goto(SITE + (kind === "writing" ? "writing.html" : "speaking.html") + (process.env.AOK_W ? "?api=dev&v=" : "?v=") + Date.now(), {waitUntil: "networkidle"}); await p.waitForTimeout(5000); // sahifa o'zini bir marta yangilashi mumkin
   await p.waitForFunction(() => window.__AOK, null, {timeout: 30000}); return (pages[kind] = p); }
 while (Date.now() - t0 < 20 * 60e3) {
   const rs0 = await fetch(`${W}/night/next?rt=${encodeURIComponent(RT)}`); if (rs0.status === 403) { console.log("❌ token mos emas"); process.exit(1); }

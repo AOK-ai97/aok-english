@@ -1867,15 +1867,16 @@ async function ghDispatch(env){ // render workflow'ini darhol chaqirish (jadvalg
   try { const r = await fetch(`https://api.github.com/repos/${env.GH_REPO || "AOK-ai97/aok-english"}/dispatches`, {method: "POST", headers: {Authorization: "Bearer " + env.GH_PAT, Accept: "application/vnd.github+json", "User-Agent": "aok-radar", "content-type": "application/json"}, body: JSON.stringify({event_type: "night-render"})}); if (!r.ok) console.log("ghd", r.status, (await r.text()).slice(0, 120)); } catch (e) { console.log("ghd", e.message); }
 }
 async function nightRun(env, W){ // har daqiqa (kechasi): navbatdagi ishlarni bittadan tekshiradi
-  const now = Date.now(); if (!nightOK(now) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 55e3) return;
+  const now = Date.now(); const NN = env.NIGHT_NOW === "1"; // faqat SINOV worker: tungi tekshiruv kunduzi ham (asosiyda bu var YO'Q)
+  if ((!NN && !nightOK(now)) || env.__kvfull) return; const lk = await J(env, "gjrun", null); if (lk && now - lk.t < 55e3) return;
   const q = await J(env, "gjl", []); if (!q.length) return;
   const mid0 = atLocal(dayKey(now), 0); let any = false; // tekshiradigan ish bormi? (yo'q bo'lsa — hech narsa yozmaymiz; avval har daqiqa 2 ta bekor yozuv bo'lardi)
-  for (const id of q) { const jb = await J(env, "gj:" + id, null); if (!jb || jb.st !== "q") { any = true; break; } if ((jb.next || 0) > now) continue; if (L(now).getUTCHours() >= 5 && jb.at >= mid0) continue; any = true; break; }
+  for (const id of q) { const jb = await J(env, "gj:" + id, null); if (!jb || jb.st !== "q") { any = true; break; } if ((jb.next || 0) > now) continue; if (!NN && L(now).getUTCHours() >= 5 && jb.at >= mid0) continue; any = true; break; }
   if (!any) return; await PUT(env, "gjrun", {t: now}, {expirationTtl: 300}); const t0 = Date.now(); const drop = []; let newGraded = false;
   for (const id of q) { if (Date.now() - t0 > 50e3) break;
     const job = await J(env, "gj:" + id, null); if (!job) { drop.push(id); continue; }
     if (job.st !== "q" || (job.next || 0) > Date.now()) { if (job.st !== "q") drop.push(id); continue; }
-    if (L(now).getUTCHours() >= 5 && job.at >= mid0) continue; // 05:00 dan keyin topshirilganlar — keyingi kechada
+    if (!NN && L(now).getUTCHours() >= 5 && job.at >= mid0) continue; // 05:00 dan keyin topshirilganlar — keyingi kechada
     job.st = "run"; await PUT(env, "gj:" + id, job, {expirationTtl: 10 * 86400}); if (env.__kvfull) return;
     let d = null, err = "";
     try { const rs = await W.fetch(new Request("https://night/" + job.kind, {method: "POST", headers: {"content-type": "application/json", "x-night": NIGHT_KEY_()}, body: JSON.stringify(job.b)}), env, {waitUntil: () => {}}); d = await rs.json(); if (!rs.ok || d.error) err = d.error || ("HTTP " + rs.status); }

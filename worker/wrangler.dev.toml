@@ -10,6 +10,8 @@ keep_vars = true
 [vars]
 ALLOWED_ORIGIN = "https://aok-ai97.github.io"
 OWNER_ID = "6710553098"
+# Tungi tekshiruvni (writing/speaking) kunduzi ham ishlatish — FAQAT sinovda. Asosiy wrangler.toml da YO'Q.
+NIGHT_NOW = "1"
 
 # Alohida sinov bazasi (aok-dev). Asosiy baza: aab1bb58... — bu yerda YO'Q.
 [[kv_namespaces]]
@@ -19,7 +21,7 @@ id = "ad3b3ffddacb456aab52edd022eb6224"
 # Cron odatda O'CHIQ: KV yozish limiti (~1000/kun) butun akkaunt uchun umumiy,
 # sinov asosiy botning limitini yemasligi kerak. Sinov paytida vaqtincha yoqiladi.
 [triggers]
-crons = []
+crons = ["* * * * *", "*/5 * * * *"]   # SINOV VAQTIDA YOQIQ (21.11) — tugagach [] ga qaytariladi
 
 [observability]
 enabled = true
