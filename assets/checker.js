@@ -80,7 +80,7 @@ document.addEventListener("click",e=>{const im=e.target.closest(".ex-imgs img,.c
 function itemHTML(it){
   if(it.kind==="writing"){
     if(it.wtype==="T1") return `<div class="ex-card"><div class="ex-h">Task 1 · Email</div><p class="ex-s">${esc(it.sender)}</p><div class="ck-mail">${esc(it.email)}</div>
-      <p><b>Task 1.1</b> ${esc(it.t11)}</p><p><b>Task 1.2</b> ${esc(it.t12)}</p></div>`;
+      ${it.t11?`<p><b>Task 1.1</b> ${esc(it.t11)}</p>`:""}${it.t12?`<p><b>Task 1.2</b> ${esc(it.t12)}</p>`:""}</div>`;
     return `<div class="ex-card"><div class="ex-h">Task 2 · Essay</div><p>${esc(it.essay)}</p></div>`;
   }
   const im=(it.images||[]).map(x=>`<img src="${esc(imgSrc(x))}" alt="">`).join("");

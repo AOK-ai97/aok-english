@@ -2238,7 +2238,7 @@ const WORKER = {
       if (path === "/writing") {
         const items = await findItems(env, "writing", b.ids || []);
         const ctx = items.map(it => it.wtype === "T1"
-          ? `TASK 1 — ${it.sender}\nEmail:\n${it.email}\nTask 1.1: ${it.t11}\nTask 1.2: ${it.t12}`
+          ? `TASK 1 — ${it.sender}\nEmail:\n${it.email}${it.t11 ? `\nTask 1.1: ${it.t11}` : ""}${it.t12 ? `\nTask 1.2: ${it.t12}` : ""}${it.t11 && it.t12 ? "" : `\n(Only Task ${it.t11 ? "1.1" : "1.2"} is assigned — grade only that task.)`}`
           : `TASK 2 — Essay question: ${it.essay}`).join("\n\n") || "(no question given)";
         const imgs = (b.images || []).slice(0, 8);
         if (!imgs.length && !b.text) return out({error: "Rasm yuklang."}, 400);
@@ -2249,8 +2249,11 @@ const WORKER = {
         const r = await gemini(env, WRITING_SYS + tagLine(), parts, W_SCHEMA);
         if (!r.tasks || !r.tasks.length) return out({error: "Rasmda javob topilmadi. Yorug' joyda, tekis qilib qayta rasmga oling."}, 422);
         r.tasks.forEach(fixTask);
+        { const t1 = items.filter(it => it.wtype === "T1"); // faqat bitta Task berilgan bo'lsa — AI boshqa raqam qo'ysa ham o'shanga yozamiz
+          if (t1.length && t1.every(it => !it.t11 && it.t12)) r.tasks.forEach(t => { if (t.task === "1.1") t.task = "1.2"; });
+          else if (t1.length && t1.every(it => it.t11 && !it.t12)) r.tasks.forEach(t => { if (t.task === "1.2") t.task = "1.1"; }); }
         { const seen = {}; r.tasks = r.tasks.filter(t => { if (seen[t.task]) { if (t.overall > seen[t.task].overall) Object.assign(seen[t.task], t); return false; } seen[t.task] = t; return true; }); } // bir Task ikki marta kelsa — bittasi
-        const expected = items.flatMap(it => it.wtype === "T1" ? ["1.1", "1.2"] : ["2"]);
+        const expected = items.flatMap(it => it.wtype === "T1" ? (it.t11 || it.t12 ? [it.t11 && "1.1", it.t12 && "1.2"].filter(Boolean) : ["1.1", "1.2"]) : ["2"]); // faqat berilgan Task'lar (masalan, faqat 1.2 — rasmiy xat)
         for (const t of [...new Set(expected)]) if (!r.tasks.some(x => x.task === t))
           r.tasks.push({task: t, missing: true, on_topic: true, topic_check: "", transcript: "", word_count: 0, errors: [], overall: 0, ideal: "", max_tips: ["Bu Task'ni ham yozing — yozilmagan Task 0 ball oladi."],
             criteria: ["Task Response", "Coherence & Cohesion", "Lexical Resource", "Grammatical Range & Accuracy", "Imlo xato"].map(n => ({name: n, score: 0, comment: "Javob berilmagan."}))});
