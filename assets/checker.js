@@ -635,7 +635,7 @@ if(PAGE==="teacher"){
   async function loadStudents(){const j=await post("/teacher/groups",{tcode:T()});const S=j.students||[];
     $("#stuList").innerHTML=(j.groups||[]).length?j.groups.map(g=>{const L=S.filter(s=>s.gid===g.id);return `<details class="tg" open><summary>📚 ${esc(g.title)} <small>${L.length}</small></summary>
       <table class="rep-tb"><tr><th>#</th><th>O'quvchi</th><th>PIN</th><th>Topic</th></tr>${L.map((s,i)=>`<tr><td>${i+1}</td><td>${esc(s.name)}</td><td><b>${esc(s.pin)}</b></td><td>${s.thread?"✅":"⚠️ ulanmagan"}</td></tr>`).join("")}</table></details>`}).join("")
-      :`<div class="ck-msg">Hali guruh yo'q. Telegram'da <b>AOK Radar</b> botni guruhga qo'shib admin qiling — o'quvchilar va PIN'lar shu yerda chiqadi.</div>`}
+      :`<div class="ck-msg">Hali guruh yo'q. Telegram'da <b>Support Teacher</b> botni guruhga qo'shib admin qiling — o'quvchilar va PIN'lar shu yerda chiqadi.</div>`}
   /* --- 🕓 faoliyat --- */
   const EV={login:["🔑","Saytga kirdi"],start:["▶️","Boshladi"],answer:["🎙","Savolga javob"],away:["🚪","Sahifadan chiqib ketdi"],resume:["🔄","Davom ettirdi"],photo:["📷","Rasm yukladi"],
     submit:["📨","Topshirdi"],graded:["🤖","AI baholadi"],sent:["📤","Telegram'ga tushdi"],sent_ok:["✅","Jo'natish tasdiqlandi"],send_dup:["♻️","Qayta jo'natishga urindi (takrorlanmadi)"],send_fail:["⚠️","Jo'natish xatosi"],
