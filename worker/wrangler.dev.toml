@@ -21,7 +21,7 @@ id = "ad3b3ffddacb456aab52edd022eb6224"
 # Cron odatda O'CHIQ: KV yozish limiti (~1000/kun) butun akkaunt uchun umumiy,
 # sinov asosiy botning limitini yemasligi kerak. Sinov paytida vaqtincha yoqiladi.
 [triggers]
-crons = ["* * * * *", "*/5 * * * *"]   # SINOV VAQTIDA YOQIQ (21.11) — tugagach [] ga qaytariladi
+crons = []
 
 [observability]
 enabled = true
