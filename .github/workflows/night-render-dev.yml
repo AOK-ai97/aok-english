@@ -1,7 +1,11 @@
 name: Night render — SINOV (dev)
-# Faqat qo'lda: Actions → "Night render — SINOV (dev)" → Run workflow.
+# Ishga tushirish: dev branchda render/dev-kick.txt dagi raqamni o'zgartirish (yoki render/**, shu fayl o'zgarsa).
+# (workflow_dispatch faqat fayl main'da bo'lsa ko'rinadi — shuning uchun push trigger.)
 # dev branchdagi render.mjs ni sinov worker (aok-checker-dev) bilan ishlatadi. Asosiy botga TEGMAYDI.
 on:
+  push:
+    branches: [dev]
+    paths: ["render/**", ".github/workflows/night-render-dev.yml"]
   workflow_dispatch:
 concurrency: { group: night-render-dev, cancel-in-progress: false }
 jobs:
