@@ -1,0 +1,24 @@
+name: Night render — SINOV (dev)
+# Faqat qo'lda: Actions → "Night render — SINOV (dev)" → Run workflow.
+# dev branchdagi render.mjs ni sinov worker (aok-checker-dev) bilan ishlatadi. Asosiy botga TEGMAYDI.
+on:
+  workflow_dispatch:
+concurrency: { group: night-render-dev, cancel-in-progress: false }
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: dev }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm i --no-save playwright@1.47.2 && npx playwright install --with-deps chromium
+      - name: Render & post (SINOV)
+        env:
+          CF: "${{ secrets.CLOUDFLARE_API_TOKEN }}"
+          AOK_W: "https://aok-checker-dev.ozodbekadilov092.workers.dev"
+        run: |
+          export RT=$(printf '%s' "$CF:aok-render-dev-v1" | sha256sum | cut -c1-40)
+          echo "::add-mask::$RT"
+          node render/render.mjs
