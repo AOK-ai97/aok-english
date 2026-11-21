@@ -359,13 +359,6 @@ async function hpRefs(env, gid, hp){ // Homework audiolari: hp.refs + har bir au
   const out0 = [...(hp.refs || [])]; try { const L = await env.KV.list({prefix: `hpr:${gid}:${hp.id}:`});
     for (const k of L.keys) { const r = await J(env, k.name, null); if (r && !out0.some(x => x.fu && x.fu === r.fu)) out0.push({...r, name: r.name || `Audio ${out0.length + 1}`}); } } catch (_) {}
   return out0.slice(0, 6); }
-async function fbFixOnce(env){ if (await env.KV.get("mig:fbn1")) return; await env.KV.put("mig:fbn1", "1", {expirationTtl: 30 * 86400});
-  const k = "gs:-1004306427312:2026-11-14"; const o = await J(env, k, null); if (o && o["mwb183i8k1f9"]) { delete o["mwb183i8k1f9"]; await PUT(env, k, o, {expirationTtl: 7 * 86400}); }
-  const q = await J(env, "fbq", []); q.push({gid: "-1004306427312", d: "2026-11-14", by: null, t: Date.now()}); await PUT(env, "fbq", q.slice(-20)); }
-async function nightFailOnce(env){ if (await env.KV.get("mig:nfn1")) return; await env.KV.put("mig:nfn1", "1", {expirationTtl: 30 * 86400});
-  for (const k of (await env.KV.list({prefix: "gj:"})).keys) { const j = await J(env, k.name, null); if (j && j.st === "fail" && Date.now() - (j.at || 0) < 3 * 864e5) await nightFailNote(env, j).catch(() => {}); } }
-async function pronSkipOnce(env){ if (await env.KV.get("mig:pron1")) return; await env.KV.put("mig:pron1", "1", {expirationTtl: 30 * 86400});
-  for (const k of ["r:speaking:1794497439466"]) { const rv = await env.KV.getWithMetadata(k); if (rv.value && rv.metadata && !rv.metadata.pronHash) await env.KV.put(k, rv.value, {metadata: {...rv.metadata, pronHash: "skip"}}); } } // Sirojiddin: urinishlari eski versiyada tugagan
 async function shRegrade(env){ // bir martalik: asl audiosi botda bo'lmagan mashqlar uchun 0% qo'yilganlarni qayta tekshirish (har daqiqada 1 tadan, qulf bilan)
   const st = await J(env, "mig:shrg2", null); if (st && st.done) return; if (await env.KV.get("shrg:lk")) return;
   await env.KV.put("shrg:lk", "1", {expirationTtl: 120}); const S = st || {seen: []};
@@ -600,57 +593,6 @@ async function impFail(env, r, d, mid, e){ // AI band — qayta urinish navbati 
   d.q.next = Date.now() + [60e3, 120e3, 180e3, 300e3][d.q.n - 1]; await PUT(env, impD(d.id), d, {expirationTtl: 2 * 86400});
   return tg(env, "editMessageText", {chat_id: r.uid, message_id: mid, parse_mode: "HTML", text: `⏳ Google AI hozir band — ${d.q.n + 1}-urinish ${Math.round((d.q.next - Date.now()) / 60e3)} daqiqadan keyin. Hech narsa bosish shart emas, o'zim qayta urinaman.`});
 }
-// Bir martalik: o'qituvchi so'rovi bilan uyga vazifani (sayt repo'sidagi assets/hw/<nom>/) bazaga qo'shib guruhga berish
-async function hwSeedOnce(env, name, grpRe, dueAt){ const mk = "mig:hw-" + name; const st = await env.KV.get(mk); if (st) return;
-  await env.KV.put(mk, "run", {expirationTtl: 900}); if (env.__kvfull) return;
-  const base = `https://aok-ai97.github.io/aok-english/assets/hw/${name}/`; const j = await (await fetch(base + "items.json?" + Date.now())).json(); const items = [];
-  for (const it of j.items) { const x = {...it, id: uid(), created: Date.now()}; if (it.imgs) { x._img = []; for (const f of it.imgs) { const b = new Uint8Array(await (await fetch(base + f)).arrayBuffer()); x._img.push("data:image/jpeg;base64," + b64of(b)); } delete x.imgs; } items.push(x); }
-  const g = (await getGroups(env)).find(g => grpRe.test(g.title || "")); if (!g) { await pm(env, env.OWNER_ID, "⚠️ Uyga vazifa: guruh topilmadi."); return; }
-  const r = {admin: true, uid: String(env.OWNER_ID), name: "Bosh admin"};
-  const x = await impSave(env, r, {title: j.title, items, sel: [g.id]}, true); await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  const due = dueAt || nextLesson(g, dayKey()); if (dueAt) for (const k of ["writing", "speaking"]) { const hw = await J(env, `hw:${k}:${g.id}`, null); if (hw && hw.title === j.title) { hw.due = dueAt; await PUT(env, `hw:${k}:${g.id}`, hw); } }
-  await pm(env, env.OWNER_ID, `✅ <b>${H(j.title)}</b> uyga vazifasi saytga joylashtirildi — <b>${H(g.title)}</b>\n📚 Bazaga qo'shildi: ${x.added} ta${x.dup ? ` (oldin bor edi: ${x.dup})` : ""}\n${x.done.map(t => "📌 " + H(t)).join("\n")}\n⏰ Muddat: ${DAY_UZ[wdOf(dayKey(due))]} ${ddmm(due)} ${hhmm(due)}`);
-}
-async function hwP3Once(env, title, keep, grpRe){ // uyga vazifada Part 3 dan faqat bittasi qolsin (o'qituvchi so'rovi)
-  const mk = "mig:p3-" + title; if (await env.KV.get(mk) || (await env.KV.get("mig:hw-tourism")) !== "1") return;
-  const g = (await getGroups(env)).find(g => grpRe.test(g.title || "")); if (!g) return; const k = `hw:speaking:${g.id}`; const hw = await J(env, k, null); if (!hw || hw.title !== title) return;
-  const b3 = await getBank(env, "speaking", "3"); const p3 = new Set(b3.map(x => x.id)); const keepIt = b3.find(x => norm(keyText(x)) === norm(keep));
-  hw.ids = hw.ids.filter(id => !p3.has(id) || (keepIt && id === keepIt.id)); await PUT(env, k, hw); await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  await pm(env, env.OWNER_ID, `✅ <b>${H(title)}</b> uyga vazifasida Part 3 dan bittasi qoldirildi: «${H(keep)}». Speaking savollari: ${hw.ids.length} ta.`);
-}
-async function fixC1Once(env){ // bir martalik: guruh jadvali (kunlar) + C guruh "Grammar Mix" vazifasiga rasm va to'g'ri muddat
-  const mk = "mig:fixC1"; if (await env.KV.get(mk)) return; await env.KV.put(mk, "run", {expirationTtl: 900}); if (env.__kvfull) return;
-  const gs = await getGroups(env); let ch = false;
-  for (const g of gs) { if (g.days && g.days.length) continue; if (/16\s*-\s*18/.test(g.title || "")) { g.days = [2, 4, 6]; ch = true; } else if (/15\s*-\s*17/.test(g.title || "")) { g.days = [1, 3, 5]; ch = true; } }
-  if (ch) await PUT(env, "groups", gs);
-  const g = gs.find(x => /15\s*-\s*17/.test(x.title || "")); const out = [];
-  if (g) for (const k of ["writing", "speaking"]) { const key = `hw:${k}:${g.id}`; const hw = await J(env, key, null); if (!hw || !/grammar mix/i.test(hw.title || "")) continue;
-    hw.due = nextLesson(g, dayKey(hw.at));
-    if (k === "speaking") { const arr = await getBank(env, "speaking", "1.2"); const base = "https://aok-ai97.github.io/aok-english/assets/hw/c-celebrations/"; const images = [];
-      for (const f of ["1.jpg", "2.jpg"]) { const rs = await fetch(base + f); if (rs.ok) { const ik = "img:" + uid(); await env.KV.put(ik, "data:image/jpeg;base64," + b64of(new Uint8Array(await rs.arrayBuffer()))); images.push({k: ik}); } }
-      const it = {id: uid(), kind: "speaking", topic: hw.title, created: Date.now(), part: "1.2", q: ["Tell me what you can see in these pictures."], images};
-      if (images.length) { arr.push(it); await putBank(env, "speaking", "1.2", arr); const ids12 = new Set(arr.filter(x => x.part === "1.2" || true).map(x => x.id)); hw.ids = hw.ids.filter(id => !ids12.has(id) || id === it.id); hw.ids.push(it.id); hw.ids = [...new Set(hw.ids)]; out.push(`🖼 Part 1.2 ga ${images.length} ta rasm`); } }
-    await PUT(env, key, hw); out.push(`${k === "writing" ? "✍️" : "🎤"} muddat: ${DAY_UZ[wdOf(dayKey(hw.due))]} ${ddmm(hw.due)} ${hhmm(hw.due)}`); }
-  await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  if (out.length) await pm(env, env.OWNER_ID, `✅ <b>${H(g.title)}</b> — Grammar Mix vazifasi tuzatildi:\n${out.join("\n")}`);
-}
-async function picC2(env){ // C guruh Grammar Mix: Part 1.2 savolida rasm bo'lmasa — qo'shamiz (muvaffaqiyatli bo'lgunicha har daqiqa urinadi)
-  if (await env.KV.get("mig:picC2")) return; const g = (await getGroups(env)).find(x => /15\s*-\s*17/.test(x.title || "")); if (!g) return;
-  const hw = await J(env, `hw:speaking:${g.id}`, null); if (!hw || !/grammar mix/i.test(hw.title || "")) return;
-  const arr = await getBank(env, "speaking", "1.2"); let it = arr.find(x => hw.ids.includes(x.id));
-  if (it && it.images && it.images.length) { await env.KV.put("mig:picC2", "1", {expirationTtl: 60 * 86400}); return; }
-  const base = "https://aok-ai97.github.io/aok-english/assets/hw/c-celebrations/"; const images = [];
-  for (const f of ["1.jpg", "2.jpg"]) { const rs = await fetch(base + f + "?v=2"); if (!rs.ok) return; const ik = "img:" + uid(); await env.KV.put(ik, "data:image/jpeg;base64," + b64of(new Uint8Array(await rs.arrayBuffer()))); images.push({k: ik}); }
-  if (env.__kvfull) return;
-  if (!it) { it = {id: uid(), kind: "speaking", topic: hw.title, created: Date.now(), part: "1.2", q: ["Tell me what you can see in these pictures."]}; arr.push(it); hw.ids.push(it.id); await PUT(env, `hw:speaking:${g.id}`, hw); }
-  else if (it.topic !== hw.title) { const oldId = it.id; it = {...it, id: uid(), topic: hw.title}; arr.push(it); hw.ids = hw.ids.map(id => id === oldId ? it.id : id); await PUT(env, `hw:speaking:${g.id}`, hw); } // boshqa mavzudagi umumiy savolga tegmaymiz — yangisini yaratamiz
-  it.images = images; await putBank(env, "speaking", "1.2", arr); await env.KV.put("mig:picC2", "1", {expirationTtl: 60 * 86400});
-  await pm(env, env.OWNER_ID, `🖼 <b>${H(g.title)}</b> — «${H(hw.title)}» Part 1.2 ga ${images.length} ta rasm qo'shildi. O'quvchilar saytdagi sahifani yangilasa, rasmlar chiqadi.`);
-}
-async function dialogFixOnce(env){ const mk = "mig:dlg1"; if (await env.KV.get(mk)) return; await env.KV.put(mk, "1", {expirationTtl: 60 * 86400});
-  for (const g of await getGroups(env)) { const hp = await J(env, "hp:" + g.id, null); if (!hp || hp.st === "done") continue; let ch = false;
-    for (const it of hp.items) if ((it.type === "voice" || it.type === "video") && /dialog|suhbat|yodla|retell/i.test(it.title || "") && !/yubor|tashla|ovozli|audio|yozib/i.test(it.title || "")) { it.type = "in_class"; ch = true; }
-    if (ch) await PUT(env, "hp:" + g.id, hp, {expirationTtl: 30 * 86400}); } }
 async function impSweep(env){ // har daqiqa: navbatdagi vazifa importlari
   const q = await J(env, "impq", []); if (!q.length) return; const drop = [];
   for (const j of q) { if (typeof j !== "object") { drop.push(j); continue; } const d = await J(env, impD(j.id), null);
@@ -2000,7 +1942,7 @@ function safeEnv(env){ if (env.__safe) return env; const kv = env.KV; const e = 
     return f.bind(t); }});
   return e; }
 const WORKER = {
-  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([nightFailOnce(env).catch(() => {}), fbFixOnce(env).catch(() => {}), pronSkipOnce(env).catch(() => {}), shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message)), hwSeedOnce(env, "tourism", /16\s*-\s*18/, Date.UTC(2026, 10, 13, 18, 59)).then(() => dialogFixOnce(env)).then(() => fixC1Once(env)).then(() => picC2(env)).then(() => hwP3Once(env, "Tourism", "Tourism brings more benefits than problems to a country.", /16\s*-\s*18/)).catch(e => console.log("seed", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
+  async scheduled(ev, env, ctx){ env = safeEnv(env); ctx.waitUntil((ev.cron === "* * * * *" ? Promise.all([shRegrade(env).catch(e => console.log("shrg", e.message)), shadowQueue(env), spkSweep(env), impSweep(env), nightRun(env, WORKER).catch(e => console.log("night", e.message))]) : Promise.all([nightFallback(env).catch(e => console.log("nfb", e.message)), cron(env), aiCount(env, null, null, true).then(() => limRefresh(env))])).catch(e => console.log("cron", e.stack || e.message))); },
   async fetch(req, env, ctx){ env = safeEnv(env);
     const url = new URL(req.url); const path = url.pathname;
     if (path === "/diag") { // diagnostika (faqat GitHub Actions token bilan; natija shifrlanib chiqariladi)
