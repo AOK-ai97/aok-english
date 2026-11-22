@@ -1,15 +1,17 @@
 // Kechki render: worker tekshirgan natijalarni sayt kodidagi A4 feedback sahifalariga aylantirib, o'quvchi topic'iga yuboradi.
 import { chromium } from "playwright";
-const W = "https://aok-checker.ozodbekadilov092.workers.dev", SITE = "https://aok-ai97.github.io/aok-english/checker/";
+const W = process.env.AOK_W || "https://aok-checker.ozodbekadilov092.workers.dev", SITE = "https://aok-ai97.github.io/aok-english/checker/";
 const RT = process.env.RT; if (!RT) { console.log("RT yo'q"); process.exit(0); }
 const browser = await chromium.launch(); const t0 = Date.now(); let n = 0;
 const pages = {};
 async function pageFor(kind){ if (pages[kind]) return pages[kind]; const p = await browser.newPage({viewport: {width: 1100, height: 1400}, colorScheme: "light"});
-  await p.goto(SITE + (kind === "writing" ? "writing.html" : "speaking.html") + "?v=" + Date.now(), {waitUntil: "networkidle"}); await p.waitForTimeout(5000); // sahifa o'zini bir marta yangilashi mumkin
+  await p.goto(SITE + (kind === "writing" ? "writing.html" : "speaking.html") + (process.env.AOK_W ? "?api=dev&v=" : "?v=") + Date.now(), {waitUntil: "networkidle"}); await p.waitForTimeout(5000); // sahifa o'zini bir marta yangilashi mumkin
   await p.waitForFunction(() => window.__AOK, null, {timeout: 30000}); return (pages[kind] = p); }
+const seen = new Set(); // bitta ishni bir ishga tushishda faqat BIR MARTA yuborish (22.11: KV to'lganda 11 marta takrorlangan)
 while (Date.now() - t0 < 20 * 60e3) {
   const rs0 = await fetch(`${W}/night/next?rt=${encodeURIComponent(RT)}`); if (rs0.status === 403) { console.log("❌ token mos emas"); process.exit(1); }
   const j = await rs0.json(); if (!j.id) break;
+  if (seen.has(j.id)) { console.log("⚠️", j.id, "qayta keldi — 'yuborildi' belgisi saqlanmadi (KV limiti?). Takror yubormaslik uchun to'xtatildi."); break; } seen.add(j.id);
   const d = j.r; const p = await pageFor(d.kind);
   const out = await p.evaluate(async d => { const box = document.createElement("div"); box.style.cssText = "position:fixed;left:-20000px;top:0;width:900px"; document.body.appendChild(box);
     window.__AOK.showReport(box, d, null, ""); const pg = await window.__AOK.a4Pages(box, d); const b64 = [];
