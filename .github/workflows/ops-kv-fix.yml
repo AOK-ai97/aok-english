@@ -1,0 +1,39 @@
+name: OPS — KV tuzatish (bir martalik)
+# dev branchda ops/kv-fix.json o'zgarsa ishlaydi. ASOSIY KV (aok-checker-data) dagi tungi ishlarni "posted" deb belgilaydi va rnd navbatidan olib tashlaydi.
+on:
+  push:
+    branches: [dev]
+    paths: ["ops/kv-fix.json"]
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: dev }
+      - name: Mark posted
+        env: { CF: "${{ secrets.CLOUDFLARE_API_TOKEN }}" }
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request, urllib.parse
+          A="7b382a7a765cf7a6a9916d58182d1f4d"; N="aab1bb588e044ed18814994e05dc3a86"
+          B=f"https://api.cloudflare.com/client/v4/accounts/{A}/storage/kv/namespaces/{N}/values/"
+          H={"Authorization":"Bearer "+os.environ["CF"]}
+          def get(k):
+              try:
+                  with urllib.request.urlopen(urllib.request.Request(B+urllib.parse.quote(k,safe=""),headers=H)) as r: return json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  if e.code==404: return None
+                  raise
+          def put(k,v,ttl=None):
+              u=B+urllib.parse.quote(k,safe="")+(f"?expiration_ttl={ttl}" if ttl else "")
+              with urllib.request.urlopen(urllib.request.Request(u,data=json.dumps(v).encode(),headers={**H,"content-type":"text/plain"},method="PUT")) as r: print(" put",k[:40],r.status)
+          ids=json.load(open("ops/kv-fix.json"))["posted"]
+          rnd=get("rnd") or []; print("rnd oldin:",len(rnd),"ta")
+          for i in ids:
+              j=get("gj:"+i); print("job",i[:30],"…:", "yo'q" if j is None else j.get("st"))
+              if j and j.get("st")!="posted":
+                  j["st"]="posted"; j["pt"]=int(time.time()*1000); put("gj:"+i,j,5*86400)
+          new=[x for x in rnd if x not in ids]
+          if len(new)!=len(rnd): put("rnd",new)
+          print("rnd keyin:",len(new),"ta")
+          PY
